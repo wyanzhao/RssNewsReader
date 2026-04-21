@@ -2,8 +2,9 @@
 
 > 用途：每日从 `$REPO_ROOT/` 工作区生成中文 RSS 日报。
 > 本版面向无人值守自动化任务：优先保证 contract 对齐、异常分支清晰、输出协议稳定。
+> Claude Code 的项目内 skill `/dailynews-report` 会在需要时引用本文件。
 >
-> 若管道 schema 或自动化行为升级，请同步更新 [AGENTS.md](AGENTS.md#contract-surface-llm-visible-fields)。
+> 若管道 schema 或自动化行为升级，请同步更新 [AGENTS.md](AGENTS.md#contract-surface-llm-visible-and-runtime-readable-fields)。
 
 ---
 
@@ -75,7 +76,7 @@ llm_context_path / report_path / validation_passed / validator_exit_code
 - 只有在 stderr 明确表现为网络/抓取问题时，才运行：
 
 ```bash
-cd "$REPO_ROOT" && python3 scripts/codex_network_debug.py --limit 5
+cd "$REPO_ROOT" && python3 scripts/network_debug.py --limit 5
 ```
 
 - 可视为“网络/抓取问题”的信号包括：DNS、timeout、SSL、connection reset、403、429、5xx、feed 访问失败。

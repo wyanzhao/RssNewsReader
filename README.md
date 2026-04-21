@@ -9,6 +9,14 @@ The pipeline has two stages, by design:
 
 Only the deterministic stage lives in this repo. The editorial stage is driven by the prompt in [`PROMPT.md`](PROMPT.md) and runs against your LLM of choice.
 
+## Claude Code
+
+If you use Claude Code in this repo, [`CLAUDE.md`](CLAUDE.md) is the project entrypoint and imports [`AGENTS.md`](AGENTS.md).
+
+The repo also ships a project-local skill at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md), available in Claude Code as `/dailynews-report`.
+
+This skill is intentionally manual-only because it runs a heavy, write-producing workflow that can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
+
 ## Quick start
 
 ```bash
@@ -63,10 +71,14 @@ tests/
 feeds.json                 # user-editable RSS source list
 AGENTS.md                  # pipeline contract and maintainer guide
 PROMPT.md                  # LLM editorial prompt for the scheduled task
-CLAUDE.md                  # symlink to AGENTS.md
+CLAUDE.md                  # Claude Code entrypoint; imports AGENTS.md and points to /dailynews-report
+.claude/skills/dailynews-report/
+  SKILL.md                 # project-local Claude Code skill (/dailynews-report)
 ```
 
 ## Further reading
 
 - [`AGENTS.md`](AGENTS.md) — pipeline contract, artifact schemas, shared utilities
 - [`PROMPT.md`](PROMPT.md) — full LLM execution prompt for the editorial stage
+- [`CLAUDE.md`](CLAUDE.md) — Claude Code entrypoint for this repo
+- [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md) — manual DailyNews report workflow for Claude Code

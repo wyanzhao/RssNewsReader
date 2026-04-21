@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Diagnostic helper for Codex automation network failures.
+Diagnostic helper for automation network failures.
 
 Checks:
 - selected environment variables
@@ -10,9 +10,9 @@ Checks:
 - per-feed DNS/HTTP status from feeds.json
 
 Usage:
-    python3 scripts/codex_network_debug.py
-    python3 scripts/codex_network_debug.py --json
-    python3 scripts/codex_network_debug.py --limit 5
+    python3 scripts/network_debug.py
+    python3 scripts/network_debug.py --json
+    python3 scripts/network_debug.py --limit 5
 """
 
 import argparse
@@ -97,7 +97,7 @@ def http_check(url: str, timeout: float) -> Dict[str, object]:
     req = Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; CodexNetworkDebug/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; NetworkDebug/1.0)",
             "Accept": "*/*",
         },
     )
@@ -235,7 +235,7 @@ def print_text(report: Dict[str, object]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Debug Codex automation network access.")
+    parser = argparse.ArgumentParser(description="Debug automation network access.")
     parser.add_argument("--json", action="store_true", help="Output JSON.")
     parser.add_argument("--limit", type=int, default=0, help="Only check the first N feeds from feeds.json.")
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout in seconds for network checks.")

@@ -1,6 +1,6 @@
 # DailyNews Agent Guide
 
-> `CLAUDE.md` is a symlink to `AGENTS.md` — edit either and both update.
+> `CLAUDE.md` is the Claude Code entrypoint and imports `AGENTS.md`.
 > `AGENTS.md` is the source of truth.
 
 ## Scope
@@ -15,7 +15,9 @@ This repository builds a daily RSS report in two stages:
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
+- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the project skill.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, and maintainer guidance.
+- `.claude/skills/dailynews-report/SKILL.md` is the project-local Claude Code skill for manually running the DailyNews report workflow.
 - `PROMPT.md` defines the runtime execution procedure for the scheduled LLM task: which command to run, how to branch on exit codes, how to write the report, and how to respond.
 - When changing the runtime procedure, keep `PROMPT.md` aligned with the contract in `AGENTS.md`; do not treat this file as a substitute for the scheduled-task prompt.
 
@@ -26,6 +28,7 @@ This repository builds a daily RSS report in two stages:
 - Validate only: `python3 scripts/qc_validate.py --input runs/<date>/raw.json --feeds feeds.json`
 - Build LLM context: `python3 scripts/build_llm_context.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output runs/<date>/llm_context.json --report-path $REPO_ROOT/rss-report-<date>.md`
 - Deterministic renderer: `python3 scripts/render_report.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output $REPO_ROOT/rss-report-<date>.md`
+- Network diagnostic: `python3 scripts/network_debug.py --limit 5`
 - Offline tests: `python3 -m unittest discover -s $REPO_ROOT/tests -p 'test_*.py'`
 - End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup`
 
@@ -226,15 +229,17 @@ from the fixture — never hard-coded.
 - `tests/test_common_text.py` — `_common.text` byte-level behaviour plus a
   `parse_feed` smoke that guards the fetch path against missing imports.
 - `tests/test_pipeline_step.py` — `_common.pipeline` subprocess wrapper.
+- `tests/test_network_debug.py` — offline coverage for the network diagnostic helper.
 - `tests/test_runs_cleanup.py` — `_common.paths` + `--retain-days`
   retention policy.
+- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint and skill packaging.
 
 ## Maintenance Notes
 
 - Keep deterministic rules in code and semantic judgment in the LLM prompt.
 - Do not move validation logic back into the prompt.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the automation prompt changes, keep `PROMPT.md`, `AGENTS.md`, and this file aligned.
+- If the automation prompt changes, keep `PROMPT.md`, `AGENTS.md`, `CLAUDE.md`, and `.claude/skills/dailynews-report/SKILL.md` aligned.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json` and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make
