@@ -1,7 +1,7 @@
 # DailyNews Agent Guide
 
-> `CLAUDE.md` is a mirror of `AGENTS.md`. Keep the two files aligned, and
-> treat `AGENTS.md` as the source of truth when they diverge.
+> `CLAUDE.md` is a symlink to `AGENTS.md` — edit either and both update.
+> `AGENTS.md` is the source of truth.
 
 ## Scope
 
@@ -14,6 +14,7 @@ This repository builds a daily RSS report in two stages:
 
 ## Document Roles
 
+- `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, and maintainer guidance.
 - `PROMPT.md` defines the runtime execution procedure for the scheduled LLM task: which command to run, how to branch on exit codes, how to write the report, and how to respond.
 - When changing the runtime procedure, keep `PROMPT.md` aligned with the contract in `AGENTS.md`; do not treat this file as a substitute for the scheduled-task prompt.
@@ -211,6 +212,12 @@ When `validation.passed` is true, the LLM should:
 
 ## Tests
 
+All tests pin to `tests/fixtures/feeds_fixture.json` rather than the real
+`feeds.json` at the repo root. Users can add, remove, or reorder feeds in
+their own `feeds.json` without breaking the suite. When a test asserts
+anything about feed count or the rendered Markdown shape, it derives it
+from the fixture — never hard-coded.
+
 - `tests/test_qc_offline.py` — validator + renderer + dedup parity, fixture-driven.
 - `tests/test_contracts_snapshot.py` — locks the LLM-visible surface
   (top-level keys, per-article fields, exit-code translation table,
@@ -228,7 +235,12 @@ When `validation.passed` is true, the LLM should:
 - Do not move validation logic back into the prompt.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
 - If the automation prompt changes, keep `PROMPT.md`, `AGENTS.md`, and this file aligned.
-- If tests change, update the fixture set in `tests/fixtures/`.
+- If tests change, update the fixture set in `tests/fixtures/` — including
+  `feeds_fixture.json` and the two golden artifacts
+  (`markdown_render_golden.md`, `llm_context_golden.json`). Never make
+  tests depend on the user's real `feeds.json`.
+- Runtime outputs (`rss-report-*.md` and `runs/`) are gitignored. Fetched
+  content lives in the user's local clone, not the repo.
 - When refactoring `rss_news_monitor.py` or any fetch-path code, run a real
   end-to-end smoke (`python3 scripts/rss_daily_report.py --hours 24
   --json-output`) before declaring done. Unit tests bypass `parse_feed` and
