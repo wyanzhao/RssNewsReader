@@ -1,0 +1,24 @@
+prefix_rule(
+    pattern = ["python3", "scripts/rss_daily_report.py"],
+    decision = "allow",
+    justification = "Allow the RSS pipeline to run outside the sandbox so scheduled automations can fetch feeds.",
+    match = [
+        "python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output",
+        "python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup",
+    ],
+    not_match = [
+        "python3 scripts/rss_news_monitor.py --json --max-summary 300 --hours 24",
+    ],
+)
+
+prefix_rule(
+    pattern = ["python3", "scripts/codex_network_debug.py"],
+    decision = "allow",
+    justification = "Allow the RSS network diagnostic to run outside the sandbox.",
+    match = [
+        "python3 scripts/codex_network_debug.py --limit 5",
+    ],
+    not_match = [
+        "python3 scripts/render_report.py --input foo --validation bar --output baz",
+    ],
+)

@@ -1,0 +1,109 @@
+{
+  "feeds": [
+    {
+      "name": "PyTorch Blog",
+      "url": "https://pytorch.org/blog/feed/"
+    },
+    {
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/news/rss.xml",
+      "error_policy": "warn"
+    },
+    {
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog/feed.xml"
+    },
+    {
+      "name": "Google Research Blog",
+      "url": "https://research.google/blog/rss/"
+    },
+    {
+      "name": "Google AI",
+      "url": "https://blog.google/innovation-and-ai/technology/ai/rss/"
+    },
+    {
+      "name": "Apple Machine Learning Research",
+      "url": "https://machinelearning.apple.com/rss.xml"
+    },
+    {
+      "name": "NVIDIA Blog",
+      "url": "https://blogs.nvidia.com/feed/"
+    },
+    {
+      "name": "Engineering at Meta",
+      "url": "https://engineering.fb.com/feed/"
+    },
+    {
+      "name": "Sebastian Raschka",
+      "url": "https://magazine.sebastianraschka.com/feed"
+    },
+    {
+      "name": "Nature Machine Intelligence",
+      "url": "https://www.nature.com/natmachintell.rss"
+    },
+    {
+      "name": "npj Artificial Intelligence",
+      "url": "https://www.nature.com/npjai.rss"
+    },
+    {
+      "name": "The Gradient",
+      "url": "https://thegradient.pub/rss/"
+    },
+    {
+      "name": "Quanta Magazine",
+      "url": "https://www.quantamagazine.org/feed/"
+    },
+    {
+      "name": "MIT Technology Review AI",
+      "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/"
+    },
+    {
+      "name": "Nature Machine Learning",
+      "url": "https://www.nature.com/subjects/machine-learning.rss"
+    },
+    {
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/"
+    },
+    {
+      "name": "Ars Technica",
+      "url": "https://arstechnica.com/feed/"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml"
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/"
+    },
+    {
+      "name": "Chips and Cheese",
+      "url": "https://chipsandcheese.com/feed/"
+    },
+    {
+      "name": "SemiAnalysis",
+      "url": "https://semianalysis.com/feed/"
+    },
+    {
+      "name": "Semiconductor Engineering",
+      "url": "https://semiengineering.com/feed"
+    },
+    {
+      "name": "EE Times",
+      "url": "https://www.eetimes.com/feed/"
+    },
+    {
+      "name": "EE Journal",
+      "url": "https://www.eejournal.com/feed/"
+    },
+    {
+      "name": "Tom's Hardware",
+      "url": "https://www.tomshardware.com/feeds.xml"
+    },
+    {
+      "name": "MacRumors",
+      "url": "https://feeds.macrumors.com/MacRumors-All"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "feeds": [
+    {
+      "name": "Ars Technica",
+      "url": "https://arstechnica.com/feed/"
+    },
+    {
+      "name": "MacRumors",
+      "url": "https://feeds.macrumors.com/MacRumors-All"
+    },
+    {
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/news/rss.xml",
+      "error_policy": "warn"
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "raw_article_indices": [0, 0, 1],
+  "expected_dedup_count": 2,
+  "expected_sources_after_dedup": ["MacRumors", "Ars Technica"]
+}
