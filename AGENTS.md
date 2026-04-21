@@ -1,25 +1,26 @@
 # DailyNews Agent Guide
 
 > `CLAUDE.md` is the Claude Code entrypoint and imports `AGENTS.md`.
-> `AGENTS.md` is the source of truth.
+> `AGENTS.md` is the source of truth for the repo contract and maintainer guidance.
+> `.claude/skills/dailynews-report/SKILL.md` is the only runtime procedure entry.
 
 ## Scope
 
 This repository builds a daily RSS report in two stages:
 
 1. Deterministic pipeline in code: fetch, validate, artifact generation, and zero-article / contract gating.
-2. LLM post-processing in prompt: Chinese summaries, event clustering, Top 30 selection, and content audit.
+2. Claude Code post-processing in `skill + subagents`: Chinese summaries, event clustering, Top 30 selection, and content audit.
 
-`AGENTS.md` is the source of truth for agent behavior in this workspace.
+`AGENTS.md` is the source of truth for contract boundaries and maintainer-facing behavior in this workspace. The step-by-step runtime procedure lives in the orchestrator skill and the subagent files.
 
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
 - `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the project skill.
-- `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, and maintainer guidance.
-- `.claude/skills/dailynews-report/SKILL.md` is the project-local Claude Code skill for manually running the DailyNews report workflow.
-- `PROMPT.md` defines the runtime execution procedure for the scheduled LLM task: which command to run, how to branch on exit codes, how to write the report, and how to respond.
-- When changing the runtime procedure, keep `PROMPT.md` aligned with the contract in `AGENTS.md`; do not treat this file as a substitute for the scheduled-task prompt.
+- `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
+- `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
+- `.claude/skills/dailynews-report/SKILL.md` is the project-local Claude Code orchestrator skill and the only runtime procedure entry.
+- `.claude/agents/*.md` defines the specialized subagents used by the orchestrator skill.
 
 ## Entry Points
 
@@ -31,6 +32,7 @@ This repository builds a daily RSS report in two stages:
 - Network diagnostic: `python3 scripts/network_debug.py --limit 5`
 - Offline tests: `python3 -m unittest discover -s $REPO_ROOT/tests -p 'test_*.py'`
 - End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup`
+- Claude Code runtime entry: `/dailynews-report`
 
 ## Runtime Outputs
 
@@ -51,9 +53,9 @@ Final reports are written at the repo root:
 
 ## Contract Surface (LLM-Visible And Runtime-Readable Fields)
 
-The scheduled task depends on the following fields. Any change to their names,
-types, or semantics is a breaking change and must be coordinated with
-`tests/test_contracts_snapshot.py` and the scheduled-task prompt.
+The Claude Code runtime depends on the following fields. Any change to their
+names, types, or semantics is a breaking change and must be coordinated with
+`tests/test_contracts_snapshot.py` and the orchestrator skill / subagent docs.
 
 ### `rss_daily_report.py --json-output` (8 fields)
 
@@ -96,7 +98,7 @@ audit_flags       string[] # subset of: major_company, business_signal,
 amount_millions   number   # 0.0 when no monetary amount detected
 ```
 
-### `validation.json` fields the prompt reads
+### `validation.json` fields the runtime reads
 
 `passed` (bool), `blocking_reasons` (string[]), `warnings` (string[]),
 `counts.articles` (int — Part 2 must equal this), `feed_results[].source` /
@@ -124,12 +126,26 @@ amount_millions   number   # 0.0 when no monetary amount detected
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
 
-## Runtime Agent Boundaries
+## Claude Code Runtime Architecture
 
-- The scheduled LLM should follow `PROMPT.md` for step-by-step execution; this file provides the contract it must stay inside.
+- `.claude/skills/dailynews-report/SKILL.md` is the only runtime procedure entry. It orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
+- `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
+- `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
+- `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
+- `part1-editor` is success-only and read-only. It performs Part 1 clustering, Top 30 selection, and event-summary planning from `candidate_articles`.
+- `part2-drafter` is success-only and read-only. It expands `source_groups[]` plus `validation.feed_results[].error` into the full Part 2 source-group draft.
+- `report-assembler` is success-only and is the only success-path writer. It assembles the final Chinese report from the Part 1 and Part 2 intermediate outputs and writes the success `report_path` without ever overwriting `*.failed.md`.
+- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, and error-group handling after the write.
+- Fixed branch order:
+  - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer`
+  - expected-block: `pipeline-runner -> artifact-auditor`
+  - unexpected-error: `pipeline-runner -> network-debugger`
+- `part1-editor` and `part2-drafter` should stay read-only and must complete before `report-assembler`.
+- `report-assembler` and `network-debugger` must never run in parallel.
+- `report-reviewer` must always run after the final success-path write.
 - Use `rss_daily_report.py --json-output` stdout to decide whether to continue, stop, or diagnose.
 - Use `llm_context.json` for article-level semantics and editorial judgment.
-- Read `validation.json` only when the runtime prompt explicitly needs gating state or per-feed error text that is not present in `llm_context.json`.
+- Read `validation.json` only for gating metadata and per-feed error details that are not duplicated in `llm_context.json`.
 - Do not infer fetch-error details that are absent from the artifacts.
 
 ## Maintainer Notes
@@ -178,11 +194,11 @@ The LLM handles:
 - Top 30 editorial selection
 - Content audit and de-noising
 
-## Editorial Policy For LLM Runs
+## Editorial Policy For Runtime Runs
 
-The full scheduled-task prompt lives in [`PROMPT.md`](PROMPT.md) — keep it
-aligned with this file. The summary below is an editorial-policy excerpt, not
-the full runtime procedure:
+The detailed runtime behavior lives in the orchestrator skill plus the
+subagent files. The summary below is an editorial-policy excerpt, not the full
+runtime procedure:
 
 When `validation.passed` is true, the LLM should:
 
@@ -225,21 +241,22 @@ from the fixture — never hard-coded.
 - `tests/test_contracts_snapshot.py` — locks the LLM-visible surface
   (top-level keys, per-article fields, exit-code translation table,
   `--json-output` schema). If this fails after a refactor, you changed a
-  contract; update both the golden fixture and `PROMPT.md` deliberately.
+  contract; update both the golden fixture and the Claude Code runtime docs deliberately.
 - `tests/test_common_text.py` — `_common.text` byte-level behaviour plus a
   `parse_feed` smoke that guards the fetch path against missing imports.
 - `tests/test_pipeline_step.py` — `_common.pipeline` subprocess wrapper.
 - `tests/test_network_debug.py` — offline coverage for the network diagnostic helper.
 - `tests/test_runs_cleanup.py` — `_common.paths` + `--retain-days`
   retention policy.
-- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint and skill packaging.
+- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint, orchestrator skill, tracker, and runtime-layout packaging.
+- `tests/test_claude_agent_layout.py` — repo-level checks for `.claude/agents/`, the runtime agent files, and the documented `skill + subagents` architecture.
 
 ## Maintenance Notes
 
-- Keep deterministic rules in code and semantic judgment in the LLM prompt.
-- Do not move validation logic back into the prompt.
+- Keep deterministic rules in code and semantic judgment in the Claude Code runtime layer.
+- Do not move validation logic back into the orchestrator skill or subagents.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the automation prompt changes, keep `PROMPT.md`, `AGENTS.md`, `CLAUDE.md`, and `.claude/skills/dailynews-report/SKILL.md` aligned.
+- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, and the relevant `.claude/agents/*.md` files aligned.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json` and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make

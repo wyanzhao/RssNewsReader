@@ -5,17 +5,30 @@ A daily RSS news pipeline that produces a curated Chinese-language news report.
 The pipeline has two stages, by design:
 
 1. **Deterministic stage (code)** — fetch, dedup, validate, and render. Writes structured artifacts (`raw.json`, `validation.json`, `llm_context.json`) under `runs/<YYYY-MM-DD>/` and a baseline Markdown report at the repo root.
-2. **Editorial stage (LLM)** — consumes `llm_context.json`, clusters duplicate events across sources, picks a Top 30, writes Chinese summaries, and rewrites the final Markdown report.
+2. **Editorial stage (Claude Code runtime)** — consumes `llm_context.json`, clusters duplicate events across sources, picks a Top 30, writes Chinese summaries, and rewrites the final Markdown report through a project-local orchestrator skill plus subagents.
 
-Only the deterministic stage lives in this repo. The editorial stage is driven by the prompt in [`PROMPT.md`](PROMPT.md) and runs against your LLM of choice.
+The Python pipeline and the Claude Code runtime layout both live in this repo.
+The supported Claude Code architecture in this repo is `skill + subagents`.
 
 ## Claude Code
 
 If you use Claude Code in this repo, [`CLAUDE.md`](CLAUDE.md) is the project entrypoint and imports [`AGENTS.md`](AGENTS.md).
 
-The repo also ships a project-local skill at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md), available in Claude Code as `/dailynews-report`.
+The repo ships a project-local orchestrator skill at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md), available in Claude Code as `/dailynews-report`.
 
-This skill is intentionally manual-only because it runs a heavy, write-producing workflow that can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
+That skill delegates to seven project-level subagents under [`.claude/agents/`](.claude/agents/):
+
+- `pipeline-runner`
+- `artifact-auditor`
+- `network-debugger`
+- `part1-editor`
+- `part2-drafter`
+- `report-assembler`
+- `report-reviewer`
+
+This runtime is intentionally manual-only because it can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
+
+Long-running architecture work is tracked in [`TASKS.md`](TASKS.md).
 
 ## Quick start
 
@@ -70,15 +83,18 @@ tests/
   test_*.py                # offline unit + contract snapshot suites
 feeds.json                 # user-editable RSS source list
 AGENTS.md                  # pipeline contract and maintainer guide
-PROMPT.md                  # LLM editorial prompt for the scheduled task
+TASKS.md                   # long-running Claude Code tracker and validation board
 CLAUDE.md                  # Claude Code entrypoint; imports AGENTS.md and points to /dailynews-report
 .claude/skills/dailynews-report/
-  SKILL.md                 # project-local Claude Code skill (/dailynews-report)
+  SKILL.md                 # project-local Claude Code orchestrator skill (/dailynews-report)
+.claude/agents/
+  *.md                     # project-level subagents used by the orchestrator skill
 ```
 
 ## Further reading
 
-- [`AGENTS.md`](AGENTS.md) — pipeline contract, artifact schemas, shared utilities
-- [`PROMPT.md`](PROMPT.md) — full LLM execution prompt for the editorial stage
+- [`AGENTS.md`](AGENTS.md) — pipeline contract, artifact schemas, agent boundaries, shared utilities
+- [`TASKS.md`](TASKS.md) — long-running Claude Code tracker and validation checklist
 - [`CLAUDE.md`](CLAUDE.md) — Claude Code entrypoint for this repo
-- [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md) — manual DailyNews report workflow for Claude Code
+- [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md) — manual DailyNews orchestrator workflow for Claude Code
+- [`.claude/agents/`](.claude/agents/) — subagents for pipeline running, artifact auditing, Part 1 editing, Part 2 drafting, final report assembly, debugging, and final review
