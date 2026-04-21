@@ -1,36 +1,60 @@
 ---
 name: dailynews-report
-description: Run the DailyNews RSS reporting workflow for this repository. Use when you explicitly invoke /dailynews-report to generate the report, inspect pipeline artifacts, or diagnose a blocked run.
+description: Run the DailyNews orchestrator skill for this repository. Use when you explicitly invoke /dailynews-report to generate the report, inspect pipeline artifacts, or diagnose a blocked or unexpected run.
 disable-model-invocation: true
 ---
 
 # DailyNews Report
 
-This is a manual, write-producing project skill. Do not invoke it automatically.
+This is a manual, write-producing orchestrator skill. Do not invoke it automatically.
 
 Read these files before acting:
 
 - [AGENTS.md](../../../AGENTS.md) for the repo contract, artifact schema, and guardrails.
-- [PROMPT.md](../../../PROMPT.md) for the exact runtime procedure, branching rules, report format, and reply protocol.
+- [TASKS.md](../../../TASKS.md) for the long-running tracker, current epics, and validation checklist.
+
+## Architecture Contract
+
+- `/dailynews-report` is the only runtime procedure entry in this repository.
+- Keep the runtime split as `orchestrator skill + subagents`; do not collapse it back into a single long instruction file.
+- Do not bypass `pipeline-runner` by calling fetch / validate / llm_context / render subcommands directly.
+- `part1-editor` and `part2-drafter` are read-only planning steps. `report-assembler` is the only success-path writer.
+- `report-assembler` and `network-debugger` must never run in parallel.
+- `report-reviewer` must run exactly once after the final success-path write.
 
 ## Workflow
 
 1. Work from the repository root.
-2. Run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`.
-3. Parse stdout only if it is valid JSON and use the emitted `report_path`, `llm_context_path`, `validation_path`, `validation_passed`, and `validator_exit_code` fields.
-4. If `validation_passed == true` and `validator_exit_code == 0`, follow `PROMPT.md` to render the formal Chinese report into the success `report_path`.
-5. If `validator_exit_code` is `10`, `20`, or `30` with `validation_passed == false`, treat it as an expected block and do not overwrite the failure report.
-6. For any other combination, inspect the `runs/<date>/` stderr sidecars and diagnose before writing anything. Only treat it as a network problem when the stderr evidence says so.
+2. Invoke `pipeline-runner` to run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output` and classify the result as `success`, `expected-block`, or `unexpected-error`.
+3. If the classification is `success`, invoke `artifact-auditor` in read-only mode to verify `llm_context.json`, `validation.json`, `counts.articles`, source order, and error-text readiness before any write.
+4. On a clean `success` audit, invoke `part1-editor` for Part 1 event planning and `part2-drafter` for Part 2 full-source drafting. Treat these as independent read-only generation steps; both must finish before assembly.
+5. After both Part 1 and Part 2 inputs are ready, invoke `report-assembler` to write the formal Chinese report into the success `report_path`, then invoke `report-reviewer` once to perform a final read-only check.
+6. If the classification is `expected-block`, invoke `artifact-auditor` in read-only mode, keep the existing failure report untouched, and return only the emitted absolute `report_path`.
+7. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, `report-assembler`, or `report-reviewer` in this branch.
 
 ## Guardrails
 
+- Only `report-assembler` may write the final success report.
 - Use `llm_context.json` for article-level semantics, ranking, clustering, and summaries.
-- Use `validation.json` only for gating metadata and per-feed error text that is not duplicated in `llm_context.json`.
-- Never fabricate titles, links, counts, or source groups.
+- Use `validation.json` only for gating metadata, `counts.articles`, source order cross-checks, and per-feed error text that is not duplicated in `llm_context.json`.
+- Never fabricate titles, links, counts, source groups, or error text.
 - Never hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
 - Never overwrite a `*.failed.md` file with a formal report.
 - Keep titles in English and links unchanged.
 
-## Output
+## Subagents
 
-Follow the response contract in `PROMPT.md`. On normal completion, return only the absolute `report_path`.
+- `pipeline-runner` — runs the pipeline, parses the 8 control-plane fields, and returns the branch classification
+- `artifact-auditor` — read-only audit of `llm_context.json` and `validation.json`
+- `network-debugger` — unexpected-error diagnosis using sidecar stderr and `python3 scripts/network_debug.py --limit 5` only when warranted
+- `part1-editor` — success-only Part 1 event clustering, Top 30 selection, and summary planning
+- `part2-drafter` — success-only Part 2 source-group drafting and count-safe article coverage
+- `report-assembler` — success-only final markdown assembly and write
+- `report-reviewer` — final read-only review after the success-path write
+
+## Response Contract
+
+- On normal completion, including `success` and `expected-block`, return only the absolute `report_path`.
+- On `unexpected-error`, or when `artifact-auditor` / `report-reviewer` reports a blocking issue, return at most two lines:
+  1. `ERROR: <one-line diagnosis>`
+  2. the absolute `report_path`, if it is known with confidence

@@ -1,7 +1,7 @@
 """Stage-0 contract snapshot tests.
 
-These tests freeze the externally visible surface that the LLM prompt depends
-on. They MUST stay green across stage-1/2/3/4 internal refactors. Any
+These tests freeze the externally visible surface that the Claude Code runtime
+depends on. They MUST stay green across stage-1/2/3/4 internal refactors. Any
 intentional change requires updating both this file and AGENTS.md "Contract
 Surface" section.
 """
@@ -180,7 +180,7 @@ def _run_pipeline_with_stub_fetch(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class LlmContextContractTests(unittest.TestCase):
-    """Freeze the structure of llm_context.json that the prompt consumes."""
+    """Freeze the structure of llm_context.json that the runtime consumes."""
 
     @classmethod
     def setUpClass(cls):
