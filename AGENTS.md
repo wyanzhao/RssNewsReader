@@ -51,6 +51,17 @@ Final reports are written at the repo root:
 - Success: `rss-report-YYYY-MM-DD.md`
 - Failure: `rss-report-YYYY-MM-DD.failed.md`
 
+### Claude Code Success-Path Handoff Artifacts
+
+When `/dailynews-report` runs the Claude Code success branch, the runtime may
+additionally write:
+
+- `runs/YYYY-MM-DD/part1_plan.json`
+- `runs/YYYY-MM-DD/part2_draft.json`
+
+These are success-path handoff artifacts for the LLM runtime only. They are
+not deterministic pipeline outputs.
+
 ## Contract Surface (LLM-Visible And Runtime-Readable Fields)
 
 The Claude Code runtime depends on the following fields. Any change to their
@@ -122,6 +133,9 @@ amount_millions   number   # 0.0 when no monetary amount detected
 - `empty` is warning-only.
 - `error` is warning-only for workflow gating and must be surfaced in the final report for the affected source.
 - `unique_source_count` is observational only. It is not a blocking integrity rule.
+- `part1_plan.json` and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for `report-assembler` to consume without scraping long prose from chat output.
+- If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `summary_en` or partial manual reconstruction.
+- `summary_en` is source material only. It may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
 - Titles must remain in English.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
@@ -132,15 +146,15 @@ amount_millions   number   # 0.0 when no monetary amount detected
 - `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
 - `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
-- `part1-editor` is success-only and read-only. It performs Part 1 clustering, Top 30 selection, and event-summary planning from `candidate_articles`.
-- `part2-drafter` is success-only and read-only. It expands `source_groups[]` plus `validation.feed_results[].error` into the full Part 2 source-group draft.
-- `report-assembler` is success-only and is the only success-path writer. It assembles the final Chinese report from the Part 1 and Part 2 intermediate outputs and writes the success `report_path` without ever overwriting `*.failed.md`.
-- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, and error-group handling after the write.
+- `part1-editor` is success-only. It performs Part 1 clustering, Top 30 selection, and event-summary planning from `candidate_articles`, then writes `runs/<date>/part1_plan.json` as its structured handoff artifact.
+- `part2-drafter` is success-only. It expands `source_groups[]` plus `validation.feed_results[].error` into the full Part 2 source-group draft, then writes `runs/<date>/part2_draft.json` as its structured handoff artifact.
+- `report-assembler` is success-only and is the only success-path writer of the final `report_path`. It assembles the final Chinese report from `part1_plan.json` and `part2_draft.json` without ever overwriting `*.failed.md`.
+- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `summary_en` leaks into the final report after the write.
 - Fixed branch order:
   - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer`
   - expected-block: `pipeline-runner -> artifact-auditor`
   - unexpected-error: `pipeline-runner -> network-debugger`
-- `part1-editor` and `part2-drafter` should stay read-only and must complete before `report-assembler`.
+- `part1-editor` and `part2-drafter` may write only their own handoff artifact (`part1_plan.json` / `part2_draft.json`) and must complete before `report-assembler`.
 - `report-assembler` and `network-debugger` must never run in parallel.
 - `report-reviewer` must always run after the final success-path write.
 - Use `rss_daily_report.py --json-output` stdout to decide whether to continue, stop, or diagnose.

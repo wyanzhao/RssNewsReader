@@ -70,6 +70,16 @@ It also writes a report at the repository root:
 - success: `rss-report-YYYY-MM-DD.md`
 - blocked/failure path: `rss-report-YYYY-MM-DD.failed.md`
 
+If `/dailynews-report` runs the Claude Code success path, the runtime may also
+write intermediate handoff artifacts under the same `runs/YYYY-MM-DD/`
+directory:
+
+- `part1_plan.json`
+- `part2_draft.json`
+
+These files belong to the Claude Code success path only. They are not emitted
+by the deterministic Python pipeline.
+
 These runtime outputs are local working files and are gitignored by default.
 They are not meant to be committed with the codebase.
 
@@ -131,6 +141,11 @@ If you use Claude Code in this repo:
 - the project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
 - the skill is exposed as `/dailynews-report`
 - the supported runtime architecture is `skill + subagents`
+- on the success path, subagents exchange machine-readable handoff artifacts
+  (`part1_plan.json` / `part2_draft.json`) under `runs/YYYY-MM-DD/`
+- if a success-path handoff artifact is missing or invalid, the runtime should
+  stop instead of silently falling back to raw `summary_en` or partial
+  reconstruction
 
 The skill delegates to seven project-level subagents under
 [`.claude/agents/`](.claude/agents/):

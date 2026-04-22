@@ -1,0 +1,1 @@
+../../../.claude/skills/dailynews-report/SKILL.md

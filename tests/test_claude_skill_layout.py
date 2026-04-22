@@ -64,6 +64,9 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("[TASKS.md](../../../TASKS.md)", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output", body)
+        self.assertIn("part1_plan.json", body)
+        self.assertIn("part2_draft.json", body)
+        self.assertIn("summary_en", body)
         for name in (
             "pipeline-runner",
             "artifact-auditor",
@@ -102,6 +105,8 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".claude/agents/", text)
         self.assertIn("pipeline-runner", text)
+        self.assertIn("part1_plan.json", text)
+        self.assertIn("part2_draft.json", text)
         self.assertIn("TASKS.md", text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, text)
 

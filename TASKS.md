@@ -8,6 +8,7 @@
 - `AGENTS.md` 定义仓库 contract、artifact schema、agent 边界、文档角色与维护约束
 - `.claude/skills/dailynews-report/SKILL.md` 是唯一 runtime procedure 入口，负责 orchestrator 编排
 - `.claude/agents/*.md` 定义 `pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`、`report-assembler`、`report-reviewer`
+- success 分支通过 `runs/<date>/part1_plan.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff，`report-assembler` 只负责最终 `report_path` 写入
 - `README.md` 面向仓库使用者说明 `skill + subagents` 架构与使用方式
 - `tests/test_claude_skill_layout.py` 与 `tests/test_claude_agent_layout.py` 负责 Claude Code 布局校验
 
@@ -28,6 +29,7 @@
 - [x] Epic C — 引入 subagents 架构
 - [x] Epic D — 文档统一同步
 - [ ] Epic E — 布局与回归验证
+- [ ] Epic F — success-path handoff hardening
 
 ## Task Breakdown
 
@@ -54,15 +56,20 @@
 - `E2` | `done` | 运行定向布局与 network debug 测试 | `python3 -m unittest tests.test_claude_skill_layout tests.test_claude_agent_layout tests.test_network_debug` 已通过
 - `E3` | `done` | 运行全量 `unittest discover` | `python3 -m unittest discover -s tests -p 'test_*.py'` 已通过
 - `E4` | `blocked` | 在分支上做一次 `/dailynews-report` 手动 smoke walkthrough | `claude agents` 已识别 7 个 project agents；`claude -p "/dailynews-report"` 被本机 `~/.claude.json` / `~/.claude.lock` 的 `EPERM` 与 `401` 认证错误阻断
+- `F1` | `done` | 将 success 分支 handoff 固定成结构化中间产物 | `part1-editor` / `part2-drafter` 改为产出 `part1_plan.json` / `part2_draft.json`，`report-assembler` 只消费它们并写 final report
+- `F2` | `done` | 禁止 success 分支在 handoff 缺失或截断时 silent fallback | `AGENTS.md`、skill、agents 已明确：不得回退到 `summary_en` 或聊天文本拼装“差不多”的正式报告
+- `F3` | `done` | 同步 README 与布局测试到新的 handoff contract | README 与 `tests/test_claude_skill_layout.py` / `tests/test_claude_agent_layout.py` 已覆盖中间产物与 no-silent-fallback 约束
 
 ## Validation Checklist
 
 - [x] `TASKS.md` 存在且结构固定
 - [x] `.claude/skills/dailynews-report/SKILL.md` 存在并作为唯一 runtime procedure 入口
 - [x] `.claude/agents/` 下 7 个 agent 文件存在
+- [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件
 - [x] `README.md`、`CLAUDE.md`、`AGENTS.md` 已统一为 `skill + subagents` 架构
 - [x] `AGENTS.md` 已明确 `TASKS.md` 的长期跟踪角色
+- [x] layout tests 已覆盖 structure handoff / no-silent-fallback 关键词
 - [x] `python3 -m unittest tests.test_claude_skill_layout tests.test_claude_agent_layout tests.test_network_debug`
 - [x] `python3 -m unittest discover -s tests -p 'test_*.py'`
 - [x] `claude agents` 已确认 7 个 project agents 可见

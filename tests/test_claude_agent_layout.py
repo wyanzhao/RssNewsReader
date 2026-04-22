@@ -40,27 +40,35 @@ EXPECTED_AGENTS = {
         "candidate_articles",
         "Part 1",
         "Top 30",
-        "不写任何文件",
+        "part1_plan.json",
+        "绝对路径",
+        "UTF-8 JSON",
     ],
     "part2-drafter": [
         "source_groups",
         "validation.json",
         "Part 2",
         "counts.articles",
-        "不写任何文件",
+        "part2_draft.json",
+        "绝对路径",
+        "UTF-8 JSON",
     ],
     "report-assembler": [
-        "part1-editor",
-        "part2-drafter",
+        "part1_plan.json",
+        "part2_draft.json",
         "report_path",
         "*.failed.md",
-        "唯一允许写文件",
+        "summary_en",
+        "唯一可以写 `report_path`",
     ],
     "report-reviewer": [
         "标题保持英文原文",
         "原始 link",
         "source order",
         "validation.counts.articles",
+        "part1_plan.json",
+        "part2_draft.json",
+        "summary_en",
         "只读",
     ],
 }
@@ -118,6 +126,8 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertIn("TASKS.md", agents_text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".claude/agents/*.md", agents_text)
+        self.assertIn("part1_plan.json", agents_text)
+        self.assertIn("part2_draft.json", agents_text)
         self.assertIn("pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer", agents_text)
         self.assertIn("pipeline-runner -> network-debugger", agents_text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, agents_text)
