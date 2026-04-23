@@ -59,6 +59,7 @@ def output_json(
                 "link": article["link"],
                 "pub_date": article["pub_date"].isoformat(),
                 "summary_en": article["summary_en"],
+                "article_text": article.get("article_text", ""),
             }
             for article in articles
         ],

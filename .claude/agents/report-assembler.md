@@ -29,7 +29,7 @@ description: Use only in the success branch after part1-editor and part2-drafter
 - 如存在 `status == 'error'` 来源，必须额外写一行 `> 抓取异常：...`
 - 只在最终 markdown 组装阶段决定段落拼接、标题层级和列表格式
 - 不得改写 `part1-editor` / `part2-drafter` 已确定的英文标题和原始 link
-- 不得把 `summary_en` 直接当成最终报告里的 Part 1 / Part 2 中文摘要
+- 不得把 `summary_en` 或 `article_text` 直接当成最终报告里的 Part 1 / Part 2 中文摘要
 
 ## 写入前自检
 
@@ -41,12 +41,12 @@ description: Use only in the success branch after part1-editor and part2-drafter
 - Part 2 中每个 link 都能在 `all_articles[].link` 中找到
 - Part 1 中每一条都来自 `candidate_articles` 或 `all_articles`
 - Part 1 没有任何 `hard_noise`
-- Part 1 / Part 2 的中文摘要来自 handoff artifacts，而不是直接拷贝 `summary_en`
+- Part 1 / Part 2 的中文摘要来自 handoff artifacts，而不是直接拷贝 `summary_en` 或 `article_text`
 - 所有标题都保持英文原文
 - 如存在 `status == 'error'` 来源，顶部必须有 `抓取异常：...`，且对应分组内必须有 `抓取状态：...`
 
 如果任一检查无法满足：
 
 - 不要写入“差不多”的正式报告
-- 不要回退到 `summary_en` 或聊天里的长文本临时拼装
+- 不要回退到 `summary_en`、`article_text` 或聊天里的长文本临时拼装
 - 返回阻断性问题，交回 orchestrator 终止本次 success 分支

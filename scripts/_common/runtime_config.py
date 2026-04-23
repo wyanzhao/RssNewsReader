@@ -12,6 +12,9 @@ DEFAULT_SHORT_SUMMARY_THRESHOLD = 80
 DEFAULT_PAGE_FALLBACK_CAP = 300
 DEFAULT_PART1_SUMMARY_MAX_CHARS = 200
 DEFAULT_PART2_SUMMARY_MAX_CHARS = 200
+DEFAULT_ARTICLE_TEXT_ENABLED = True
+DEFAULT_ARTICLE_TEXT_MAX_WORDS = 300
+DEFAULT_ARTICLE_TEXT_MAX_WORKERS = 4
 
 
 def _validated_non_negative_int(value: Any, label: str) -> int:
@@ -62,6 +65,33 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
             "summary_enrichment.page_fallback_cap",
         )
 
+    article_text_payload = payload.get("article_text", {})
+    if article_text_payload is None:
+        article_text_payload = {}
+    if not isinstance(article_text_payload, dict):
+        raise ValueError("article_text must be a JSON object")
+
+    article_text_config = {
+        "enabled": DEFAULT_ARTICLE_TEXT_ENABLED,
+        "max_words": DEFAULT_ARTICLE_TEXT_MAX_WORDS,
+        "max_workers": DEFAULT_ARTICLE_TEXT_MAX_WORKERS,
+    }
+    if "enabled" in article_text_payload:
+        enabled_value = article_text_payload["enabled"]
+        if not isinstance(enabled_value, bool):
+            raise ValueError("article_text.enabled must be a boolean")
+        article_text_config["enabled"] = enabled_value
+    if "max_words" in article_text_payload:
+        article_text_config["max_words"] = _validated_positive_int(
+            article_text_payload["max_words"],
+            "article_text.max_words",
+        )
+    if "max_workers" in article_text_payload:
+        article_text_config["max_workers"] = _validated_positive_int(
+            article_text_payload["max_workers"],
+            "article_text.max_workers",
+        )
+
     render_payload = payload.get("render", {})
     if render_payload is None:
         render_payload = {}
@@ -85,8 +115,35 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
 
     return {
         "summary_enrichment": summary_config,
+        "article_text": article_text_config,
         "render": render_config,
     }, resolved_path
+
+
+def resolve_article_text_settings(
+    pipeline_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Resolve effective article_text settings from pipeline config."""
+    enabled = DEFAULT_ARTICLE_TEXT_ENABLED
+    max_words = DEFAULT_ARTICLE_TEXT_MAX_WORDS
+    max_workers = DEFAULT_ARTICLE_TEXT_MAX_WORKERS
+    if pipeline_config:
+        article_text_config = pipeline_config.get("article_text", {})
+        if isinstance(article_text_config, dict):
+            raw_enabled = article_text_config.get("enabled")
+            if isinstance(raw_enabled, bool):
+                enabled = raw_enabled
+            raw_max_words = article_text_config.get("max_words")
+            if isinstance(raw_max_words, int) and not isinstance(raw_max_words, bool) and raw_max_words > 0:
+                max_words = raw_max_words
+            raw_max_workers = article_text_config.get("max_workers")
+            if isinstance(raw_max_workers, int) and not isinstance(raw_max_workers, bool) and raw_max_workers > 0:
+                max_workers = raw_max_workers
+    return {
+        "enabled": enabled,
+        "max_words": max_words,
+        "max_workers": max_workers,
+    }
 
 
 def resolve_page_fallback_cap(max_summary: int, pipeline_config: Optional[Dict[str, Any]] = None) -> int:
@@ -116,6 +173,7 @@ def build_runtime_config_snapshot(
     render_config = pipeline_config.get("render", {})
     if not isinstance(render_config, dict):
         render_config = {}
+    article_text_settings = resolve_article_text_settings(pipeline_config)
     short_summary_threshold = summary_config.get(
         "short_summary_threshold",
         DEFAULT_SHORT_SUMMARY_THRESHOLD,
@@ -141,6 +199,11 @@ def build_runtime_config_snapshot(
                 max_summary,
                 pipeline_config,
             ),
+        },
+        "article_text": {
+            "enabled": bool(article_text_settings["enabled"]),
+            "max_words": int(article_text_settings["max_words"]),
+            "max_workers": int(article_text_settings["max_workers"]),
         },
         "render": {
             "part1_summary_max_chars": int(part1_summary_max_chars),

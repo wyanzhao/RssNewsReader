@@ -18,6 +18,7 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 - `candidate_articles`：Part 1 的主数据源，用于聚类和 Top 30 选择
 - `all_articles`：仅在聚类后不足 30 条时用于补足候选
+- 每条文章的 `article_text` 是正文片段（最多约 300 词），是中文事件摘要的首选原始材料；若 `article_text` 为空字符串，则回退到 `summary_en`；两者都空时基于 `title` 写一条极简事件描述，严禁根据常识或搜索结果补写未出现在输入中的事实
 - `run_dir`：唯一允许写入的位置，用于 success 分支 handoff artifact
 - 不得读取或依赖最终 markdown 文件
 - 不得修改 `raw.json`、`validation.json`、`llm_context.json`

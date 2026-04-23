@@ -59,6 +59,7 @@ class Article:
     link: str
     pub_date: datetime
     summary: str
+    article_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ def normalize_articles(raw: Dict[str, Any]) -> List[Article]:
                     link=str(item.get("link", "")).strip(),
                     pub_date=parse_pub_date(item["pub_date"]),
                     summary=str(item.get("summary_en", "")).strip(),
+                    article_text=str(item.get("article_text", "") or "").strip(),
                 )
             )
         except Exception:
@@ -385,6 +387,7 @@ def normalized_article_payload(article: Article) -> Dict[str, Any]:
         "pub_date_utc": format_utc(article.pub_date),
         "pub_date_iso": article.pub_date.astimezone(timezone.utc).isoformat(),
         "summary_en": article.summary,
+        "article_text": article.article_text,
         "heuristic_score": round(analysis.heuristic_score, 2),
         "audit_flags": analysis.audit_flags,
         "amount_millions": round(analysis.amount_millions, 2),

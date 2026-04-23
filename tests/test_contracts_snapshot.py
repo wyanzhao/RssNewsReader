@@ -66,6 +66,7 @@ EXPECTED_ARTICLE_KEYS = {
     "pub_date_utc",
     "pub_date_iso",
     "summary_en",
+    "article_text",
     "heuristic_score",
     "audit_flags",
     "amount_millions",
