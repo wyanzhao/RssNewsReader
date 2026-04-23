@@ -27,12 +27,13 @@ description: Use only in the success branch after artifact-auditor passes. Draft
 
 - Part 2 来源顺序必须与 `source_groups[]` 的 source order 完全一致
 - 每个来源内部文章按 `pub_date_iso` 倒序
-- 每篇文章写 40 到 60 字中文摘要
+- 每篇文章写 40 到 60 字的中文摘要；字数为编辑目标，非机械硬门槛。中英混排时 CJK 字符按 1 字计，连续 ASCII 片段（品牌名、型号、版本号）按 1 字计，整体不超过 ~100 码点
 - 标题必须保持英文原文
 - 链接必须保持 `link` 原值
 - 对 `status == 'error'` 的来源，若缺少具体错误文本则统一写 `抓取失败`
 - 必须覆盖 `(0 篇)` 的来源组
 - 最终 Part 2 文章总数必须可被复核为 `validation.counts.articles`
+- 不要为字数做自报式的 length 检查；长度合乎上述编辑目标即可，不必在返回里汇报 length 告警
 
 ## 输出
 
