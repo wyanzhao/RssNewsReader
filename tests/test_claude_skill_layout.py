@@ -12,6 +12,7 @@ TASKS_MD = ROOT / "TASKS.md"
 REMOVED_RUNTIME_DOC = "PROMPT" + ".md"
 PROMPT_MD = ROOT / REMOVED_RUNTIME_DOC
 SKILL_MD = ROOT / ".claude" / "skills" / "dailynews-report" / "SKILL.md"
+CODEX_SKILL_MD = ROOT / ".agents" / "skills" / "dailynews-report" / "SKILL.md"
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
 
@@ -43,19 +44,26 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("TASKS.md", text)
         self.assertIn("/dailynews-report", text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)
+        self.assertIn(".agents/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".claude/agents/", text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, text)
 
-    def test_skill_file_has_expected_frontmatter(self):
+    def test_shared_skill_file_has_expected_frontmatter(self):
         self.assertTrue(SKILL_MD.exists())
 
         frontmatter, _body = parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
+        self.assertEqual(set(frontmatter.keys()), {"name", "description"})
         self.assertEqual(frontmatter.get("name"), "dailynews-report")
-        self.assertEqual(frontmatter.get("disable-model-invocation"), "true")
 
         description = frontmatter.get("description", "")
         self.assertIn("/dailynews-report", description)
         self.assertIn("DailyNews", description)
+        self.assertIn("Codex", description)
+
+    def test_codex_skill_path_reuses_same_skill_file(self):
+        self.assertTrue(CODEX_SKILL_MD.is_symlink())
+        self.assertEqual(CODEX_SKILL_MD.resolve(), SKILL_MD.resolve())
+        self.assertEqual(CODEX_SKILL_MD.read_text(encoding="utf-8"), SKILL_MD.read_text(encoding="utf-8"))
 
     def test_skill_body_references_repo_contract_tracker_and_agents(self):
         _frontmatter, body = parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
@@ -63,6 +71,7 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("[AGENTS.md](../../../AGENTS.md)", body)
         self.assertIn("[TASKS.md](../../../TASKS.md)", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
+        self.assertIn("single shared skill file for both Claude Code and Codex", body)
         self.assertIn("python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output", body)
         self.assertIn("part1_plan.json", body)
         self.assertIn("part2_draft.json", body)
@@ -100,9 +109,11 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
     def test_readme_mentions_claude_code_entrypoint_and_subagents(self):
         text = README_MD.read_text(encoding="utf-8")
         self.assertIn("Claude Code", text)
+        self.assertIn("Codex", text)
         self.assertIn("CLAUDE.md", text)
         self.assertIn("/dailynews-report", text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)
+        self.assertIn(".agents/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".claude/agents/", text)
         self.assertIn("pipeline-runner", text)
         self.assertIn("part1_plan.json", text)

@@ -22,6 +22,7 @@ from _common.text import (  # noqa: E402
     parse_rss_date,
     strip_html,
 )
+from _common.feed_fetch import fetch_rss_feed  # noqa: E402
 
 
 class StripHtmlTests(unittest.TestCase):
@@ -208,6 +209,20 @@ class FetchPathRegressionTests(unittest.TestCase):
         self.assertEqual(articles[0]["link"], "https://example.com/paper")
         self.assertEqual(articles[0]["pub_date"], datetime(2099, 1, 1, 0, 0, tzinfo=timezone.utc))
         self.assertEqual(articles[0]["summary_en"], "Research summary with markup.")
+
+    def test_parse_failure_marks_feed_as_error(self):
+        def fake_fetch_url(*_args, **_kwargs):
+            return b"<rss><channel>", "utf-8"
+
+        articles, error = fetch_rss_feed(
+            "Broken Feed",
+            "https://example.com/feed.xml",
+            fetch_url_fn=fake_fetch_url,
+        )
+
+        self.assertEqual(articles, [])
+        self.assertIsInstance(error, str)
+        self.assertIn("XML parse failed", error)
 
     def test_extract_html_summary_prefers_standard_meta_tags(self):
         import importlib.util

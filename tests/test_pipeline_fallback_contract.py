@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from typing import Any, Dict
 from unittest.mock import patch
 
 
@@ -50,6 +51,143 @@ class PipelineFallbackContractTests(unittest.TestCase):
     def _write_script(self, path: Path, body: str) -> Path:
         path.write_text(body, encoding="utf-8")
         return path
+
+    def _minimal_success_raw(self) -> Dict[str, Any]:
+        return {
+            "meta": {
+                "generated_at_utc": "2026-04-10T22:00:00Z",
+                "run_id": "test-success-boundary",
+                "input_mode": "feeds.json",
+                "feed_count_expected": 1,
+            },
+            "hours": 24,
+            "count": 1,
+            "unique_source_count": 1,
+            "unique_sources": ["Example Feed"],
+            "configured_feed_count": 1,
+            "configured_feeds": ["Example Feed"],
+            "feed_results": [
+                {
+                    "source": "Example Feed",
+                    "url": "https://example.com/feed.xml",
+                    "status": "ok",
+                    "error": None,
+                    "article_count": 1,
+                }
+            ],
+            "articles": [
+                {
+                    "source": "Example Feed",
+                    "title": "Example launches a useful product",
+                    "link": "https://example.com/article",
+                    "pub_date": "2026-04-10T21:00:00+00:00",
+                    "summary_en": "Example launched a product with concrete details.",
+                    "article_text": "Example launched a product with enough detail for summarization.",
+                }
+            ],
+        }
+
+    def test_success_pipeline_does_not_prewrite_final_report(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            feeds_path = tmp / "feeds.json"
+            feeds_path.write_text(
+                json.dumps(
+                    {
+                        "feeds": [
+                            {
+                                "name": "Example Feed",
+                                "url": "https://example.com/feed.xml",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            raw_inline = json.dumps(self._minimal_success_raw(), ensure_ascii=False)
+            fetch_script = self._write_script(
+                tmp / "stub_fetch.py",
+                "import sys\n"
+                f"sys.stdout.write({raw_inline!r})\n"
+                "sys.stdout.write('\\n')\n",
+            )
+            render_called = tmp / "render-called.txt"
+            render_script = self._write_script(
+                tmp / "stub_render.py",
+                "import sys\n"
+                "from pathlib import Path\n"
+                f"Path({str(render_called)!r}).write_text('called', encoding='utf-8')\n"
+                "raise SystemExit(99)\n",
+            )
+
+            module = _import_pipeline_module()
+            module.ROOT_DIR = tmp
+            module.FEEDS_FILE = feeds_path
+            module.FETCH_SCRIPT = fetch_script
+            module.RENDER_SCRIPT = render_script
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            argv = [
+                "rss_daily_report.py",
+                "--json-output",
+                "--runs-dir", str(tmp / "runs"),
+                "--date", "2026-04-10",
+                "--no-cleanup",
+            ]
+            with patch.object(sys, "argv", argv):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = module.main()
+
+            payload = json.loads(stdout.getvalue())
+            report_path = Path(payload["report_path"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload["validation_passed"])
+            self.assertEqual(payload["validator_exit_code"], 0)
+            self.assertEqual(report_path, tmp / "rss-report-2026-04-10.md")
+            self.assertFalse(report_path.exists())
+            self.assertFalse(render_called.exists())
+
+    def test_unreadable_raw_still_emits_json_and_failed_report(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            feeds_path = tmp / "feeds.json"
+            feeds_path.write_text('{"feeds": []}\n', encoding="utf-8")
+            fetch_script = self._write_script(
+                tmp / "stub_fetch.py",
+                "raise SystemExit(1)\n",
+            )
+
+            module = _import_pipeline_module()
+            module.ROOT_DIR = tmp
+            module.FEEDS_FILE = feeds_path
+            module.FETCH_SCRIPT = fetch_script
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            argv = [
+                "rss_daily_report.py",
+                "--json-output",
+                "--runs-dir", str(tmp / "runs"),
+                "--date", "2026-04-10",
+                "--no-cleanup",
+            ]
+            with patch.object(sys, "argv", argv):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = module.main()
+
+            payload = json.loads(stdout.getvalue())
+            report_path = Path(payload["report_path"])
+
+            self.assertEqual(exit_code, 10)
+            self.assertFalse(payload["validation_passed"])
+            self.assertEqual(payload["validator_exit_code"], 10)
+            self.assertTrue(report_path.name.endswith(".failed.md"))
+            self.assertTrue(report_path.exists())
+            self.assertIn("校验状态：未通过", report_path.read_text(encoding="utf-8"))
 
     def _run_pipeline_with_unreadable_validation(self,
                                                  validate_stdout: str,

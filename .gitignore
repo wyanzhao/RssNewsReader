@@ -12,3 +12,4 @@ __pycache__/
 
 # Editor / local tooling
 .codex/
+.claude/worktrees/

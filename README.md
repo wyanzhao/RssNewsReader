@@ -6,13 +6,15 @@ daily Chinese-language Markdown report.
 You can use it in two ways:
 
 1. **Deterministic Python pipeline**: fetch RSS feeds, deduplicate links,
-   validate the data, build `llm_context.json`, and render a baseline report.
+   validate the data, build `llm_context.json`, and render failure reports for
+   blocked runs.
 2. **Optional Claude Code editorial pass**: read `llm_context.json`, cluster
    duplicate events, select a Top 30, write Chinese summaries, and rewrite the
    final report through a project-local `skill + subagents` runtime.
 
-If you only want to clone the repo and run it, you only need the deterministic
-Python pipeline. Claude Code is optional.
+The default Python command is the control-plane and artifact builder. The
+formal success report is written by the Claude Code success path so it can use
+the structured editorial handoff artifacts.
 
 ## What You Need
 
@@ -36,7 +38,7 @@ This single command runs:
 1. fetch
 2. validate
 3. build `llm_context.json`
-4. render a deterministic Markdown report
+4. resolve the final report path; write `*.failed.md` only when validation blocks
 
 During fetch, the monitor keeps the feed-provided summary when it is usable.
 If `summary_en` is empty or too short, it also tries an article-page fallback
@@ -72,10 +74,12 @@ For each report date, the pipeline writes runtime artifacts under
 - `llm_context.stderr.txt`
 - `render.stderr.txt`
 
-It also writes a report at the repository root:
+It also resolves report paths at the repository root:
 
-- success: `rss-report-YYYY-MM-DD.md`
-- blocked/failure path: `rss-report-YYYY-MM-DD.failed.md`
+- success target: `rss-report-YYYY-MM-DD.md`, written by `report-assembler`
+  during `/dailynews-report`
+- blocked/failure path: `rss-report-YYYY-MM-DD.failed.md`, written by the
+  deterministic pipeline
 
 If `/dailynews-report` runs the Claude Code success path, the runtime may also
 write intermediate handoff artifacts under the same `runs/YYYY-MM-DD/`
@@ -96,8 +100,10 @@ If you want the shortest path from clone to result:
 
 1. Review or edit [`feeds.json`](feeds.json) and [`pipeline_config.json`](pipeline_config.json).
 2. Run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`.
-3. Open the emitted `report_path`.
-4. If the run is blocked, inspect `validation_path` and the sidecar `*.stderr.txt`
+3. If the run is blocked, open the emitted `.failed.md` `report_path`.
+4. If the run is publishable, use `/dailynews-report` to assemble the formal
+   success report from `part1_plan.json` and `part2_draft.json`.
+5. If the run is blocked, inspect `validation_path` and the sidecar `*.stderr.txt`
    files under the reported `run_dir`.
 
 ## Customize Feeds
@@ -167,12 +173,13 @@ network-debug helper behavior, and the Claude Code repo layout.
 | 30 | Data-quality block such as zero articles |
 | 40 | Unexpected pipeline failure |
 
-## Optional Claude Code Workflow
+## Optional Claude Code / Codex Workflow
 
-If you use Claude Code in this repo:
+If you use Claude Code or Codex in this repo:
 
 - [`CLAUDE.md`](CLAUDE.md) is the project entrypoint and imports [`AGENTS.md`](AGENTS.md)
-- the project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
+- the shared project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
+- the Codex / agent skill path [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md) is a symlink to the same file
 - the skill is exposed as `/dailynews-report`
 - the supported runtime architecture is `skill + subagents`
 - on the success path, subagents exchange machine-readable handoff artifacts
@@ -192,14 +199,14 @@ The skill delegates to seven project-level subagents under
 - `report-assembler`
 - `report-reviewer`
 
-This Claude Code workflow is intentionally manual-only because it is
+This Claude Code / Codex workflow is intentionally manual-only because it is
 write-producing and can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
 
 ## Repository Layout
 
 ```text
 scripts/
-  rss_daily_report.py      orchestrator: fetch -> validate -> context -> render
+  rss_daily_report.py      orchestrator: fetch -> validate -> context -> failure render
   rss_news_monitor.py      RSS fetch + dedup
   qc_validate.py           contract + data-quality validator
   build_llm_context.py     shapes llm_context.json
@@ -215,7 +222,9 @@ AGENTS.md                  pipeline contract and maintainer guide
 CLAUDE.md                  Claude Code entrypoint; imports AGENTS.md
 TASKS.md                   maintainer tracker for architecture work
 .claude/skills/dailynews-report/
-  SKILL.md                 project-local Claude Code orchestrator skill
+  SKILL.md                 shared Claude Code / Codex orchestrator skill
+.agents/skills/dailynews-report/
+  SKILL.md                 symlink to .claude/skills/dailynews-report/SKILL.md
 .claude/agents/
   *.md                     project-level subagents used by the orchestrator
 ```
@@ -226,7 +235,9 @@ TASKS.md                   maintainer tracker for architecture work
   and shared-module guidance
 - [`CLAUDE.md`](CLAUDE.md): Claude Code entrypoint for this repo
 - [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md):
-  manual Claude Code orchestrator workflow
+  shared manual Claude Code / Codex orchestrator workflow
+- [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md):
+  symlinked Codex / agent skill entrypoint
 - [`.claude/agents/`](.claude/agents/): subagents for pipeline running, artifact
   auditing, Part 1 editing, Part 2 drafting, final report assembly, debugging,
   and final review

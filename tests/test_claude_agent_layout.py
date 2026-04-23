@@ -125,6 +125,7 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
 
         self.assertIn("TASKS.md", agents_text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", agents_text)
+        self.assertIn(".agents/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".claude/agents/*.md", agents_text)
         self.assertIn("part1_plan.json", agents_text)
         self.assertIn("part2_draft.json", agents_text)

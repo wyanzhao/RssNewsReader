@@ -18,6 +18,10 @@ DC_NS = "{http://purl.org/dc/elements/1.1/}"
 CONTENT_NS = "{http://purl.org/rss/1.0/modules/content/}"
 
 
+class FeedParseError(ValueError):
+    """Raised when fetched feed content cannot be parsed as RSS/Atom XML."""
+
+
 class _MetaSummaryParser(HTMLParser):
     """Extract standard summary-bearing meta tags from an HTML document."""
 
@@ -94,8 +98,9 @@ def parse_feed(content: str, max_summary: int = 0) -> List[Dict]:
     try:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
-        print(f"  [ERROR] XML parse failed: {exc}", file=sys.stderr)
-        return []
+        message = f"XML parse failed: {exc}"
+        print(f"  [ERROR] {message}", file=sys.stderr)
+        raise FeedParseError(message) from exc
 
     articles = []
     root_tag = root.tag.lower()

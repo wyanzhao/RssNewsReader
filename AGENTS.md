@@ -2,13 +2,14 @@
 
 > `CLAUDE.md` is the Claude Code entrypoint and imports `AGENTS.md`.
 > `AGENTS.md` is the source of truth for the repo contract and maintainer guidance.
-> `.claude/skills/dailynews-report/SKILL.md` is the only runtime procedure entry.
+> `.claude/skills/dailynews-report/SKILL.md` is the shared Claude Code / Codex skill file.
+> `.agents/skills/dailynews-report/SKILL.md` is a symlink to the same file.
 
 ## Scope
 
 This repository builds a daily RSS report in two stages:
 
-1. Deterministic pipeline in code: fetch, validate, artifact generation, and zero-article / contract gating.
+1. Deterministic pipeline in code: fetch, validate, artifact generation, failure-report rendering, and zero-article / contract gating.
 2. Claude Code post-processing in `skill + subagents`: Chinese summaries, event clustering, Top 30 selection, and content audit.
 
 `AGENTS.md` is the source of truth for contract boundaries and maintainer-facing behavior in this workspace. The step-by-step runtime procedure lives in the orchestrator skill and the subagent files.
@@ -16,11 +17,12 @@ This repository builds a daily RSS report in two stages:
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
-- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the project skill.
+- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the shared project skill.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
 - `pipeline_config.json` is the repo-level deterministic pipeline config for summary-enrichment and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
-- `.claude/skills/dailynews-report/SKILL.md` is the project-local Claude Code orchestrator skill and the only runtime procedure entry.
+- `.claude/skills/dailynews-report/SKILL.md` is the project-local orchestrator skill and the canonical runtime procedure file shared by Claude Code and Codex.
+- `.agents/skills/dailynews-report/SKILL.md` is the Codex / agent skill path and must remain a symlink to `.claude/skills/dailynews-report/SKILL.md`.
 - `.claude/agents/*.md` defines the specialized subagents used by the orchestrator skill.
 
 ## Entry Points
@@ -34,6 +36,7 @@ This repository builds a daily RSS report in two stages:
 - Offline tests: `python3 -m unittest discover -s $REPO_ROOT/tests -p 'test_*.py'`
 - End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup`
 - Claude Code runtime entry: `/dailynews-report`
+- Codex skill entry: `.agents/skills/dailynews-report/SKILL.md`
 
 ## Runtime Outputs
 
@@ -47,10 +50,16 @@ For each report date, the pipeline writes:
 - `runs/YYYY-MM-DD/llm_context.stderr.txt`
 - `runs/YYYY-MM-DD/render.stderr.txt`
 
-Final reports are written at the repo root:
+Final report paths are resolved at the repo root:
 
-- Success: `rss-report-YYYY-MM-DD.md`
+- Success target: `rss-report-YYYY-MM-DD.md`
 - Failure: `rss-report-YYYY-MM-DD.failed.md`
+
+On the default `/dailynews-report` success path, `rss_daily_report.py` only
+emits the success `report_path`; it must not prewrite the formal success
+report. The success file is written later by `report-assembler` from
+`part1_plan.json` and `part2_draft.json`. The deterministic pipeline may write
+`*.failed.md` directly for blocked or damaged-input runs.
 
 ### Claude Code Success-Path Handoff Artifacts
 
@@ -137,6 +146,8 @@ shape and policy key names as the normal validator output.
 - `raw.json` is produced only by `rss_news_monitor.py`.
 - `validation.json` is produced only by `qc_validate.py`.
 - `rss_daily_report.py --json-output` is the control-plane artifact for exit-code branching and output-path resolution.
+- On publishable runs, `rss_daily_report.py --json-output` must not prewrite the success `report_path`; `report-assembler` owns that write.
+- On blocked or damaged-input runs, `rss_daily_report.py --json-output` must still emit the 8 control-plane fields and write a concrete `*.failed.md` report whenever `report_path` is known.
 - `llm_context.json` is the primary artifact for semantic ranking, clustering, Top 30 selection, and summarization.
 - `validation.json` may be read only for workflow gating metadata and per-feed status/error details that are not duplicated in `llm_context.json`.
 - `validation.passed == true` is required before any formal report can be produced.
@@ -160,9 +171,10 @@ shape and policy key names as the normal validator output.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
 
-## Claude Code Runtime Architecture
+## Claude Code / Codex Runtime Architecture
 
-- `.claude/skills/dailynews-report/SKILL.md` is the only runtime procedure entry. It orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
+- `.claude/skills/dailynews-report/SKILL.md` is the canonical runtime procedure entry. `.agents/skills/dailynews-report/SKILL.md` must remain a symlink to the same file so Claude Code and Codex reuse one skill body.
+- The shared skill orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
 - `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
 - `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
@@ -199,7 +211,7 @@ import-safe and has dedicated unit tests.
 - `_common/pipeline.py` — `Step`, `StepResult`, `run_step` for
   consistent subprocess invocation, stdout/stderr persistence, and parent
   echo. Used by `rss_daily_report.py` to compose fetch → validate →
-  llm_context → render.
+  llm_context, plus failure-report rendering when validation blocks.
 - `_common/cli.py` — `add_io_args` standard argparse trio
   (`--input` / `--validation` / `--output` / `--date`).
 - `_common/paths.py` — `runs_dir_for`, `report_path`, `stale_run_dirs`.
@@ -354,7 +366,7 @@ config files.
 - `tests/test_network_debug.py` — offline coverage for the network diagnostic helper.
 - `tests/test_runs_cleanup.py` — `_common.paths` + `--retain-days`
   retention policy.
-- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint, orchestrator skill, tracker, and runtime-layout packaging.
+- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint, shared Claude/Codex skill file, tracker, and runtime-layout packaging.
 - `tests/test_claude_agent_layout.py` — repo-level checks for `.claude/agents/`, the runtime agent files, and the documented `skill + subagents` architecture.
 
 ## Maintenance Notes
@@ -362,7 +374,7 @@ config files.
 - Keep deterministic rules in code and semantic judgment in the Claude Code runtime layer.
 - Do not move validation logic back into the orchestrator skill or subagents.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, and the relevant `.claude/agents/*.md` files aligned.
+- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, the `.agents/skills/dailynews-report/SKILL.md` symlink, and the relevant `.claude/agents/*.md` files aligned.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json`, `pipeline_config_fixture.json`, and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make

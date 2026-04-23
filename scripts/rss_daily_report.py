@@ -105,6 +105,77 @@ def infer_report_path(report_path: Path, validation: Optional[Dict[str, Any]]) -
     return report_path.with_name(f"{report_path.stem}.failed{report_path.suffix}")
 
 
+def _clean_text_items(items: Any) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def build_synthetic_failure_report(report_date: str,
+                                   validation: Dict[str, Any],
+                                   *,
+                                   render_result: Optional[StepResult] = None) -> str:
+    """Build a minimal failed report when the renderer cannot read raw.json.
+
+    This keeps the control-plane contract intact for damaged-input branches:
+    callers still receive a concrete ``*.failed.md`` report path even when the
+    normal deterministic renderer cannot load the raw artifact.
+    """
+    counts = validation.get("counts")
+    if not isinstance(counts, dict):
+        counts = {}
+    configured = counts.get("configured", 0)
+    articles = counts.get("articles", 0)
+    reasons = _clean_text_items(validation.get("blocking_reasons"))
+    warnings = _clean_text_items(validation.get("warnings"))
+    reason_text = "；".join(reasons) if reasons else "未知阻断原因"
+
+    lines = [
+        "=" * 70,
+        f"[{report_date}] RSS 每日精选 TOP 30",
+        "=" * 70,
+        "",
+        f"校验状态：未通过，阻断原因：{reason_text}",
+        f"数据来源：{configured}个RSS源，共获取 {articles} 篇文章",
+        f"生成时间：{report_date} UTC",
+        "",
+        "本次运行没有生成可发布的正式报告。",
+        "",
+        "=" * 70,
+        "统计检查",
+        "=" * 70,
+        "",
+        f"- feeds.json feed 数量: {configured}",
+        f"- JSON count: {articles}",
+        "- 校验结论: 未通过",
+        f"- 阻断原因: {reason_text}",
+    ]
+    if warnings:
+        lines.append(f"- 校验警告: {'；'.join(warnings)}")
+    if render_result is not None:
+        stderr_path = render_result.step.stderr_path
+        detail = f"renderer exit={render_result.returncode}"
+        if stderr_path is not None:
+            detail += f", see {stderr_path}"
+        lines.append(f"- fallback renderer note: {detail}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_synthetic_failure_report(path: Path,
+                                   report_date: str,
+                                   validation: Dict[str, Any],
+                                   *,
+                                   render_result: Optional[StepResult] = None) -> None:
+    write_text(
+        path,
+        build_synthetic_failure_report(
+            report_date,
+            validation,
+            render_result=render_result,
+        ),
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
 
@@ -188,38 +259,39 @@ def main() -> int:
         )
         return 40
 
-    render_step = Step(
-        name="render",
-        script=RENDER_SCRIPT,
-        args=[
-            "--input", str(raw_path),
-            "--validation", str(validation_path),
-            "--output", str(report_path),
-            "--date", report_date,
-        ],
-        stderr_path=render_stderr_path,
-    )
-    if args.config:
-        render_step.args.extend([
-            "--config",
-            str(Path(args.config).expanduser().resolve()),
-        ])
-    render_result = run_step(render_step)
-    if render_result.returncode != 0:
-        print(
-            f"Render step failed with exit code {render_result.returncode}. "
-            f"See {render_stderr_path}",
-            file=sys.stderr,
-        )
-        return 40
-
     final_report = infer_report_path(report_path, validation)
-    if not final_report.exists():
-        print(
-            f"Render step completed but expected output is missing: {final_report}",
-            file=sys.stderr,
+    render_result: Optional[StepResult] = None
+    if validation.get("passed") is True:
+        write_text(
+            render_stderr_path,
+            "Skipped deterministic success render; report-assembler owns "
+            "the final success report_path.\n",
         )
-        return 40
+    else:
+        render_step = Step(
+            name="render",
+            script=RENDER_SCRIPT,
+            args=[
+                "--input", str(raw_path),
+                "--validation", str(validation_path),
+                "--output", str(report_path),
+                "--date", report_date,
+            ],
+            stderr_path=render_stderr_path,
+        )
+        if args.config:
+            render_step.args.extend([
+                "--config",
+                str(Path(args.config).expanduser().resolve()),
+            ])
+        render_result = run_step(render_step)
+        if render_result.returncode != 0 or not final_report.exists():
+            write_synthetic_failure_report(
+                final_report,
+                report_date,
+                validation,
+                render_result=render_result,
+            )
 
     output_payload = {
         "report_date": report_date,

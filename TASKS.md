@@ -6,7 +6,8 @@
 
 - `CLAUDE.md` 是 Claude Code 入口，只导入 `AGENTS.md` 并把运行时任务指向 `/dailynews-report`
 - `AGENTS.md` 定义仓库 contract、artifact schema、agent 边界、文档角色与维护约束
-- `.claude/skills/dailynews-report/SKILL.md` 是唯一 runtime procedure 入口，负责 orchestrator 编排
+- `.claude/skills/dailynews-report/SKILL.md` 是 Claude Code 与 Codex 共享的唯一 runtime procedure 文件，负责 orchestrator 编排
+- `.agents/skills/dailynews-report/SKILL.md` 是指向同一文件的 Codex / agent skill symlink
 - `.claude/agents/*.md` 定义 `pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`、`report-assembler`、`report-reviewer`
 - success 分支通过 `runs/<date>/part1_plan.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff，`report-assembler` 只负责最终 `report_path` 写入
 - `README.md` 面向仓库使用者说明 `skill + subagents` 架构与使用方式
@@ -14,7 +15,7 @@
 
 ## Decisions Locked
 
-- [x] runtime procedure 的唯一 source of truth 是 `skill-only`
+- [x] runtime procedure 的唯一 source of truth 是共享 `SKILL.md`
 - [x] Claude Code 架构固定为 `orchestrator skill + subagents`
 - [x] 顶层编排入口继续保留 `/dailynews-report`
 - [x] 旧运行时文件已移除，不再作为运行时入口
@@ -29,7 +30,7 @@
 - [x] Epic C — 引入 subagents 架构
 - [x] Epic D — 文档统一同步
 - [ ] Epic E — 布局与回归验证
-- [ ] Epic F — success-path handoff hardening
+- [x] Epic F — success-path handoff hardening
 - [x] Epic G — validator / source-group contract hardening
 - [x] Epic H — unexpected-error schema parity
 - [x] Epic I — editorial core decoupling
@@ -96,11 +97,17 @@
 - `K1` | `done` | 让 `part1-editor` 从全量 `all_articles` 自主选 Top 30 | `.claude/agents/part1-editor.md` 把 `all_articles` 升为权威池；`candidate_articles` / `heuristic_score` / `audit_flags` 降为提示信号；`hard_noise` 仍作为硬过滤；`AGENTS.md` contract surface、architecture、editorial policy 段落同步
 - `K2` | `done` | 彻底移除静态打分机制，Top 30 编辑判断完全交给 LLM | `scripts/_common/editorial.py` 删除 `analyze_article` / `score_article` / `choose_top_articles` / 关键词常量 / 金额提取；`scripts/build_llm_context.py` 不再输出 `candidate_articles` 或接受 `--candidate-limit`；`scripts/render_report.py` 的 Top 30 fallback 改为纯时间倒序切片；per-article contract 从 9 字段收敛到 6 字段（去除 `heuristic_score` / `audit_flags` / `amount_millions`）；`scripts/_common/schemas.py` 同步；`part1-editor.md` 重写为完整编辑提示词（去噪、优先级、聚类、来源多样性、中文摘要）；`AGENTS.md`、`artifact-auditor.md`、`report-assembler.md` 同步；更新 `llm_context_golden.json` / `markdown_render_golden.md` / `test_contracts_snapshot.py` / `test_qc_offline.py` / `test_pipeline_fallback_contract.py` / `test_claude_agent_layout.py`；全量 98 个测试绿
 - `K3` | `done` | 合并上游 PR #3（`article_text` 正文抽取）与 K2（去静态打分） | 正交合并：K2 删掉 `heuristic_score` / `audit_flags` / `amount_millions` 三字段和 `candidate_articles`，PR #3 新增 `article_text` 字段，最终 per-article contract 为 7 字段；直接拷贝 PR #3 独有文件 `scripts/_common/article_extract.py` 与 `tests/test_article_extract.py`；手工 patch 共享文件 `pipeline_config.json`、`scripts/_common/runtime_config.py`（新增 `article_text` 配置与 `resolve_article_text_settings`）、`scripts/_common/feed_fetch.py`（`enrich_article_text`）、`scripts/_common/feed_output.py`、`scripts/rss_news_monitor.py`（调用 enrichment）、`scripts/_common/editorial.py`（`Article` 与 payload 增加 `article_text`）、`scripts/_common/schemas.py`；agents：`part1-editor` 叠加 `article_text` 为中文摘要首选素材的指引（保持 K2 完整编辑框架），`part2-drafter` / `report-assembler` / `report-reviewer` / `SKILL.md` 同步；`AGENTS.md` 同步 contract surface、新增 Article Body Extraction 章节、editorial policy；金标 `llm_context_golden.json` 与 `test_contracts_snapshot.py` 扩到 7 字段；全量 111 个测试绿
+- `L1` | `done` | 修复 success pipeline 预写正式报告的问题 | `rss_daily_report.py` 在 `validation.passed == true` 时跳过 deterministic success render，只输出 success `report_path` 供 `report-assembler` 后续写入；新增回归测试确保主 pipeline 不调用 renderer、不提前落 `rss-report-YYYY-MM-DD.md`
+- `L2` | `done` | 修复 fetch raw 损坏时控制面 JSON 丢失的问题 | blocked / damaged-input 分支即使 deterministic renderer 无法读取 `raw.json`，也会合成最小 `.failed.md` 并输出 8 字段 control-plane JSON；新增 unreadable raw 回归测试
+- `L3` | `done` | 修复 XML parse error 被标为空 feed 的问题 | `_common/feed_parse.py` 新增 `FeedParseError`，让 malformed RSS/Atom XML 冒泡到 feed-level `error`；新增 fetch-path 回归测试
+- `L4` | `done` | 忽略本地 Claude worktrees | `.gitignore` 新增 `.claude/worktrees/`，避免误提交嵌套 worktree 与旧 contract 副本
+- `M1` | `done` | 让 DailyNews skill 同时服务 Claude Code 与 Codex | 保留 `.claude/skills/dailynews-report/SKILL.md` 为物理 canonical skill 文件；`.agents/skills/dailynews-report/SKILL.md` 作为 symlink 复用同一文件；frontmatter 收敛到 `name` / `description` 公共子集，手动写入型约束移入正文
 
 ## Validation Checklist
 
 - [x] `TASKS.md` 存在且结构固定
-- [x] `.claude/skills/dailynews-report/SKILL.md` 存在并作为唯一 runtime procedure 入口
+- [x] `.claude/skills/dailynews-report/SKILL.md` 存在并作为共享 runtime procedure 文件
+- [x] `.agents/skills/dailynews-report/SKILL.md` 是指向同一 `SKILL.md` 的 symlink
 - [x] `.claude/agents/` 下 7 个 agent 文件存在
 - [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件

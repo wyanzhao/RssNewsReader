@@ -1,10 +1,14 @@
 ---
 name: dailynews-report
-description: Run the DailyNews orchestrator skill for this repository. Use when you explicitly invoke /dailynews-report to generate the report, inspect pipeline artifacts, or diagnose a blocked or unexpected run.
-disable-model-invocation: true
+description: Run the DailyNews orchestrator skill for this repository. Use when the user explicitly invokes /dailynews-report, asks Codex or Claude Code to generate the DailyNews RSS report, inspect pipeline artifacts, or diagnose a blocked or unexpected run in the RssNewsReader/DailyNews workspace.
 ---
 
 # DailyNews Report
+
+This is the single shared skill file for both Claude Code and Codex. The
+Claude Code path is `.claude/skills/dailynews-report/SKILL.md`; the Codex /
+agent path `.agents/skills/dailynews-report/SKILL.md` is a symlink to this
+same file.
 
 This is a manual, write-producing orchestrator skill. Do not invoke it automatically.
 
