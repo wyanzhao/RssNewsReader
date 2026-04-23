@@ -40,6 +40,7 @@ class RawArticle(TypedDict, total=False):
     link: str
     pub_date: str          # ISO 8601 with offset
     summary_en: str
+    article_text: str
 
 
 class FeedResult(TypedDict, total=False):
@@ -56,9 +57,16 @@ class SummaryEnrichmentSnapshot(TypedDict, total=False):
     effective_page_fallback_cap: int
 
 
+class ArticleTextSnapshot(TypedDict, total=False):
+    enabled: bool
+    max_words: int
+    max_workers: int
+
+
 class RuntimeConfigSnapshot(TypedDict, total=False):
     config_path: str
     summary_enrichment: SummaryEnrichmentSnapshot
+    article_text: ArticleTextSnapshot
     render: Dict[str, int]
 
 
@@ -109,18 +117,6 @@ class ValidationDocument(TypedDict, total=False):
 
 # --- llm_context.json --------------------------------------------------------
 
-ALLOWED_AUDIT_FLAGS = (
-    "major_company",
-    "business_signal",
-    "security_signal",
-    "breakthrough_signal",
-    "launch_signal",
-    "speculation",
-    "noise",
-    "hard_noise",
-    "funding_or_deal_ge_100m",
-)
-
 
 class LlmContextMeta(TypedDict, total=False):
     date: str
@@ -144,9 +140,7 @@ class LlmArticle(TypedDict, total=False):
     pub_date_utc: str
     pub_date_iso: str
     summary_en: str
-    heuristic_score: float
-    audit_flags: List[str]
-    amount_millions: float
+    article_text: str
 
 
 class LlmSourceGroup(TypedDict, total=False):
@@ -160,7 +154,6 @@ class LlmSourceGroup(TypedDict, total=False):
 class LlmContextDocument(TypedDict, total=False):
     meta: LlmContextMeta
     validation: LlmContextValidation
-    candidate_articles: List[LlmArticle]
     all_articles: List[LlmArticle]
     source_groups: List[LlmSourceGroup]
 

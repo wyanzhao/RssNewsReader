@@ -5,23 +5,23 @@
 数据来源：5个RSS源，共获取 3 篇文章
 生成时间：2026-04-10 UTC
 
-1. Californians sue over AI tool that records doctor visits
+1. The Latest Foldable iPhone Rumors: What's Changed and What We Know Now
+   来源: MacRumors
+   时间: 2026-04-10 21:57 UTC
+   链接: https://www.macrumors.com/2026/04/10/iphone-fold-rumor-recap/
+   摘要: Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage.
+
+2. Californians sue over AI tool that records doctor visits
    来源: Ars Technica
    时间: 2026-04-10 21:43 UTC
    链接: https://arstechnica.com/tech-policy/2026/04/californians-sue-over-ai-tool-that-records-doctor-visits/
    摘要: Plaintiffs say transcription tool processed confidential chats offsite.
 
-2. How to watch NASA’s Artemis II splash back down to Earth
+3. How to watch NASA’s Artemis II splash back down to Earth
    来源: TechCrunch
    时间: 2026-04-10 21:18 UTC
    链接: https://techcrunch.com/2026/04/10/how-to-watch-nasa-artemis-ii-landing/
    摘要: NASA's Artemis II mission has traveled farther from Earth than any mission before.
-
-3. The Latest Foldable iPhone Rumors: What's Changed and What We Know Now
-   来源: MacRumors
-   时间: 2026-04-10 21:57 UTC
-   链接: https://www.macrumors.com/2026/04/10/iphone-fold-rumor-recap/
-   摘要: Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage.
 
 ======================================================================
 按来源分组

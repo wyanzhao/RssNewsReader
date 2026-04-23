@@ -18,6 +18,7 @@ description: Use only in the success branch after artifact-auditor passes. Draft
 
 - `source_groups`：Part 2 的唯一来源 roster 和 source order 来源
 - `all_articles`：仅用于交叉核对 link 与 article 总数
+- 每条文章的 `article_text`（正文片段，最多约 300 词）是中文摘要的首选原始材料；`article_text` 为空时回退 `summary_en`；两者都空时基于 `title` 写一条极简中文描述。严禁根据常识或搜索结果补写未出现在输入中的事实
 - `validation.json`：只用于 `counts.articles` 校验和 `feed_results[].error`
 - `run_dir`：唯一允许写入的位置，用于 success 分支 handoff artifact
 - 不得修改 `raw.json`、`validation.json`、`llm_context.json`

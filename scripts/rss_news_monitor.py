@@ -52,8 +52,12 @@ from _common.feed_config import (  # noqa: E402
     save_feeds as _save_feeds,
     remove_feed as _remove_feed,
 )
+from _common.article_extract import (  # noqa: E402
+    fetch_article_text as _fetch_article_text,
+)
 from _common.feed_fetch import (  # noqa: E402
     decode_content as _decode_content,
+    enrich_article_text as _enrich_article_text,
     enrich_missing_summaries as _enrich_missing_summaries,
     fetch_all_feeds as _fetch_all_feeds,
     fetch_article_summary as _fetch_article_summary,
@@ -163,6 +167,26 @@ def enrich_missing_summaries(articles: List[Dict], max_summary: int = 0,
         max_workers,
         pipeline_config,
         fetch_summary_fn=fetch_article_summary,
+    )
+
+
+def fetch_article_text(url: str, max_words: int) -> str:
+    """Fetch a linked article page and extract main body text as words."""
+    return _fetch_article_text(
+        url,
+        max_words,
+        fetch_url_fn=fetch_url,
+        decode_content_fn=decode_content,
+    )
+
+
+def enrich_article_text(articles: List[Dict],
+                        pipeline_config: Optional[Dict[str, Any]] = None) -> None:
+    """Backfill ``article_text`` by extracting main body from article pages."""
+    _enrich_article_text(
+        articles,
+        pipeline_config,
+        fetch_article_text_fn=fetch_article_text,
     )
 
 
@@ -304,6 +328,15 @@ def main():
         max_summary=args.max_summary,
         pipeline_config=pipeline_config,
     )
+    # article_text enrichment fetches every article URL a second time, so
+    # only run it when the output mode actually consumes the field. Today
+    # only the JSON output (downstream of --json) carries article_text;
+    # --summary and the default grouped-text output do not.
+    if args.json:
+        enrich_article_text(
+            all_articles,
+            pipeline_config=pipeline_config,
+        )
     config_snapshot = _build_runtime_config_snapshot(
         pipeline_config,
         config_path,

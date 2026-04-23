@@ -28,7 +28,6 @@ if str(SCRIPT_DIR) not in sys.path:
 from _common.editorial import (  # noqa: E402
     Article,
     as_dict,
-    choose_top_articles as editorial_choose_top_articles,
     format_time_only,
     format_utc,
     group_articles,
@@ -170,7 +169,13 @@ def clamp_text(text: str, limit: int) -> str:
 
 
 def choose_top_articles(articles: List[Article], limit: int = TOP_N) -> List[Article]:
-    return editorial_choose_top_articles(articles, limit)
+    """Return the first `limit` articles in publication-time-desc order.
+
+    This is a deterministic fallback used only by the static renderer. The
+    Claude Code runtime overwrites Part 1 on the success path via
+    `report-assembler`, which consumes `part1_plan.json` produced by the LLM.
+    """
+    return list(articles)[: max(limit, 0)]
 
 
 def render_report(

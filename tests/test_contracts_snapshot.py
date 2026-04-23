@@ -44,7 +44,6 @@ EXPECTED_PIPELINE_KEYS = {
 EXPECTED_LLM_CONTEXT_TOP_KEYS = {
     "meta",
     "validation",
-    "candidate_articles",
     "all_articles",
     "source_groups",
 }
@@ -66,24 +65,10 @@ EXPECTED_ARTICLE_KEYS = {
     "pub_date_utc",
     "pub_date_iso",
     "summary_en",
-    "heuristic_score",
-    "audit_flags",
-    "amount_millions",
+    "article_text",
 }
 
 EXPECTED_SOURCE_GROUP_KEYS = {"source", "url", "status", "article_count", "articles"}
-
-ALLOWED_AUDIT_FLAGS = {
-    "major_company",
-    "business_signal",
-    "security_signal",
-    "breakthrough_signal",
-    "launch_signal",
-    "speculation",
-    "noise",
-    "hard_noise",
-    "funding_or_deal_ge_100m",
-}
 
 
 def _import_test_helpers():
@@ -200,15 +185,11 @@ class LlmContextContractTests(unittest.TestCase):
     def test_validation_keys_match_contract(self):
         self.assertEqual(set(self.context["validation"].keys()), EXPECTED_VALIDATION_KEYS)
 
-    def test_candidate_article_fields_match_contract(self):
-        self.assertGreater(len(self.context["candidate_articles"]), 0)
-        for article in self.context["candidate_articles"]:
+    def test_all_articles_field_set_consistent(self):
+        self.assertGreater(len(self.context["all_articles"]), 0)
+        for article in self.context["all_articles"]:
             self.assertEqual(set(article.keys()), EXPECTED_ARTICLE_KEYS,
                              msg=f"unexpected article keys: {article}")
-
-    def test_all_articles_field_set_consistent(self):
-        for article in self.context["all_articles"]:
-            self.assertEqual(set(article.keys()), EXPECTED_ARTICLE_KEYS)
 
     def test_source_group_fields_match_contract(self):
         for group in self.context["source_groups"]:
@@ -216,22 +197,9 @@ class LlmContextContractTests(unittest.TestCase):
             for article in group["articles"]:
                 self.assertEqual(set(article.keys()), EXPECTED_ARTICLE_KEYS)
 
-    def test_audit_flags_subset_of_allowed(self):
-        for article in self.context["all_articles"]:
-            flags = set(article["audit_flags"])
-            self.assertTrue(
-                flags.issubset(ALLOWED_AUDIT_FLAGS),
-                msg=f"audit_flags {flags - ALLOWED_AUDIT_FLAGS} not allowed",
-            )
-
-    def test_heuristic_score_is_numeric(self):
-        for article in self.context["all_articles"]:
-            self.assertIsInstance(article["heuristic_score"], (int, float))
-            self.assertIsInstance(article["amount_millions"], (int, float))
-
-    def test_candidate_articles_sorted_by_score_desc(self):
-        scores = [a["heuristic_score"] for a in self.context["candidate_articles"]]
-        self.assertEqual(scores, sorted(scores, reverse=True))
+    def test_all_articles_sorted_time_desc(self):
+        isos = [a["pub_date_iso"] for a in self.context["all_articles"]]
+        self.assertEqual(isos, sorted(isos, reverse=True))
 
     def test_source_groups_cover_all_feeds(self):
         feeds = json.loads(FEEDS_PATH.read_text(encoding="utf-8"))["feeds"]

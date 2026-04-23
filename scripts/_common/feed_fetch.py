@@ -12,8 +12,11 @@ from urllib.request import Request, urlopen
 
 from .feed_parse import extract_html_summary, parse_feed
 from .runtime_config import (
+    DEFAULT_ARTICLE_TEXT_MAX_WORDS,
+    DEFAULT_ARTICLE_TEXT_MAX_WORKERS,
     DEFAULT_PAGE_FALLBACK_CAP,
     DEFAULT_SHORT_SUMMARY_THRESHOLD,
+    resolve_article_text_settings,
     resolve_page_fallback_cap,
 )
 
@@ -153,6 +156,69 @@ def enrich_missing_summaries(
             continue
         if fallback:
             article["summary_en"] = fallback
+
+
+def enrich_article_text(
+    articles: List[Dict],
+    pipeline_config: Optional[Dict[str, object]] = None,
+    *,
+    fetch_article_text_fn: Optional[Callable[[str, int], str]] = None,
+) -> None:
+    """Backfill ``article_text`` by fetching each article page and extracting
+    its main body. Existing non-empty ``article_text`` values are preserved.
+
+    This is a best-effort enrichment: a fetch failure or empty extraction
+    leaves ``article_text`` as an empty string. Callers should still be able
+    to fall back to ``summary_en``.
+    """
+    # Imported lazily to avoid a top-level circular import with article_extract,
+    # which itself imports fetch_url / decode_content from this module.
+    if fetch_article_text_fn is None:
+        from .article_extract import fetch_article_text as _default_fetch_article_text
+        fetch_article_text_fn = _default_fetch_article_text
+
+    settings = resolve_article_text_settings(pipeline_config)
+    if not settings["enabled"]:
+        for article in articles:
+            article.setdefault("article_text", "")
+        return
+
+    max_words = settings["max_words"]
+    max_workers = settings["max_workers"]
+
+    missing_links = sorted({
+        str(article.get("link", "")).strip()
+        for article in articles
+        if not _normalize_summary(article.get("article_text"))
+        and str(article.get("link", "")).strip()
+    })
+    if not missing_links:
+        for article in articles:
+            article.setdefault("article_text", "")
+        return
+
+    results: Dict[str, str] = {}
+    worker_count = min(max(max_workers, 1), len(missing_links))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(fetch_article_text_fn, link, max_words): link
+            for link in missing_links
+        }
+        for future in as_completed(futures):
+            link = futures[future]
+            try:
+                results[link] = future.result()
+            except Exception as exc:
+                results[link] = ""
+                print(f"[WARN] Article text extraction failed for {link}: {exc}",
+                      file=sys.stderr)
+
+    for article in articles:
+        if _normalize_summary(article.get("article_text")):
+            continue
+        link = str(article.get("link", "")).strip()
+        extracted = _normalize_summary(results.get(link, ""))
+        article["article_text"] = extracted
 
 
 def fetch_rss_feed(

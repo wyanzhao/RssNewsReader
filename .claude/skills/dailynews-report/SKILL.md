@@ -38,7 +38,7 @@ Read these files before acting:
 - Only `report-assembler` may write the final success report.
 - Use `llm_context.json` for article-level semantics, ranking, clustering, and summaries.
 - Use `validation.json` only for gating metadata, `counts.articles`, source order cross-checks, and per-feed error text that is not duplicated in `llm_context.json`.
-- Do not silently reconstruct Part 1 / Part 2 from `summary_en` or partially copied chat text when a subagent handoff is incomplete.
+- Do not silently reconstruct Part 1 / Part 2 from `article_text`, `summary_en`, or partially copied chat text when a subagent handoff is incomplete.
 - Treat oversize, truncated, or schema-invalid success-path handoffs as blocking errors.
 - Never fabricate titles, links, counts, source groups, or error text.
 - Never hand-edit `raw.json`, `validation.json`, or `llm_context.json`.

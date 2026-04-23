@@ -32,49 +32,6 @@
       ]
     }
   },
-  "candidate_articles": [
-    {
-      "source": "Ars Technica",
-      "title": "Californians sue over AI tool that records doctor visits",
-      "link": "https://arstechnica.com/tech-policy/2026/04/californians-sue-over-ai-tool-that-records-doctor-visits/",
-      "pub_date_utc": "2026-04-10 21:43 UTC",
-      "pub_date_iso": "2026-04-10T21:43:33+00:00",
-      "summary_en": "Plaintiffs say transcription tool processed confidential chats offsite.",
-      "heuristic_score": 55.0,
-      "audit_flags": [
-        "breakthrough_signal"
-      ],
-      "amount_millions": 0.0
-    },
-    {
-      "source": "TechCrunch",
-      "title": "How to watch NASA’s Artemis II splash back down to Earth",
-      "link": "https://techcrunch.com/2026/04/10/how-to-watch-nasa-artemis-ii-landing/",
-      "pub_date_utc": "2026-04-10 21:18 UTC",
-      "pub_date_iso": "2026-04-10T21:18:09+00:00",
-      "summary_en": "NASA's Artemis II mission has traveled farther from Earth than any mission before.",
-      "heuristic_score": -45.0,
-      "audit_flags": [
-        "noise"
-      ],
-      "amount_millions": 0.0
-    },
-    {
-      "source": "MacRumors",
-      "title": "The Latest Foldable iPhone Rumors: What's Changed and What We Know Now",
-      "link": "https://www.macrumors.com/2026/04/10/iphone-fold-rumor-recap/",
-      "pub_date_utc": "2026-04-10 21:57 UTC",
-      "pub_date_iso": "2026-04-10T21:57:17+00:00",
-      "summary_en": "Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage.",
-      "heuristic_score": -142.0,
-      "audit_flags": [
-        "major_company",
-        "speculation",
-        "noise"
-      ],
-      "amount_millions": 0.0
-    }
-  ],
   "all_articles": [
     {
       "source": "MacRumors",
@@ -83,13 +40,7 @@
       "pub_date_utc": "2026-04-10 21:57 UTC",
       "pub_date_iso": "2026-04-10T21:57:17+00:00",
       "summary_en": "Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage.",
-      "heuristic_score": -142.0,
-      "audit_flags": [
-        "major_company",
-        "speculation",
-        "noise"
-      ],
-      "amount_millions": 0.0
+      "article_text": ""
     },
     {
       "source": "Ars Technica",
@@ -98,11 +49,7 @@
       "pub_date_utc": "2026-04-10 21:43 UTC",
       "pub_date_iso": "2026-04-10T21:43:33+00:00",
       "summary_en": "Plaintiffs say transcription tool processed confidential chats offsite.",
-      "heuristic_score": 55.0,
-      "audit_flags": [
-        "breakthrough_signal"
-      ],
-      "amount_millions": 0.0
+      "article_text": ""
     },
     {
       "source": "TechCrunch",
@@ -111,11 +58,7 @@
       "pub_date_utc": "2026-04-10 21:18 UTC",
       "pub_date_iso": "2026-04-10T21:18:09+00:00",
       "summary_en": "NASA's Artemis II mission has traveled farther from Earth than any mission before.",
-      "heuristic_score": -45.0,
-      "audit_flags": [
-        "noise"
-      ],
-      "amount_millions": 0.0
+      "article_text": ""
     }
   ],
   "source_groups": [
@@ -132,11 +75,7 @@
           "pub_date_utc": "2026-04-10 21:43 UTC",
           "pub_date_iso": "2026-04-10T21:43:33+00:00",
           "summary_en": "Plaintiffs say transcription tool processed confidential chats offsite.",
-          "heuristic_score": 55.0,
-          "audit_flags": [
-            "breakthrough_signal"
-          ],
-          "amount_millions": 0.0
+          "article_text": ""
         }
       ]
     },
@@ -153,13 +92,7 @@
           "pub_date_utc": "2026-04-10 21:57 UTC",
           "pub_date_iso": "2026-04-10T21:57:17+00:00",
           "summary_en": "Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage.",
-          "heuristic_score": -142.0,
-          "audit_flags": [
-            "major_company",
-            "speculation",
-            "noise"
-          ],
-          "amount_millions": 0.0
+          "article_text": ""
         }
       ]
     },
@@ -183,11 +116,7 @@
           "pub_date_utc": "2026-04-10 21:18 UTC",
           "pub_date_iso": "2026-04-10T21:18:09+00:00",
           "summary_en": "NASA's Artemis II mission has traveled farther from Earth than any mission before.",
-          "heuristic_score": -45.0,
-          "audit_flags": [
-            "noise"
-          ],
-          "amount_millions": 0.0
+          "article_text": ""
         }
       ]
     },
