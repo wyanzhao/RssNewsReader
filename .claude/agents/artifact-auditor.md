@@ -23,7 +23,7 @@ description: Use proactively after pipeline-runner on success or expected-block 
 
 ## 读法边界
 
-- 用 `llm_context.json` 读取 `candidate_articles`、`all_articles`、`source_groups`、`validation.counts`
+- 用 `llm_context.json` 读取 `all_articles`、`source_groups`、`validation.counts`
 - 用 `validation.json` 只读取 gating 元数据和 `feed_results[].error`
 - 如果 `classification == expected-block` 且 `llm_context.json` 缺失，记录这一观察并继续审计 `validation.json`；不要自行恢复缺失文件
 - 如果 `classification == success` 且 `llm_context.json` 缺失或不可读，视为阻断性问题

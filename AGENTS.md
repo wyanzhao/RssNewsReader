@@ -92,12 +92,11 @@ names, types, or semantics is a breaking change and must be coordinated with
 ```
 meta              { date, generated_at_utc, run_id, report_path }
 validation        { passed, blocking_reasons, warnings, counts, policy }
-candidate_articles  [<article>, ...]   # sorted by heuristic_score desc, capped by --candidate-limit
-all_articles        [<article>, ...]   # full list, original time-desc order
+all_articles        [<article>, ...]   # authoritative pool for part1-editor; full list, original time-desc order
 source_groups       [{ source, url, status, article_count, articles: [<article>] }]
 ```
 
-### Per-article object (9 fields)
+### Per-article object (7 fields)
 
 ```
 source            string   # feed display name
@@ -106,12 +105,21 @@ link              string   # full original URL
 pub_date_utc      string   # human-readable "YYYY-MM-DD HH:MM UTC"
 pub_date_iso      string   # ISO 8601 with +00:00
 summary_en        string   # English summary, may be empty
-heuristic_score   number   # see render_report.score_article
-audit_flags       string[] # subset of: major_company, business_signal,
-                           #   security_signal, breakthrough_signal, launch_signal,
-                           #   speculation, noise, hard_noise, funding_or_deal_ge_100m
-amount_millions   number   # 0.0 when no monetary amount detected
+article_text      string   # extracted article main body (up to ~300 words), may be empty
 ```
+
+The deterministic pipeline no longer emits scoring metadata
+(`heuristic_score`, `audit_flags`, `amount_millions`) or a pre-filtered
+`candidate_articles` list. Top 30 selection, clustering, de-noising, and
+priority ordering are the sole responsibility of the `part1-editor` subagent.
+
+`article_text` is a best-effort extraction of the source article's main body
+via `_common/article_extract.py`. It is intended as the primary input for
+LLM Chinese summarization (Part 1 and Part 2). It is empty when extraction
+fails, when the page blocks scraping, when the article has no link, or when
+the `article_text` enrichment pass is disabled in `pipeline_config.json`.
+Editorial agents must fall back to `summary_en` when `article_text` is empty
+and must never fabricate body text that is not in either field.
 
 ### `validation.json` fields the runtime reads
 
@@ -146,8 +154,8 @@ shape and policy key names as the normal validator output.
 - `status == 'error'` requires non-empty `error` text.
 - `unique_source_count` is observational only. It is not a blocking integrity rule.
 - `part1_plan.json` and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for `report-assembler` to consume without scraping long prose from chat output.
-- If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `summary_en` or partial manual reconstruction.
-- `summary_en` is source material only. It may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
+- If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `article_text` / `summary_en` or partial manual reconstruction.
+- `article_text` and `summary_en` are source material only. They may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
 - Titles must remain in English.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
@@ -158,10 +166,10 @@ shape and policy key names as the normal validator output.
 - `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
 - `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
-- `part1-editor` is success-only. It performs Part 1 clustering, Top 30 selection, and event-summary planning from `candidate_articles`, then writes `runs/<date>/part1_plan.json` as its structured handoff artifact.
+- `part1-editor` is success-only. It performs all Part 1 work — de-noising, clustering, Top 30 selection, priority ordering, and Chinese summarization — autonomously from `all_articles`, and writes `runs/<date>/part1_plan.json` as its structured handoff artifact. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
 - `part2-drafter` is success-only. It expands `source_groups[]` plus `validation.feed_results[].error` into the full Part 2 source-group draft, then writes `runs/<date>/part2_draft.json` as its structured handoff artifact.
 - `report-assembler` is success-only and is the only success-path writer of the final `report_path`. It assembles the final Chinese report from `part1_plan.json` and `part2_draft.json` without ever overwriting `*.failed.md`.
-- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `summary_en` leaks into the final report after the write.
+- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report after the write.
 - Fixed branch order:
   - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer`
   - expected-block: `pipeline-runner -> artifact-auditor`
@@ -211,6 +219,11 @@ import-safe and has dedicated unit tests.
   summary output formatters.
 - `_common/runtime_config.py` — repo-level `pipeline_config.json` loader plus
   raw-artifact config snapshot helpers for fetch and render settings.
+- `_common/article_extract.py` — stdlib-only main-text extractor that
+  prefers `<article>` / `<main>` / `role='main'` containers, drops
+  script / style / nav / aside / footer / header / form regions, and
+  truncates to ``article_text.max_words`` whitespace tokens. Populates the
+  ``article_text`` field that editorial agents consume.
 - `_common/schemas.py` — `TypedDict` shapes for `RawDocument`,
   `ValidationDocument`, `LlmContextDocument`, `PipelineOutput`, plus
   `STATUS_OK / STATUS_EMPTY / STATUS_ERROR` constants. Documentation-grade;
@@ -224,6 +237,7 @@ Code handles:
 - Deduplication by link
 - Feed-level status accounting
 - Summary extraction and fallback backfill
+- Article main-body extraction (``article_text``) from linked pages
 - Validation and exit codes
 - Zero-article / contract gating
 - Artifact paths and file writing
@@ -249,6 +263,29 @@ The LLM handles:
 - The fetch step snapshots the effective values into `raw.json.runtime_config`
   so downstream render steps do not silently drift with later config edits.
 
+## Article Body Extraction
+
+- After summary enrichment, `rss_news_monitor.py` runs an `article_text`
+  enrichment pass that fetches each article page and extracts its main
+  body via `_common/article_extract.py`.
+- Extraction prefers `<article>`, `<main>`, or `role='main'` containers,
+  strips `<script>`, `<style>`, and obvious chrome (`<nav>`, `<aside>`,
+  `<footer>`, `<header>`, `<form>`, etc.), and falls back to the union of
+  all `<p>` / `<li>` / `<h*>` blocks when no container is present.
+- Output is truncated to `pipeline_config.json.article_text.max_words`
+  whitespace tokens (default 300). A trailing `"..."` marks truncation.
+- `pipeline_config.json.article_text.enabled` toggles the pass globally.
+  When disabled or when extraction fails, `article_text` is an empty
+  string and editorial agents fall back to `summary_en`.
+- `pipeline_config.json.article_text.max_workers` (default 4) caps fetch
+  concurrency for this pass.
+- The fetch step snapshots effective values into
+  `raw.json.runtime_config.article_text` for later reference.
+- `article_text` is best-effort. It is never used by the deterministic
+  renderer; both the failure report and the success markdown continue to
+  display `summary_en`. `article_text` is exclusively an LLM editorial
+  input surfaced via `llm_context.json`.
+
 ## Render Summary Limits
 
 - `pipeline_config.json.render.part1_summary_max_chars` controls final summary
@@ -268,6 +305,8 @@ runtime procedure:
 When `validation.passed` is true, the LLM should:
 
 - Read `llm_context.json`
+- Select Top 30 autonomously from `all_articles`; the deterministic pipeline emits no scoring, flags, or pre-filtered candidate list — filtering, clustering, and ordering are the agent's responsibility
+- Prefer `article_text` as the source of truth for Chinese summarization; when `article_text` is empty, fall back to `summary_en`. Never fabricate body text that is not in either field.
 - Cluster duplicate or near-duplicate coverage of the same event
 - Prioritize major industry events such as financing `>=100M`, acquisitions, and major regulation.
 - Then prioritize major product launches from Apple, Google, NVIDIA, OpenAI, and similar companies.

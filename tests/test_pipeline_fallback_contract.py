@@ -83,7 +83,6 @@ class PipelineFallbackContractTests(unittest.TestCase):
                 "payload = {\n"
                 "    'meta': {},\n"
                 "    'validation': {},\n"
-                "    'candidate_articles': [],\n"
                 "    'all_articles': [],\n"
                 "    'source_groups': [],\n"
                 "}\n"

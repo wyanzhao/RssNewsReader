@@ -16,7 +16,7 @@ description: Use proactively after report-assembler writes the final DailyNews s
 - `status == 'error'` 的来源在顶部 `抓取异常` 与来源分组内 `抓取状态` 的处理正确
 - `report_path` 不是 `*.failed.md`
 - Part 1 / Part 2 标题与 section 结构完整
-- Part 1 / Part 2 的中文摘要存在，且没有把原始 `summary_en` 直接漏进最终报告
+- Part 1 / Part 2 的中文摘要存在，且没有把原始 `summary_en` 或 `article_text` 直接漏进最终报告
 
 ## 边界
 

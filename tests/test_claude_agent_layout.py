@@ -37,7 +37,7 @@ EXPECTED_AGENTS = {
         "不生成最终报告",
     ],
     "part1-editor": [
-        "candidate_articles",
+        "all_articles",
         "Part 1",
         "Top 30",
         "part1_plan.json",

@@ -407,7 +407,12 @@ class OfflineQCTests(unittest.TestCase):
         self.assertEqual(len(deduped), scenario["expected_dedup_count"])
         self.assertEqual([item["source"] for item in deduped], scenario["expected_sources_after_dedup"])
 
-    def test_ranking_prefers_material_events_over_noise(self):
+    def test_deterministic_top_articles_preserve_input_order(self):
+        """Renderer fallback is pure time-desc: it must not re-rank by signals.
+
+        Top 30 editorial selection lives in `part1-editor` (Claude Code runtime);
+        the static renderer only slices the already-sorted article list.
+        """
         article_cls = self.render_module.Article
         parse_pub_date = self.render_module.parse_pub_date
         choose_top_articles = self.render_module.choose_top_articles
@@ -437,8 +442,7 @@ class OfflineQCTests(unittest.TestCase):
         ]
 
         ranked = choose_top_articles(articles)
-        self.assertEqual(ranked[0].link, "https://example.com/funding")
-        self.assertEqual(ranked[-1].link, "https://example.com/pr-sale")
+        self.assertEqual([a.link for a in ranked], [a.link for a in articles])
 
     def test_choose_top_articles_caps_at_top_n(self):
         article_cls = self.render_module.Article
@@ -525,7 +529,7 @@ class OfflineQCTests(unittest.TestCase):
         self.assertEqual(group_count, len(self.feeds))
         self.assertEqual(group_article_total, 3)
 
-    def test_llm_context_contains_candidates_and_source_groups(self):
+    def test_llm_context_contains_all_articles_and_source_groups(self):
         raw_data = materialize_raw("golden_success.json")
         code, validation = run_validator(raw_data)
         self.assertEqual(code, EXIT_OK)
@@ -535,10 +539,19 @@ class OfflineQCTests(unittest.TestCase):
         self.assertIsNotNone(context)
         self.assertTrue(context["validation"]["passed"])
         self.assertEqual(len(context["source_groups"]), len(self.feeds))
-        self.assertEqual(len(context["candidate_articles"]), 3)
+        self.assertEqual(len(context["all_articles"]), 3)
         self.assertTrue(context["meta"]["report_path"].endswith("rss-report-2026-04-10.md"))
-        self.assertEqual(context["candidate_articles"][0]["title"], "Californians sue over AI tool that records doctor visits")
-        self.assertIn("audit_flags", context["candidate_articles"][0])
+        # all_articles is time-desc; no scoring fields are emitted
+        self.assertEqual(
+            context["all_articles"][0]["title"],
+            "The Latest Foldable iPhone Rumors: What's Changed and What We Know Now",
+        )
+        self.assertNotIn("heuristic_score", context["all_articles"][0])
+        self.assertNotIn("audit_flags", context["all_articles"][0])
+        self.assertNotIn("amount_millions", context["all_articles"][0])
+        self.assertNotIn("candidate_articles", context)
+        # article_text is a best-effort field; may be empty but must be present
+        self.assertIn("article_text", context["all_articles"][0])
 
     def test_invalid_legacy_raw_contract_returns_10(self):
         legacy_raw = {

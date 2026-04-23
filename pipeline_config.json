@@ -3,6 +3,11 @@
     "short_summary_threshold": 100,
     "page_fallback_cap": 300
   },
+  "article_text": {
+    "enabled": true,
+    "max_words": 300,
+    "max_workers": 4
+  },
   "render": {
     "part1_summary_max_chars": 300,
     "part2_summary_max_chars": 300
