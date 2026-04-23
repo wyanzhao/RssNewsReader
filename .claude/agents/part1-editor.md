@@ -35,7 +35,7 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 - `breakthrough_signal`：加分
 - `major_company` 单独存在时轻微加分
 - Top 30 优先级：大额融资 / 并购 / 重大监管 / 重大交易 > 重大产品发布 > 重大安全或合规 > 技术突破 > 其他高分且时效性强的事件
-- 同优先级内优先保持来源多样性；有可替代事件时，单一 `source` 在 Part 1 中尽量不超过 3 次
+- 同优先级内优先保持来源多样性；有可替代事件时，单一 `source` 在 Part 1 中尽量不超过 3 次；确需超过时，必须在 `notes[]` 里按来源名写一条理由，说明没有同优先级的替代事件
 - 若聚类后不足 30，可从 `all_articles` 补足，但不得纳入 `hard_noise`
 
 ## 输出
@@ -45,8 +45,9 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 `part1_plan.json` 至少应包含：
 
 - `items[]`：每条含 `rank`、`title`、`link`、`source`、`pub_date_utc`、`summary_zh`、`also_sources[]`
+  - `also_sources[]`：同一事件的其他来源覆盖。每条为结构化对象 `{"source": "<source name>", "title": "<English title>"}`，不携带 link；无相关覆盖时必须写成 `[]` 而不是省略字段；`source` 必须出现在 `all_articles[].source`，`title` 必须与对应 `all_articles[].title` 原文一致。之所以不使用 `"Source: Title"` 单字符串编码，是因为 feed 名可能含 `": "`，拼接后下游无法无歧义地还原来源/标题对，违反 `AGENTS.md` 对 handoff artifact machine-readable 的要求
 - `shortfall`：若符合条件的候选不足 30，明确给出差额；否则为 `0`
-- `notes[]`：聚类或降权的简短说明
+- `notes[]`：聚类、降权或单源超额豁免的简短说明（单源超额必须按来源名登记）
 
 如果无法完整写出合法、未截断的 UTF-8 JSON：
 
