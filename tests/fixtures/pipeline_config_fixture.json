@@ -1,0 +1,10 @@
+{
+  "summary_enrichment": {
+    "short_summary_threshold": 25,
+    "page_fallback_cap": 111
+  },
+  "render": {
+    "part1_summary_max_chars": 200,
+    "part2_summary_max_chars": 200
+  }
+}

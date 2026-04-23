@@ -30,6 +30,24 @@
 - [x] Epic D — 文档统一同步
 - [ ] Epic E — 布局与回归验证
 - [ ] Epic F — success-path handoff hardening
+- [x] Epic G — validator / source-group contract hardening
+- [x] Epic H — unexpected-error schema parity
+- [x] Epic I — editorial core decoupling
+- [x] Epic J — `rss_news_monitor.py` 模块化拆分
+
+## Review-Driven Refactor Plan
+
+- 本轮 review 结论：不做一次性“大重写”，而是做有边界的定向重构
+- 执行顺序固定为：`G -> H -> I -> J`
+- 优先级解释：
+  - `G` 先修真实 contract hole，避免 validator 放过自相矛盾的 source-group 数据
+  - `H` 再修 unexpected-error 分支 schema 漂移，保证 `validation.json` 在所有分支都同形
+  - `I` 再把 `build_llm_context.py` 从 `render_report.py` 的内部实现中解耦，降低后续改动的连带风险
+  - `J` 最后再拆 `rss_news_monitor.py`，因为它主要是可维护性问题，不是当前最高风险的数据正确性问题
+- 非目标：
+  - 不修改 `rss_daily_report.py --json-output` 的 8 字段 contract
+  - 不改变 `llm_context.json` 的对外字段名，除非同时更新 golden fixture、contract tests 与 runtime docs
+  - 不把 deterministic 规则重新塞回 Claude runtime 层
 
 ## Task Breakdown
 
@@ -59,6 +77,22 @@
 - `F1` | `done` | 将 success 分支 handoff 固定成结构化中间产物 | `part1-editor` / `part2-drafter` 改为产出 `part1_plan.json` / `part2_draft.json`，`report-assembler` 只消费它们并写 final report
 - `F2` | `done` | 禁止 success 分支在 handoff 缺失或截断时 silent fallback | `AGENTS.md`、skill、agents 已明确：不得回退到 `summary_en` 或聊天文本拼装“差不多”的正式报告
 - `F3` | `done` | 同步 README 与布局测试到新的 handoff contract | README 与 `tests/test_claude_skill_layout.py` / `tests/test_claude_agent_layout.py` 已覆盖中间产物与 no-silent-fallback 约束
+- `G1` | `done` | 在 `qc_validate.py` 中加入 per-source consistency 校验 | validator 现在会校验每个 `feed_results[].source` 的 `article_count` / `status` / `error` 是否与 `raw.json.articles` 的真实 source 聚合一致，并阻断 duplicate / missing source
+- `G2` | `done` | 为 source-group contradiction 增加定向回归测试 | `tests/test_qc_offline.py` 已覆盖“总数没错但 source 归属错位”与 `status=ok` 携带 `error` 的阻断场景
+- `G3` | `done` | 将 source-group consistency 纳入 `llm_context` / renderer 侧防御性断言 | `_common/editorial.py` 增加 defensive consistency check，`build_llm_context.py` / `render_report.py` 遇到自相矛盾的 source-group metadata 时会 fail fast
+- `G4` | `done` | 在 contract docs 中补充 per-source integrity 规则 | `AGENTS.md` 已写明 per-source `article_count` / `status` / `error` 自洽要求
+- `H1` | `done` | 统一 `rss_daily_report.py` fallback validation schema | fallback `validation.json` 的 `policy` 键名与默认值已对齐 `qc_validate.py` / `_common/schemas.py`
+- `H2` | `done` | 为 unexpected-error / fallback path 增加 contract 测试 | 新增 `tests/test_pipeline_fallback_contract.py`，锁住 unreadable validator 输出时的 fallback schema
+- `H3` | `done` | 明确 fallback artifact 也是正式 contract 的一部分 | `AGENTS.md` 已写明 unexpected-error 分支的 fallback `validation.json` 也必须保持正常 schema 形状
+- `I1` | `done` | 提取 shared editorial helpers 到 `scripts/_common/` | 已新增 `_common/editorial.py` 承载文章标准化、flags、金额提取、评分、Top-N、source-group roster 与 consistency checks
+- `I2` | `done` | 让 `build_llm_context.py` 停止依赖 `render_report.py` 私有实现 | `build_llm_context.py` 已改为直接依赖 `_common/editorial.py`
+- `I3` | `done` | 保持 `llm_context` golden 与 Top 30 行为稳定 | contract snapshot、editorial core tests、全量 unittest 与真实 smoke 均已通过
+- `I4` | `done` | 收窄 renderer 职责到“只消费规范化数据并渲染 Markdown” | `render_report.py` 现主要保留 CLI / Top 30 cap / Markdown render，与 shared editorial core 分离
+- `J1` | `done` | 规划 `rss_news_monitor.py` 的模块边界 | 已拆出 feed config、parse、fetch、output 四组 helper 模块
+- `J2` | `done` | 先抽纯函数，再保留原 CLI surface 不变 | `rss_news_monitor.py` 保留兼容入口与原 CLI flags，主脚本只做薄分派
+- `J3` | `done` | 为 fetch-path 拆分补一轮真实 smoke checklist | 已完成真实 `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup` smoke
+- `J4` | `done` | 将 `rss_news_monitor.py` 从“大一统脚本”收敛为薄 CLI | 主脚本已从 850 行收敛到约 300 行，主要承担兼容层与 CLI 分派
+- `J5` | `done` | 将摘要阈值从硬编码迁移到 repo-level config | 已新增 `pipeline_config.json`，fetch / render 读取配置并把生效值快照写入 `raw.json.runtime_config`
 
 ## Validation Checklist
 
@@ -75,6 +109,12 @@
 - [x] `claude agents` 已确认 7 个 project agents 可见
 - [ ] Claude Code `/help` 中确认 `/dailynews-report` 可见
 - [ ] 条件允许时完成一次 `/dailynews-report` 手动 smoke
+- [x] validator 新增覆盖：source-level `article_count` / `status` contradiction 会被阻断
+- [x] fallback `validation.json` 在 unexpected-error 分支与正常 schema 同形
+- [x] `build_llm_context.py` 不再 import `render_report.py` 的私有 helper
+- [x] `tests/test_contracts_snapshot.py`、`tests/test_qc_offline.py`、`tests/test_common_text.py`、`tests/test_pipeline_step.py` 全绿
+- [x] 至少一次真实 `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output` smoke 通过
+- [x] 摘要相关阈值已从硬编码迁移到 `pipeline_config.json`，且测试固定到 fixture config
 
 ## Backlog
 
@@ -82,3 +122,4 @@
 - [ ] 为常见失败模式补充 supporting skills 或 agent variants
 - [ ] 增加更细粒度的自动化验证，覆盖 README / AGENTS / TASKS 的一致性
 - [ ] 评估是否为 report-reviewer 增加更严格的结构化审查输出格式
+- [ ] 评估是否为 `part1_plan.json` / `part2_draft.json` 增加本地 schema 校验与装配前 fail-fast

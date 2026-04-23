@@ -103,6 +103,7 @@ def _import_test_helpers():
 _helpers = _import_test_helpers()
 materialize_raw = _helpers.materialize_raw
 run_validator = _helpers.run_validator
+load_pipeline_config_fixture = _helpers.load_pipeline_config_fixture
 
 
 def _run_build_llm_context(raw: Dict[str, Any], validation: Dict[str, Any],
@@ -275,6 +276,19 @@ class PipelineJsonOutputContractTests(unittest.TestCase):
         # passed=True means the success-name file (no .failed.md suffix)
         self.assertTrue(report_path.endswith("rss-report-2026-04-10.md"))
         self.assertFalse(report_path.endswith(".failed.md"))
+
+
+class RawFixtureConfigSnapshotTests(unittest.TestCase):
+    """Keep render-related pipeline tests pinned to fixture-backed config."""
+
+    def test_materialized_raw_carries_fixture_config_snapshot(self):
+        raw = materialize_raw("golden_success.json")
+        self.assertEqual(raw.get("runtime_config", {}).get("summary_enrichment"), {
+            "short_summary_threshold": load_pipeline_config_fixture()["summary_enrichment"]["short_summary_threshold"],
+            "page_fallback_cap": load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
+            "effective_page_fallback_cap": load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
+        })
+        self.assertEqual(raw.get("runtime_config", {}).get("render"), load_pipeline_config_fixture()["render"])
 
 
 class ExitCodeTranslationContractTests(unittest.TestCase):

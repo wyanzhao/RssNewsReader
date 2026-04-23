@@ -18,14 +18,15 @@ This repository builds a daily RSS report in two stages:
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
 - `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the project skill.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
+- `pipeline_config.json` is the repo-level deterministic pipeline config for summary-enrichment and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
 - `.claude/skills/dailynews-report/SKILL.md` is the project-local Claude Code orchestrator skill and the only runtime procedure entry.
 - `.claude/agents/*.md` defines the specialized subagents used by the orchestrator skill.
 
 ## Entry Points
 
-- Main pipeline: `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output [--retain-days 90] [--no-cleanup]`
-- Fetch only: `python3 scripts/rss_news_monitor.py --json --max-summary 300 --hours 24`
+- Main pipeline: `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output [--config pipeline_config.json] [--retain-days 90] [--no-cleanup]`
+- Fetch only: `python3 scripts/rss_news_monitor.py --json --max-summary 300 --hours 24 [--config pipeline_config.json]`
 - Validate only: `python3 scripts/qc_validate.py --input runs/<date>/raw.json --feeds feeds.json`
 - Build LLM context: `python3 scripts/build_llm_context.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output runs/<date>/llm_context.json --report-path $REPO_ROOT/rss-report-<date>.md`
 - Deterministic renderer: `python3 scripts/render_report.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output $REPO_ROOT/rss-report-<date>.md`
@@ -61,6 +62,9 @@ additionally write:
 
 These are success-path handoff artifacts for the LLM runtime only. They are
 not deterministic pipeline outputs.
+
+`raw.json` may additionally carry a top-level `runtime_config` snapshot with the
+effective summary-enrichment and render-threshold values used for that run.
 
 ## Contract Surface (LLM-Visible And Runtime-Readable Fields)
 
@@ -116,6 +120,9 @@ amount_millions   number   # 0.0 when no monetary amount detected
 `status` / `article_count` (used to render the per-source groups including
 `(0 篇)` placeholders), plus optional `feed_results[].error` text when
 `status == 'error'` and the final report needs to surface the fetch failure.
+When `rss_daily_report.py` has to synthesize a fallback `validation.json` for an
+unexpected-error branch, that fallback artifact must keep the same top-level
+shape and policy key names as the normal validator output.
 
 ## Contract Rules
 
@@ -129,9 +136,14 @@ amount_millions   number   # 0.0 when no monetary amount detected
 - `counts.error` is warning-only for publishability; `counts.articles == 0` remains a blocking condition that produces the failure report.
 - `validation.passed == false` means agents must not overwrite the failure report with a formal report.
 - `feed_results` count must equal the feed count in `feeds.json`.
+- Each configured feed must appear exactly once in `feed_results[]`.
+- Each `feed_results[].article_count` must match the actual count of `raw.json.articles` for that `source`.
 - `status` values are limited to `ok`, `empty`, or `error`.
+- `status == 'ok'` requires `article_count > 0` and no `error` text.
 - `empty` is warning-only.
+- `status == 'empty'` requires `article_count == 0` and no `error` text.
 - `error` is warning-only for workflow gating and must be surfaced in the final report for the affected source.
+- `status == 'error'` requires non-empty `error` text.
 - `unique_source_count` is observational only. It is not a blocking integrity rule.
 - `part1_plan.json` and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for `report-assembler` to consume without scraping long prose from chat output.
 - If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `summary_en` or partial manual reconstruction.
@@ -185,6 +197,20 @@ import-safe and has dedicated unit tests.
 - `_common/paths.py` — `runs_dir_for`, `report_path`, `stale_run_dirs`.
   Owns the `rss-report-YYYY-MM-DD.md` and `runs/YYYY-MM-DD/` templates so
   renames touch one file.
+- `_common/editorial.py` — shared article normalization, source-group roster
+  construction, heuristic scoring, audit-flag derivation, Top 30 selection,
+  and defensive source-group consistency checks used by both
+  `build_llm_context.py` and `render_report.py`.
+- `_common/feed_config.py` — `feeds.json` CRUD and OPML import extracted from
+  `rss_news_monitor.py`.
+- `_common/feed_parse.py` — RSS/Atom XML parsing plus HTML meta-summary
+  fallback extraction.
+- `_common/feed_fetch.py` — network fetch, decode, summary backfill, and
+  concurrent feed retrieval helpers.
+- `_common/feed_output.py` — monitor-side dedup plus JSON / grouped text /
+  summary output formatters.
+- `_common/runtime_config.py` — repo-level `pipeline_config.json` loader plus
+  raw-artifact config snapshot helpers for fetch and render settings.
 - `_common/schemas.py` — `TypedDict` shapes for `RawDocument`,
   `ValidationDocument`, `LlmContextDocument`, `PipelineOutput`, plus
   `STATUS_OK / STATUS_EMPTY / STATUS_ERROR` constants. Documentation-grade;
@@ -197,6 +223,7 @@ Code handles:
 - RSS fetching
 - Deduplication by link
 - Feed-level status accounting
+- Summary extraction and fallback backfill
 - Validation and exit codes
 - Zero-article / contract gating
 - Artifact paths and file writing
@@ -207,6 +234,30 @@ The LLM handles:
 - Event clustering across sources
 - Top 30 editorial selection
 - Content audit and de-noising
+
+## Summary Fallback Behavior
+
+- `rss_news_monitor.py` keeps feed-level `summary_en` when it is usable.
+- If `summary_en` is empty or too short, the fetch path also attempts an
+  article-page fallback instead of treating feed summaries as all-or-nothing.
+- Article-page fallback reads standard HTML meta summary fields such as
+  `description`, `og:description`, and `twitter:description`.
+- `pipeline_config.json.summary_enrichment.short_summary_threshold` controls
+  what counts as “too short”.
+- `pipeline_config.json.summary_enrichment.page_fallback_cap` controls the hard
+  cap for page-fallback summaries even if `--max-summary` is set higher.
+- The fetch step snapshots the effective values into `raw.json.runtime_config`
+  so downstream render steps do not silently drift with later config edits.
+
+## Render Summary Limits
+
+- `pipeline_config.json.render.part1_summary_max_chars` controls final summary
+  truncation in the Top 30 section.
+- `pipeline_config.json.render.part2_summary_max_chars` controls final summary
+  truncation in the per-source section.
+- `render_report.py` must prefer `raw.json.runtime_config.render` when present.
+  If an older `raw.json` lacks that snapshot, it may fall back to the explicit
+  `--config` file or the repo default `pipeline_config.json`.
 
 ## Editorial Policy For Runtime Runs
 
@@ -245,11 +296,13 @@ When `validation.passed` is true, the LLM should:
 
 ## Tests
 
-All tests pin to `tests/fixtures/feeds_fixture.json` rather than the real
-`feeds.json` at the repo root. Users can add, remove, or reorder feeds in
-their own `feeds.json` without breaking the suite. When a test asserts
-anything about feed count or the rendered Markdown shape, it derives it
-from the fixture — never hard-coded.
+All tests pin to `tests/fixtures/feeds_fixture.json` and
+`tests/fixtures/pipeline_config_fixture.json` rather than the real repo-root
+config files. Users can add, remove, or reorder feeds in `feeds.json`, or tune
+their own `pipeline_config.json`, without breaking the suite. When a test
+asserts anything about feed count, render thresholds, or the rendered Markdown
+shape, it derives it from fixtures — never hard-coded against the user's local
+config files.
 
 - `tests/test_qc_offline.py` — validator + renderer + dedup parity, fixture-driven.
 - `tests/test_contracts_snapshot.py` — locks the LLM-visible surface
@@ -272,9 +325,9 @@ from the fixture — never hard-coded.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
 - If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, and the relevant `.claude/agents/*.md` files aligned.
 - If tests change, update the fixture set in `tests/fixtures/` — including
-  `feeds_fixture.json` and the two golden artifacts
+  `feeds_fixture.json`, `pipeline_config_fixture.json`, and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make
-  tests depend on the user's real `feeds.json`.
+  tests depend on the user's real `feeds.json` or `pipeline_config.json`.
 - Runtime outputs (`rss-report-*.md` and `runs/`) are gitignored. Fetched
   content lives in the user's local clone, not the repo.
 - When refactoring `rss_news_monitor.py` or any fetch-path code, run a real
@@ -284,3 +337,6 @@ from the fixture — never hard-coded.
 - Prefer extending `scripts/_common/*` over duplicating helpers; the
   contract-snapshot tests will catch behavioural drift in raw.json /
   validation.json / llm_context.json.
+- Do not re-couple `build_llm_context.py` to private helpers inside
+  `render_report.py`; shared editorial-domain behavior belongs in
+  `scripts/_common/editorial.py`.

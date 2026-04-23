@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib.util
 import json
 import re
@@ -13,6 +15,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # Tests pin to a fixture feeds.json so they stay stable across user edits to
 # the real feeds.json at the repo root.
 FEEDS_PATH = FIXTURES / "feeds_fixture.json"
+PIPELINE_CONFIG_PATH = FIXTURES / "pipeline_config_fixture.json"
 VALIDATE_SCRIPT = ROOT / "scripts" / "qc_validate.py"
 RENDER_SCRIPT = ROOT / "scripts" / "render_report.py"
 RSS_MONITOR_SCRIPT = ROOT / "scripts" / "rss_news_monitor.py"
@@ -34,6 +37,55 @@ def load_text_fixture(name: str) -> str:
 
 def load_feeds():
     return json.loads(FEEDS_PATH.read_text(encoding="utf-8"))["feeds"]
+
+
+def load_pipeline_config_fixture():
+    if PIPELINE_CONFIG_PATH.exists():
+        return json.loads(PIPELINE_CONFIG_PATH.read_text(encoding="utf-8"))
+    return {
+        "summary_enrichment": {
+            "short_summary_threshold": 80,
+            "page_fallback_cap": 300,
+        },
+        "render": {
+            "part1_summary_max_chars": 200,
+            "part2_summary_max_chars": 200,
+        }
+    }
+
+
+def make_render_config(part1_summary_max_chars: int, part2_summary_max_chars: int):
+    return {
+        "render": {
+            "part1_summary_max_chars": part1_summary_max_chars,
+            "part2_summary_max_chars": part2_summary_max_chars,
+        }
+    }
+
+
+def make_runtime_config_snapshot(
+    *,
+    part1_summary_max_chars: int = 200,
+    part2_summary_max_chars: int = 200,
+    short_summary_threshold: int = 80,
+    page_fallback_cap: int = 300,
+    effective_page_fallback_cap: int | None = None,
+    config_path: Path | None = None,
+):
+    return {
+        "config_path": str((config_path or PIPELINE_CONFIG_PATH).resolve()),
+        "summary_enrichment": {
+            "short_summary_threshold": short_summary_threshold,
+            "page_fallback_cap": page_fallback_cap,
+            "effective_page_fallback_cap": (
+                page_fallback_cap if effective_page_fallback_cap is None else effective_page_fallback_cap
+            ),
+        },
+        "render": {
+            "part1_summary_max_chars": part1_summary_max_chars,
+            "part2_summary_max_chars": part2_summary_max_chars,
+        },
+    }
 
 
 def load_monitor_module():
@@ -99,6 +151,13 @@ def materialize_raw(scenario_name: str):
         "configured_feed_count": len(feeds),
         "configured_feeds": [feed["name"] for feed in feeds],
         "feed_results": feed_results,
+        "runtime_config": make_runtime_config_snapshot(
+            short_summary_threshold=load_pipeline_config_fixture()["summary_enrichment"]["short_summary_threshold"],
+            page_fallback_cap=load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
+            effective_page_fallback_cap=load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
+            part1_summary_max_chars=load_pipeline_config_fixture()["render"]["part1_summary_max_chars"],
+            part2_summary_max_chars=load_pipeline_config_fixture()["render"]["part2_summary_max_chars"],
+        ),
         "articles": articles,
     }
 
@@ -118,7 +177,8 @@ def run_validator(raw_data):
         return proc.returncode, validation
 
 
-def run_renderer(raw_data, validation_data, report_name="rss-report-2026-04-10.md"):
+def run_renderer(raw_data, validation_data, report_name="rss-report-2026-04-10.md",
+                 config_path=None):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         raw_path = tmp / "raw.json"
@@ -127,15 +187,22 @@ def run_renderer(raw_data, validation_data, report_name="rss-report-2026-04-10.m
         raw_path.write_text(json.dumps(raw_data, ensure_ascii=False, indent=2), encoding="utf-8")
         validation_path.write_text(json.dumps(validation_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+        command = [
+            sys.executable,
+            str(RENDER_SCRIPT),
+            "--input", str(raw_path),
+            "--validation", str(validation_path),
+            "--output", str(output_path),
+            "--date", "2026-04-10",
+        ]
+        effective_config_path = config_path
+        if effective_config_path is None and PIPELINE_CONFIG_PATH.exists():
+            effective_config_path = PIPELINE_CONFIG_PATH
+        if effective_config_path is not None:
+            command.extend(["--config", str(effective_config_path)])
+
         proc = subprocess.run(
-            [
-                sys.executable,
-                str(RENDER_SCRIPT),
-                "--input", str(raw_path),
-                "--validation", str(validation_path),
-                "--output", str(output_path),
-                "--date", "2026-04-10",
-            ],
+            command,
             capture_output=True,
             text=True,
             check=False,
@@ -229,6 +296,44 @@ class OfflineQCTests(unittest.TestCase):
         self.assertEqual(validation["counts"]["ok"], 3)
         self.assertEqual(validation["counts"]["empty"], len(self.feeds) - 3)
         self.assertEqual(validation["counts"]["error"], 0)
+
+    def test_validator_blocks_source_group_contradiction_when_totals_still_match(self):
+        raw_data = materialize_raw("golden_success.json")
+        for entry in raw_data["feed_results"]:
+            if entry["source"] == "Ars Technica":
+                entry["status"] = "empty"
+                entry["article_count"] = 0
+                entry["error"] = None
+            elif entry["source"] == "The Verge":
+                entry["status"] = "ok"
+                entry["article_count"] = 1
+                entry["error"] = None
+
+        code, validation = run_validator(raw_data)
+
+        self.assertEqual(code, EXIT_CONTRACT_MISMATCH)
+        self.assertFalse(validation["passed"])
+        reasons = "\n".join(validation["blocking_reasons"])
+        self.assertIn("article_count mismatch for source Ars Technica", reasons)
+        self.assertIn("article_count mismatch for source The Verge", reasons)
+        self.assertNotIn("sum(article_count) mismatch", reasons)
+
+    def test_validator_requires_status_and_error_state_to_align(self):
+        raw_data = materialize_raw("golden_success.json")
+        for entry in raw_data["feed_results"]:
+            if entry["source"] == "TechCrunch":
+                entry["status"] = "ok"
+                entry["error"] = "HTTP 500"
+                break
+
+        code, validation = run_validator(raw_data)
+
+        self.assertEqual(code, EXIT_CONTRACT_MISMATCH)
+        self.assertFalse(validation["passed"])
+        self.assertIn(
+            "status ok must not include error: TechCrunch",
+            "\n".join(validation["blocking_reasons"]),
+        )
 
     def test_partial_failure_marks_failed_sources_but_keeps_formal_report(self):
         raw_data = materialize_raw("partial_failure_mix.json")
@@ -353,6 +458,53 @@ class OfflineQCTests(unittest.TestCase):
 
         ranked = choose_top_articles(articles)
         self.assertEqual(len(ranked), self.render_module.TOP_N)
+
+    def test_render_prefers_raw_snapshot_over_config_file(self):
+        raw_data = materialize_raw("golden_success.json")
+        raw_data["runtime_config"] = make_runtime_config_snapshot(
+            part1_summary_max_chars=24,
+            part2_summary_max_chars=17,
+        )
+        code, validation = run_validator(raw_data)
+        self.assertEqual(code, EXIT_OK)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "pipeline_config.json"
+            config_path.write_text(
+                json.dumps(make_render_config(80, 70), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            render_result = run_renderer(raw_data, validation, config_path=config_path)
+
+        self.assertEqual(render_result["returncode"], EXIT_OK)
+        articles = self.render_module.normalize_articles(raw_data)
+        top_article = self.render_module.choose_top_articles(articles)[0]
+        expected_part1 = self.render_module.clamp_text(top_article.summary, 24)
+        expected_part2 = self.render_module.clamp_text(top_article.summary, 17)
+        self.assertIn(f"摘要: {expected_part1}", render_result["rendered_text"])
+        self.assertIn(f"摘要: {expected_part2}", render_result["rendered_text"])
+
+    def test_render_legacy_raw_falls_back_to_explicit_config_file(self):
+        raw_data = materialize_raw("golden_success.json")
+        raw_data.pop("runtime_config", None)
+        code, validation = run_validator(raw_data)
+        self.assertEqual(code, EXIT_OK)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "pipeline_config.json"
+            config_path.write_text(
+                json.dumps(make_render_config(22, 15), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            render_result = run_renderer(raw_data, validation, config_path=config_path)
+
+        self.assertEqual(render_result["returncode"], EXIT_OK)
+        articles = self.render_module.normalize_articles(raw_data)
+        top_article = self.render_module.choose_top_articles(articles)[0]
+        expected_part1 = self.render_module.clamp_text(top_article.summary, 22)
+        expected_part2 = self.render_module.clamp_text(top_article.summary, 15)
+        self.assertIn(f"摘要: {expected_part1}", render_result["rendered_text"])
+        self.assertIn(f"摘要: {expected_part2}", render_result["rendered_text"])
 
     def test_render_markdown_matches_golden_fixture(self):
         raw_data = materialize_raw("golden_success.json")

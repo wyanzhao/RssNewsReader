@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -93,6 +93,11 @@ def _count_feed_results(feed_results: List[Dict[str, Any]]) -> Tuple[int, int, i
     return ok, empty, error
 
 
+def _has_error_detail(item: Dict[str, Any]) -> bool:
+    error_detail = item.get('error')
+    return isinstance(error_detail, str) and bool(error_detail.strip())
+
+
 def validate(raw: Dict[str, Any], feeds: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
     result = _blank_result()
 
@@ -161,6 +166,20 @@ def validate(raw: Dict[str, Any], feeds: Dict[str, Any]) -> Tuple[Dict[str, Any]
                 f'articles length mismatch: count={count}, articles={len(articles)}'
             )
 
+        article_counts_by_source: Dict[str, int] = {}
+        for idx, article in enumerate(articles):
+            if not isinstance(article, dict):
+                result['blocking_reasons'].append(f'articles[{idx}] must be an object')
+                continue
+            source = article.get('source')
+            if not isinstance(source, str) or not source.strip():
+                result['blocking_reasons'].append(f'articles[{idx}].source must be a non-empty string')
+                continue
+            article_counts_by_source[source] = article_counts_by_source.get(source, 0) + 1
+            if source not in feed_error_policies:
+                result['blocking_reasons'].append(f'articles[{idx}].source not found in feeds.json: {source}')
+
+        seen_sources: Set[str] = set()
         for idx, item in enumerate(feed_results):
             if not isinstance(item, dict):
                 result['blocking_reasons'].append(f'feed_results[{idx}] must be an object')
@@ -171,18 +190,55 @@ def validate(raw: Dict[str, Any], feeds: Dict[str, Any]) -> Tuple[Dict[str, Any]
                 continue
             if source not in feed_error_policies:
                 result['blocking_reasons'].append(f'feed_results[{idx}].source not found in feeds.json: {source}')
+            if source in seen_sources:
+                result['blocking_reasons'].append(f'feed_results[{idx}].source is duplicated: {source}')
+            else:
+                seen_sources.add(source)
             status = item.get('status')
             if status not in VALID_STATUSES:
                 result['blocking_reasons'].append(f'feed_results[{idx}].status must be one of {sorted(VALID_STATUSES)}')
             article_count = item.get('article_count')
             if not isinstance(article_count, int) or article_count < 0:
                 result['blocking_reasons'].append(f'feed_results[{idx}].article_count must be a non-negative integer')
+            actual_article_count = article_counts_by_source.get(source, 0)
+            if isinstance(article_count, int) and article_count != actual_article_count:
+                result['blocking_reasons'].append(
+                    f'feed_results[{idx}].article_count mismatch for source {source}: '
+                    f'expected {actual_article_count}, got {article_count}'
+                )
+            has_error_detail = _has_error_detail(item)
+            if status == 'ok':
+                if article_count == 0:
+                    result['blocking_reasons'].append(
+                        f'feed_results[{idx}].status ok requires article_count > 0: {source}'
+                    )
+                if has_error_detail:
+                    result['blocking_reasons'].append(
+                        f'feed_results[{idx}].status ok must not include error: {source}'
+                    )
+            elif status == 'empty':
+                if article_count != 0:
+                    result['blocking_reasons'].append(
+                        f'feed_results[{idx}].status empty requires article_count == 0: {source}'
+                    )
+                if has_error_detail:
+                    result['blocking_reasons'].append(
+                        f'feed_results[{idx}].status empty must not include error: {source}'
+                    )
+            elif status == 'error' and not has_error_detail:
+                result['blocking_reasons'].append(
+                    f'feed_results[{idx}].status error requires non-empty error: {source}'
+                )
             if status == 'error' and isinstance(source, str):
                 error_detail = item.get('error')
                 source_label = source if not error_detail else f'{source} ({error_detail})'
                 error_sources.append(source_label)
                 if feed_error_policies.get(source) == 'warn':
                     warn_error_sources.append(source)
+
+        for source in feed_error_policies:
+            if source not in seen_sources:
+                result['blocking_reasons'].append(f'feed_results missing source from feeds.json: {source}')
 
         ok_count, empty_count, error_count = _count_feed_results(feed_results)
         total_articles = 0

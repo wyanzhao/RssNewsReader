@@ -40,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Number of hours to look back (default: 24)")
     parser.add_argument("--max-summary", type=int, default=300,
                         help="Max summary length passed through to the fetch step")
+    parser.add_argument("--config",
+                        help="Optional path to pipeline_config.json for fetch and render")
     parser.add_argument("--date", metavar="YYYY-MM-DD",
                         help="Override output date (defaults to local date)")
     parser.add_argument("--runs-dir", default=str(ROOT_DIR / "runs"),
@@ -66,7 +68,9 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def build_fallback_validation(fetch_code: int, message: str) -> Dict[str, Any]:
+def build_fallback_validation(fetch_code: int,
+                              validate_code: int,
+                              message: str) -> Dict[str, Any]:
     return {
         "passed": False,
         "blocking_reasons": [message],
@@ -80,14 +84,17 @@ def build_fallback_validation(fetch_code: int, message: str) -> Dict[str, Any]:
             "articles": 0,
         },
         "policy": {
-            "block_on_error_count_gt": 0,
+            "block_on_error_count": False,
             "block_on_zero_articles": True,
-            "block_on_feed_result_mismatch": True,
+            "block_on_feed_results_mismatch": True,
+            "empty_is_warning_only": True,
+            "unique_source_count_is_observational": True,
         },
         "meta": {
             "validator_exit_code": 40,
             "fallback": True,
             "fetch_exit_code": fetch_code,
+            "validate_exit_code": validate_code,
         },
     }
 
@@ -124,6 +131,11 @@ def main() -> int:
         stdout_path=raw_path,
         stderr_path=fetch_stderr_path,
     )
+    if args.config:
+        fetch_step.args.extend([
+            "--config",
+            str(Path(args.config).expanduser().resolve()),
+        ])
     fetch_result = run_step(fetch_step)
 
     validate_step = Step(
@@ -145,7 +157,11 @@ def main() -> int:
             f"Validator did not produce readable JSON. Fetch exit={fetch_result.returncode}, "
             f"validate exit={validate_result.returncode}."
         )
-        validation = build_fallback_validation(fetch_result.returncode, fallback_message)
+        validation = build_fallback_validation(
+            fetch_result.returncode,
+            validate_result.returncode,
+            fallback_message,
+        )
         write_text(validation_path, json.dumps(validation, ensure_ascii=False, indent=2))
         validator_exit_code = 40
     else:
@@ -183,6 +199,11 @@ def main() -> int:
         ],
         stderr_path=render_stderr_path,
     )
+    if args.config:
+        render_step.args.extend([
+            "--config",
+            str(Path(args.config).expanduser().resolve()),
+        ])
     render_result = run_step(render_step)
     if render_result.returncode != 0:
         print(

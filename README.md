@@ -38,6 +38,13 @@ This single command runs:
 3. build `llm_context.json`
 4. render a deterministic Markdown report
 
+During fetch, the monitor keeps the feed-provided summary when it is usable.
+If `summary_en` is empty or too short, it also tries an article-page fallback
+from standard HTML meta summary fields. In the standard DailyNews workflow,
+page-fallback summaries are capped at 300 characters.
+Render-time summary truncation is configured separately and defaults to 200
+characters for both the Top 30 section and the per-source section.
+
 If the run succeeds, stdout prints a JSON object with 8 control-plane fields:
 
 - `report_date`
@@ -87,7 +94,7 @@ They are not meant to be committed with the codebase.
 
 If you want the shortest path from clone to result:
 
-1. Review or edit [`feeds.json`](feeds.json).
+1. Review or edit [`feeds.json`](feeds.json) and [`pipeline_config.json`](pipeline_config.json).
 2. Run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`.
 3. Open the emitted `report_path`.
 4. If the run is blocked, inspect `validation_path` and the sidecar `*.stderr.txt`
@@ -111,6 +118,33 @@ Optional field:
 
 The test suite is pinned to [`tests/fixtures/feeds_fixture.json`](tests/fixtures/feeds_fixture.json),
 so changing your local `feeds.json` does not break the tests.
+
+## Tune Summary Settings
+
+Edit [`pipeline_config.json`](pipeline_config.json) to control the summary-related
+thresholds used by the deterministic pipeline:
+
+```json
+{
+  "summary_enrichment": {
+    "short_summary_threshold": 80,
+    "page_fallback_cap": 300
+  },
+  "render": {
+    "part1_summary_max_chars": 200,
+    "part2_summary_max_chars": 200
+  }
+}
+```
+
+- `summary_enrichment.short_summary_threshold`: below this length, feed summaries
+  are treated as too short and trigger page fallback.
+- `summary_enrichment.page_fallback_cap`: hard cap for article-page fallback summaries.
+- `render.part1_summary_max_chars`: final report truncation limit for the Top 30 section.
+- `render.part2_summary_max_chars`: final report truncation limit for the per-source section.
+
+Each run snapshots the active summary config into `raw.json.runtime_config`, so
+later render steps can stay consistent with the fetch-time settings.
 
 ## Run Tests
 
@@ -173,9 +207,10 @@ scripts/
   network_debug.py         network/fetch diagnostics
   _common/                 shared helpers (text, pipeline, paths, schemas)
 tests/
-  fixtures/                golden fixtures + fixture feeds.json
+  fixtures/                golden fixtures + fixture feeds.json + fixture pipeline_config.json
   test_*.py                offline unit + contract snapshot suites
 feeds.json                 user-editable RSS source list
+pipeline_config.json       user-editable summary fallback / render settings
 AGENTS.md                  pipeline contract and maintainer guide
 CLAUDE.md                  Claude Code entrypoint; imports AGENTS.md
 TASKS.md                   maintainer tracker for architecture work

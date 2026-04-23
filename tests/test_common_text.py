@@ -244,9 +244,14 @@ class FetchPathRegressionTests(unittest.TestCase):
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
 
+        calls = []
         original = module.fetch_article_summary
         try:
-            module.fetch_article_summary = lambda url, max_summary=0: "Filled from article page"
+            def fake_fetch(url, max_summary=0):
+                calls.append((url, max_summary))
+                return "Filled from article page"
+
+            module.fetch_article_summary = fake_fetch
             articles = [
                 {
                     "title": "Example",
@@ -256,12 +261,114 @@ class FetchPathRegressionTests(unittest.TestCase):
                 {
                     "title": "Already populated",
                     "link": "https://example.com/post-2",
-                    "summary_en": "Keep existing",
+                    "summary_en": (
+                        "This summary is already long enough to skip fallback fetching entirely, "
+                        "because it contains enough detail to clear the short-summary threshold."
+                    ),
                 },
             ]
             module.enrich_missing_summaries(articles, max_summary=120, max_workers=2)
             self.assertEqual(articles[0]["summary_en"], "Filled from article page")
-            self.assertEqual(articles[1]["summary_en"], "Keep existing")
+            self.assertEqual(
+                articles[1]["summary_en"],
+                "This summary is already long enough to skip fallback fetching entirely, "
+                "because it contains enough detail to clear the short-summary threshold.",
+            )
+            self.assertEqual(calls, [("https://example.com/post", 120)])
+        finally:
+            module.fetch_article_summary = original
+
+    def test_enrich_missing_summaries_upgrades_short_entries(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "rss_news_monitor",
+            SCRIPTS / "rss_news_monitor.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+        original = module.fetch_article_summary
+        try:
+            module.fetch_article_summary = (
+                lambda url, max_summary=0:
+                "Expanded article-page summary with enough extra detail to beat the short feed teaser."
+            )
+            articles = [
+                {
+                    "title": "Short teaser",
+                    "link": "https://example.com/post",
+                    "summary_en": "Brief teaser only.",
+                },
+            ]
+            module.enrich_missing_summaries(articles, max_summary=300, max_workers=1)
+            self.assertEqual(
+                articles[0]["summary_en"],
+                "Expanded article-page summary with enough extra detail to beat the short feed teaser.",
+            )
+        finally:
+            module.fetch_article_summary = original
+
+    def test_enrich_missing_summaries_leaves_long_entries_alone(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "rss_news_monitor",
+            SCRIPTS / "rss_news_monitor.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+        calls = []
+        original = module.fetch_article_summary
+        try:
+            def fake_fetch(url, max_summary=0):
+                calls.append((url, max_summary))
+                return "This should never be used."
+
+            module.fetch_article_summary = fake_fetch
+            original_summary = (
+                "This feed summary already contains enough detail to clear the short-summary "
+                "threshold and should remain untouched."
+            )
+            articles = [
+                {
+                    "title": "Long enough",
+                    "link": "https://example.com/post",
+                    "summary_en": original_summary,
+                },
+            ]
+            module.enrich_missing_summaries(articles, max_summary=300, max_workers=1)
+            self.assertEqual(articles[0]["summary_en"], original_summary)
+            self.assertEqual(calls, [])
+        finally:
+            module.fetch_article_summary = original
+
+    def test_enrich_missing_summaries_caps_fallback_at_300_chars(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "rss_news_monitor",
+            SCRIPTS / "rss_news_monitor.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+        original = module.fetch_article_summary
+        try:
+            module.fetch_article_summary = lambda url, max_summary=0: "x" * max_summary
+            articles = [
+                {
+                    "title": "Needs upgrade",
+                    "link": "https://example.com/post",
+                    "summary_en": "Short summary.",
+                },
+            ]
+            module.enrich_missing_summaries(articles, max_summary=500, max_workers=1)
+            self.assertEqual(len(articles[0]["summary_en"]), 300)
         finally:
             module.fetch_article_summary = original
 

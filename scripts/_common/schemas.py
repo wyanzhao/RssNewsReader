@@ -50,6 +50,18 @@ class FeedResult(TypedDict, total=False):
     article_count: int
 
 
+class SummaryEnrichmentSnapshot(TypedDict, total=False):
+    short_summary_threshold: int
+    page_fallback_cap: int
+    effective_page_fallback_cap: int
+
+
+class RuntimeConfigSnapshot(TypedDict, total=False):
+    config_path: str
+    summary_enrichment: SummaryEnrichmentSnapshot
+    render: Dict[str, int]
+
+
 class RawDocument(TypedDict, total=False):
     meta: RawMeta
     hours: int
@@ -59,6 +71,7 @@ class RawDocument(TypedDict, total=False):
     configured_feed_count: int
     configured_feeds: List[str]
     feed_results: List[FeedResult]
+    runtime_config: RuntimeConfigSnapshot
     articles: List[RawArticle]
 
 

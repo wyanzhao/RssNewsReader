@@ -5,9 +5,22 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import render_report
+# Make ``scripts/`` importable when this file is launched directly or imported
+# via ``importlib`` in tests.
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _common.editorial import (  # noqa: E402
+    as_dict,
+    group_articles,
+    normalize_articles,
+    normalize_source_groups,
+    normalized_article_payload,
+    report_date,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,56 +45,11 @@ def load_json(path: str) -> Dict[str, Any]:
     return data
 
 
-def normalized_article_payload(article: render_report.Article) -> Dict[str, Any]:
-    text = render_report._normalized_text(article)
-    amount_m = render_report._extract_max_amount_millions(text)
-    has_major_company = render_report._contains_any(text, render_report.MAJOR_COMPANIES)
-    has_business_signal = render_report._contains_any(text, render_report.BUSINESS_PATTERNS)
-    has_security_signal = render_report._contains_any(text, render_report.SECURITY_PATTERNS)
-    has_breakthrough_signal = render_report._contains_any(text, render_report.BREAKTHROUGH_PATTERNS)
-    has_launch_signal = render_report._contains_any(text, render_report.LAUNCH_PATTERNS)
-    has_speculation = render_report._contains_any(text, render_report.SPECULATION_PATTERNS)
-    has_noise = render_report._contains_any(text, render_report.NOISE_PATTERNS)
-    has_hard_noise = render_report._contains_any(text, render_report.HARD_NOISE_PATTERNS)
-
-    flags: List[str] = []
-    if has_major_company:
-        flags.append("major_company")
-    if has_business_signal:
-        flags.append("business_signal")
-    if has_security_signal:
-        flags.append("security_signal")
-    if has_breakthrough_signal:
-        flags.append("breakthrough_signal")
-    if has_launch_signal:
-        flags.append("launch_signal")
-    if has_speculation:
-        flags.append("speculation")
-    if has_noise:
-        flags.append("noise")
-    if has_hard_noise:
-        flags.append("hard_noise")
-    if amount_m >= 100.0:
-        flags.append("funding_or_deal_ge_100m")
-
-    return {
-        "source": article.source,
-        "title": article.title,
-        "link": article.link,
-        "pub_date_utc": render_report.format_utc(article.pub_date),
-        "pub_date_iso": article.pub_date.astimezone(render_report.timezone.utc).isoformat(),
-        "summary_en": article.summary,
-        "heuristic_score": round(render_report.score_article(article), 2),
-        "audit_flags": flags,
-        "amount_millions": round(amount_m, 2),
-    }
-
-
 def build_context(raw: Dict[str, Any], validation: Dict[str, Any], date_str: str,
                   candidate_limit: int, report_path: Optional[str]) -> Dict[str, Any]:
-    articles = render_report.normalize_articles(raw)
-    grouped = render_report.group_articles(articles)
-    groups = render_report.normalize_source_groups(raw, validation, articles)
+    articles = normalize_articles(raw)
+    grouped = group_articles(articles)
+    groups = normalize_source_groups(raw, validation, articles)
 
     article_payloads = [normalized_article_payload(article) for article in articles]
     ranked_articles = sorted(
@@ -110,10 +78,10 @@ def build_context(raw: Dict[str, Any], validation: Dict[str, Any], date_str: str
     return {
         "meta": {
             "date": date_str,
-            "generated_at_utc": render_report.as_dict(validation.get("meta")).get("generated_at_utc")
-            or render_report.as_dict(raw.get("meta")).get("generated_at_utc"),
-            "run_id": render_report.as_dict(validation.get("meta")).get("run_id")
-            or render_report.as_dict(raw.get("meta")).get("run_id"),
+            "generated_at_utc": as_dict(validation.get("meta")).get("generated_at_utc")
+            or as_dict(raw.get("meta")).get("generated_at_utc"),
+            "run_id": as_dict(validation.get("meta")).get("run_id")
+            or as_dict(raw.get("meta")).get("run_id"),
             "report_path": report_path or "",
         },
         "validation": {
@@ -134,7 +102,7 @@ def main() -> int:
     try:
         raw = load_json(args.input)
         validation = load_json(args.validation)
-        date_str = args.date or render_report.report_date(None, args.output, raw, validation)
+        date_str = report_date(args.date, args.output, raw, validation)
         context = build_context(raw, validation, date_str, args.candidate_limit, args.report_path)
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)

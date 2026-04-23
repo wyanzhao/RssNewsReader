@@ -14,75 +14,40 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List
+
+
+# Make ``scripts/`` importable when this file is launched directly or imported
+# via ``importlib`` in tests.
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _common.editorial import (  # noqa: E402
+    Article,
+    as_dict,
+    choose_top_articles as editorial_choose_top_articles,
+    format_time_only,
+    format_utc,
+    group_articles,
+    normalize_articles,
+    normalize_source_groups,
+    parse_pub_date,
+    report_date,
+)
+from _common.runtime_config import (  # noqa: E402
+    DEFAULT_PART1_SUMMARY_MAX_CHARS,
+    DEFAULT_PART2_SUMMARY_MAX_CHARS,
+    DEFAULT_PIPELINE_CONFIG_FILE,
+    load_pipeline_config,
+)
 
 
 TOP_N = 30
 LINE = "=" * 70
-MAJOR_COMPANIES = (
-    "apple", "google", "nvidia", "openai", "microsoft", "anthropic",
-    "meta", "amazon", "amd", "intel", "tesla", "waymo", "cloudflare",
-)
-NOISE_PATTERNS = (
-    "giveaway", "deal", "discount", "sale", "how to watch", "hands-on",
-    "roundup", "rumor", "rumors", "recap", "preview", "pre-order",
-)
-HARD_NOISE_PATTERNS = (
-    "(pr)", "sponsored", "advertisement",
-)
-SPECULATION_PATTERNS = (
-    "reportedly", "rumor", "rumors", "leak", "leaks", "claims", "claim",
-    "said to", "says report",
-)
-BUSINESS_PATTERNS = (
-    "raise", "raises", "raised", "funding", "valuation", "acquire",
-    "acquires", "acquisition", "merger", "merges", "antitrust",
-    "regulation", "regulatory", "export control", "ban", "fine",
-    "penalty", "approval", "approved", "lawsuit", "sues",
-)
-LAUNCH_PATTERNS = (
-    "launch", "launches", "launched", "introduces", "announces",
-    "announced", "release", "releases", "released", "unveils",
-    "ships", "shipping", "rolls out",
-)
-SECURITY_PATTERNS = (
-    "breach", "breached", "vulnerability", "vulnerabilities", "exploit",
-    "backdoor", "backdoors", "malware", "ransomware", "privacy", "stole",
-    "stolen", "hack", "hacked", "data exposure", "zero-day", "zero day",
-    "data leak", "leaked data",
-)
-BREAKTHROUGH_PATTERNS = (
-    "paper", "research", "benchmark", "breakthrough", "milestone",
-    "record", "achieves", "achieve", "state of the art", "sota",
-    "new model", "inference", "agentic", "reactor", "nuclear",
-)
-AMOUNT_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])(?P<prefix>\$)?(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>billion|million|bn|b|m)\b",
-    re.IGNORECASE,
-)
-
-
-@dataclass(frozen=True)
-class Article:
-    source: str
-    title: str
-    link: str
-    pub_date: datetime
-    summary: str
-
-
-@dataclass(frozen=True)
-class SourceGroup:
-    name: str
-    url: str = ""
-    article_count: int = 0
-    status: str = ""
-    error: str = ""
+DEFAULT_CONFIG_PATH = DEFAULT_PIPELINE_CONFIG_FILE
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         "--date",
         help="Optional YYYY-MM-DD date to display in the report title.",
     )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional pipeline config path. Used when raw.json lacks a config snapshot.",
+    )
     return parser.parse_args()
 
 
@@ -119,249 +89,106 @@ def load_json(path: str) -> Dict[str, Any]:
     return data
 
 
-def parse_pub_date(value: Any) -> datetime:
-    if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, str):
-        raw = value.strip()
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-    else:
-        raise ValueError(f"Unsupported pub_date value: {value!r}")
-
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+def _coerce_limit(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
 
 
-def format_utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+def _first_limit(*values: Any) -> int | None:
+    for value in values:
+        limit = _coerce_limit(value)
+        if limit is not None:
+            return limit
+    return None
 
 
-def format_time_only(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%H:%M UTC")
+def _dict_or_empty(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _extract_render_overrides(config: Dict[str, Any]) -> Dict[str, int]:
+    render = _dict_or_empty(config.get("render"))
+    part1_limit = _first_limit(render.get("part1_summary_max_chars"))
+    part2_limit = _first_limit(render.get("part2_summary_max_chars"))
+    overrides: Dict[str, int] = {}
+    if part1_limit is not None:
+        overrides["part1_summary_max_chars"] = part1_limit
+    if part2_limit is not None:
+        overrides["part2_summary_max_chars"] = part2_limit
+    return overrides
+
+
+def _extract_raw_config_snapshot(raw: Dict[str, Any]) -> Dict[str, Any]:
+    meta = _dict_or_empty(raw.get("meta"))
+    candidates = (
+        raw.get("runtime_config"),
+        meta.get("config_snapshot"),
+        meta.get("pipeline_config_snapshot"),
+        raw.get("config_snapshot"),
+        raw.get("pipeline_config_snapshot"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            return candidate
+    return {}
+
+
+def default_render_config() -> Dict[str, int]:
+    return {
+        "part1_summary_max_chars": DEFAULT_PART1_SUMMARY_MAX_CHARS,
+        "part2_summary_max_chars": DEFAULT_PART2_SUMMARY_MAX_CHARS,
+    }
+
+
+def resolve_render_config(raw: Dict[str, Any], config_path: str | None = None) -> Dict[str, int]:
+    raw_overrides = _extract_render_overrides(_extract_raw_config_snapshot(raw))
+    config = default_render_config()
+
+    if config_path:
+        path = Path(config_path)
+        if path.exists():
+            config.update(_extract_render_overrides(load_pipeline_config(str(path))[0]))
+        elif not raw_overrides:
+            raise FileNotFoundError(f"config file not found: {config_path}")
+    elif DEFAULT_CONFIG_PATH.exists():
+        config.update(_extract_render_overrides(load_pipeline_config(DEFAULT_CONFIG_PATH)[0]))
+
+    config.update(raw_overrides)
+    return config
 
 
 def clamp_text(text: str, limit: int) -> str:
     text = " ".join((text or "").split())
+    if limit <= 0:
+        return text
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def as_dict(value: Any) -> Dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def normalize_articles(raw: Dict[str, Any]) -> List[Article]:
-    articles: List[Article] = []
-    for item in raw.get("articles", []):
-        if not isinstance(item, dict):
-            continue
-        try:
-            articles.append(
-                Article(
-                    source=str(item.get("source", "")).strip() or "Unknown",
-                    title=str(item.get("title", "")).strip() or "(untitled)",
-                    link=str(item.get("link", "")).strip(),
-                    pub_date=parse_pub_date(item["pub_date"]),
-                    summary=str(item.get("summary_en", "")).strip(),
-                )
-            )
-        except Exception:
-            continue
-    articles.sort(key=lambda a: a.pub_date, reverse=True)
-    return articles
-
-
-def normalize_source_groups(raw: Dict[str, Any], validation: Dict[str, Any], articles: Sequence[Article]) -> List[SourceGroup]:
-    article_counts: Dict[str, int] = {}
-    for article in articles:
-        article_counts[article.source] = article_counts.get(article.source, 0) + 1
-
-    roster: List[SourceGroup] = []
-
-    feed_results = validation.get("feed_results")
-    if isinstance(feed_results, list) and feed_results:
-        for entry in feed_results:
-            if not isinstance(entry, dict):
-                continue
-            name = str(entry.get("source") or entry.get("name") or "").strip()
-            if not name:
-                continue
-            roster.append(
-                SourceGroup(
-                    name=name,
-                    url=str(entry.get("url", "")).strip(),
-                    article_count=int(entry.get("article_count") or article_counts.get(name, 0)),
-                    status=str(entry.get("status", "")).strip(),
-                    error=str(entry.get("error", "") or "").strip(),
-                )
-            )
-        if roster:
-            return roster
-
-    configured_feeds = raw.get("configured_feeds")
-    if isinstance(configured_feeds, list) and configured_feeds:
-        for entry in configured_feeds:
-            if isinstance(entry, dict):
-                name = str(entry.get("name", "")).strip()
-                url = str(entry.get("url", "")).strip()
-            else:
-                name = str(entry).strip()
-                url = ""
-            if not name:
-                continue
-            roster.append(
-                SourceGroup(
-                    name=name,
-                    url=url,
-                    article_count=article_counts.get(name, 0),
-                )
-            )
-        if roster:
-            return roster
-
-    raw_feed_results = raw.get("feed_results")
-    if isinstance(raw_feed_results, list) and raw_feed_results:
-        for entry in raw_feed_results:
-            if not isinstance(entry, dict):
-                continue
-            name = str(entry.get("source") or entry.get("name") or "").strip()
-            if not name:
-                continue
-            roster.append(
-                SourceGroup(
-                    name=name,
-                    url=str(entry.get("url", "")).strip(),
-                    article_count=int(entry.get("article_count") or article_counts.get(name, 0)),
-                    status=str(entry.get("status", "")).strip(),
-                    error=str(entry.get("error", "") or "").strip(),
-                )
-            )
-        if roster:
-            return roster
-
-    unique_sources = raw.get("unique_sources")
-    if isinstance(unique_sources, list) and unique_sources:
-        for name in unique_sources:
-            name_str = str(name).strip()
-            if not name_str:
-                continue
-            roster.append(
-                SourceGroup(
-                    name=name_str,
-                    article_count=article_counts.get(name_str, 0),
-                )
-            )
-        if roster:
-            return roster
-
-    for name in sorted(article_counts.keys()):
-        roster.append(SourceGroup(name=name, article_count=article_counts[name]))
-    return roster
-
-
-def group_articles(articles: Sequence[Article]) -> Dict[str, List[Article]]:
-    grouped: Dict[str, List[Article]] = {}
-    for article in articles:
-        grouped.setdefault(article.source, []).append(article)
-    for group in grouped.values():
-        group.sort(key=lambda a: a.pub_date, reverse=True)
-    return grouped
-
-
-def _normalized_text(article: Article) -> str:
-    return f"{article.title}\n{article.summary}".lower()
-
-
-def _contains_any(text: str, phrases: Sequence[str]) -> bool:
-    return any(phrase in text for phrase in phrases)
-
-
-def _extract_max_amount_millions(text: str) -> float:
-    max_amount = 0.0
-    for match in AMOUNT_PATTERN.finditer(text):
-        value = float(match.group("value"))
-        unit = match.group("unit").lower()
-        if unit in ("billion", "bn", "b"):
-            value *= 1000.0
-        max_amount = max(max_amount, value)
-    return max_amount
-
-
-def score_article(article: Article) -> float:
-    text = _normalized_text(article)
-    score = 0.0
-    has_speculation = _contains_any(text, SPECULATION_PATTERNS)
-    has_business_signal = _contains_any(text, BUSINESS_PATTERNS)
-    has_security_signal = _contains_any(text, SECURITY_PATTERNS)
-
-    if _contains_any(text, HARD_NOISE_PATTERNS):
-        score -= 120.0
-    if _contains_any(text, NOISE_PATTERNS):
-        score -= 45.0
-    if has_speculation:
-        score -= 38.0
-    if article.source == "Hacker News Best":
-        score -= 35.0
-
-    amount_m = _extract_max_amount_millions(text)
-    has_major_company = _contains_any(text, MAJOR_COMPANIES)
-
-    if amount_m >= 100.0:
-        score += 120.0
-    if has_business_signal:
-        score += 85.0
-    if has_major_company and _contains_any(text, LAUNCH_PATTERNS):
-        score += 75.0
-    elif _contains_any(text, LAUNCH_PATTERNS):
-        score += 40.0
-    if has_security_signal:
-        score += 80.0
-    if _contains_any(text, BREAKTHROUGH_PATTERNS):
-        score += 55.0
-    if has_major_company:
-        score += 18.0
-    if has_speculation and amount_m < 100.0:
-        score -= 32.0
-    if has_speculation and not has_business_signal and not has_security_signal and amount_m < 100.0:
-        score -= 45.0
-    return score
-
-
-def choose_top_articles(articles: Sequence[Article]) -> List[Article]:
-    remaining = list(articles)
-    selected: List[Article] = []
-    source_counts: Dict[str, int] = {}
-
-    while remaining and len(selected) < TOP_N:
-        best_index = 0
-        best_score = None
-        for idx, article in enumerate(remaining):
-            diversity_penalty = source_counts.get(article.source, 0) * 14.0
-            candidate_score = score_article(article) - diversity_penalty
-            candidate_key = (candidate_score, article.pub_date.timestamp())
-            if best_score is None or candidate_key > best_score:
-                best_score = candidate_key
-                best_index = idx
-        chosen = remaining.pop(best_index)
-        selected.append(chosen)
-        source_counts[chosen.source] = source_counts.get(chosen.source, 0) + 1
-
-    return selected
+def choose_top_articles(articles: List[Article], limit: int = TOP_N) -> List[Article]:
+    return editorial_choose_top_articles(articles, limit)
 
 
 def render_report(
     raw: Dict[str, Any],
     validation: Dict[str, Any],
     date_str: str,
+    render_config: Dict[str, int] | None = None,
 ) -> str:
+    config = dict(default_render_config())
+    if render_config:
+        config.update(render_config)
+    part1_summary_max_chars = config["part1_summary_max_chars"]
+    part2_summary_max_chars = config["part2_summary_max_chars"]
+
     articles = normalize_articles(raw)
     groups = normalize_source_groups(raw, validation, articles)
     article_map = group_articles(articles)
-    top_articles = choose_top_articles(articles)
+    top_articles = choose_top_articles(articles, TOP_N)
 
     passed = validation.get("passed") is True
     total_articles = len(articles)
@@ -410,7 +237,7 @@ def render_report(
             lines.append(f"   时间: {format_utc(article.pub_date)}")
             lines.append(f"   链接: {article.link}")
             if article.summary:
-                lines.append(f"   摘要: {clamp_text(article.summary, 200)}")
+                lines.append(f"   摘要: {clamp_text(article.summary, part1_summary_max_chars)}")
             else:
                 lines.append("   摘要: （无）")
             lines.append("")
@@ -443,7 +270,7 @@ def render_report(
             lines.append(f"{idx}. {article.title}")
             lines.append(f"   时间: {format_time_only(article.pub_date)} | 链接: {article.link}")
             if article.summary:
-                lines.append(f"   摘要: {clamp_text(article.summary, 120)}")
+                lines.append(f"   摘要: {clamp_text(article.summary, part2_summary_max_chars)}")
             else:
                 lines.append("   摘要: （无）")
             lines.append("")
@@ -501,27 +328,6 @@ def render_report(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def report_date(args_date: Optional[str], output_path: str, raw: Dict[str, Any], validation: Dict[str, Any]) -> str:
-    if args_date:
-        return args_date
-    for candidate in (
-        as_dict(validation.get("meta")).get("generated_at_utc"),
-        as_dict(raw.get("meta")).get("generated_at_utc"),
-    ):
-        if isinstance(candidate, str) and candidate.strip():
-            try:
-                return parse_pub_date(candidate).strftime("%Y-%m-%d")
-            except Exception:
-                continue
-    stem = Path(output_path).stem
-    for prefix in ("rss-report-", "rss-report_"):
-        if stem.startswith(prefix):
-            maybe_date = stem[len(prefix):]
-            if len(maybe_date) == 10:
-                return maybe_date
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
 def failed_output_path(output_path: str) -> str:
     path = Path(output_path)
     if path.stem.endswith(".failed"):
@@ -549,7 +355,8 @@ def main() -> int:
 
     try:
         date_str = report_date(args.date, args.output, raw, validation)
-        content = render_report(raw, validation, date_str)
+        render_config = resolve_render_config(raw, args.config)
+        content = render_report(raw, validation, date_str, render_config=render_config)
         passed = validation.get("passed") is True
         target_path = args.output if passed else failed_output_path(args.output)
         write_text(target_path, content)
