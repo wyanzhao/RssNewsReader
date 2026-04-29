@@ -1,0 +1,6 @@
+interface:
+  display_name: "DailyNews Report"
+  short_description: "Run the DailyNews RSS report workflow"
+  default_prompt: "Use $dailynews-report to run the DailyNews RSS workflow and return the generated report path."
+policy:
+  allow_implicit_invocation: false

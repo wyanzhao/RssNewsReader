@@ -8,6 +8,7 @@
 - `AGENTS.md` 定义仓库 contract、artifact schema、agent 边界、文档角色与维护约束
 - `.claude/skills/dailynews-report/SKILL.md` 是 Claude Code 与 Codex 共享的唯一 runtime procedure 文件，负责 orchestrator 编排
 - `.agents/skills/dailynews-report/SKILL.md` 是指向同一文件的 Codex / agent skill symlink
+- `.claude/skills/dailynews-report/agents/openai.yaml` 是 Codex Skill UI metadata；`.agents/skills/dailynews-report/agents` 指向同一目录，保持 manual-only policy
 - `.claude/agents/*.md` 定义 `pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`、`report-assembler`、`report-reviewer`
 - success 分支通过 `runs/<date>/part1_plan.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff，`report-assembler` 只负责最终 `report_path` 写入
 - `README.md` 面向仓库使用者说明 `skill + subagents` 架构与使用方式
@@ -18,6 +19,7 @@
 - [x] runtime procedure 的唯一 source of truth 是共享 `SKILL.md`
 - [x] Claude Code 架构固定为 `orchestrator skill + subagents`
 - [x] 顶层编排入口继续保留 `/dailynews-report`
+- [x] Codex Skill metadata 保持 `policy.allow_implicit_invocation: false`
 - [x] 旧运行时文件已移除，不再作为运行时入口
 - [x] 文档主语言以中文为主，保留必要英文术语和命令
 - [x] 本轮实施分支固定为 `feature/claude-skill-subagents-refactor`
@@ -35,6 +37,7 @@
 - [x] Epic H — unexpected-error schema parity
 - [x] Epic I — editorial core decoupling
 - [x] Epic J — `rss_news_monitor.py` 模块化拆分
+- [x] Epic M — Claude/Codex skill packaging
 
 ## Review-Driven Refactor Plan
 
@@ -102,12 +105,15 @@
 - `L3` | `done` | 修复 XML parse error 被标为空 feed 的问题 | `_common/feed_parse.py` 新增 `FeedParseError`，让 malformed RSS/Atom XML 冒泡到 feed-level `error`；新增 fetch-path 回归测试
 - `L4` | `done` | 忽略本地 Claude worktrees | `.gitignore` 新增 `.claude/worktrees/`，避免误提交嵌套 worktree 与旧 contract 副本
 - `M1` | `done` | 让 DailyNews skill 同时服务 Claude Code 与 Codex | 保留 `.claude/skills/dailynews-report/SKILL.md` 为物理 canonical skill 文件；`.agents/skills/dailynews-report/SKILL.md` 作为 symlink 复用同一文件；frontmatter 收敛到 `name` / `description` 公共子集，手动写入型约束移入正文
+- `M2` | `done` | 补齐 Codex Skill metadata | 新增 `.claude/skills/dailynews-report/agents/openai.yaml`，设置 display / default prompt / manual-only policy；`.agents/skills/dailynews-report/agents` 作为 symlink 复用同一 metadata 目录
 
 ## Validation Checklist
 
 - [x] `TASKS.md` 存在且结构固定
 - [x] `.claude/skills/dailynews-report/SKILL.md` 存在并作为共享 runtime procedure 文件
 - [x] `.agents/skills/dailynews-report/SKILL.md` 是指向同一 `SKILL.md` 的 symlink
+- [x] `.claude/skills/dailynews-report/agents/openai.yaml` 存在并设置 Codex manual-only metadata
+- [x] `.agents/skills/dailynews-report/agents` 是指向同一 metadata 目录的 symlink
 - [x] `.claude/agents/` 下 7 个 agent 文件存在
 - [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件

@@ -10,6 +10,12 @@ Claude Code path is `.claude/skills/dailynews-report/SKILL.md`; the Codex /
 agent path `.agents/skills/dailynews-report/SKILL.md` is a symlink to this
 same file.
 
+Codex UI metadata lives at
+`.claude/skills/dailynews-report/agents/openai.yaml`; the Codex / agent path
+`.agents/skills/dailynews-report/agents` is a symlink to the same metadata
+directory. Keep `policy.allow_implicit_invocation` set to `false` because this
+workflow is write-producing and should be invoked explicitly.
+
 This is a manual, write-producing orchestrator skill. Do not invoke it automatically.
 
 Read these files before acting:

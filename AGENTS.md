@@ -23,6 +23,8 @@ This repository builds a daily RSS report in two stages:
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
 - `.claude/skills/dailynews-report/SKILL.md` is the project-local orchestrator skill and the canonical runtime procedure file shared by Claude Code and Codex.
 - `.agents/skills/dailynews-report/SKILL.md` is the Codex / agent skill path and must remain a symlink to `.claude/skills/dailynews-report/SKILL.md`.
+- `.claude/skills/dailynews-report/agents/openai.yaml` is the Codex Skill UI metadata and must keep the workflow manual-only with `policy.allow_implicit_invocation: false`.
+- `.agents/skills/dailynews-report/agents` is the Codex / agent metadata path and must remain a symlink to `.claude/skills/dailynews-report/agents`.
 - `.claude/agents/*.md` defines the specialized subagents used by the orchestrator skill.
 
 ## Entry Points
@@ -37,6 +39,7 @@ This repository builds a daily RSS report in two stages:
 - End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup`
 - Claude Code runtime entry: `/dailynews-report`
 - Codex skill entry: `.agents/skills/dailynews-report/SKILL.md`
+- Codex skill metadata: `.agents/skills/dailynews-report/agents/openai.yaml`
 
 ## Runtime Outputs
 
@@ -174,6 +177,7 @@ shape and policy key names as the normal validator output.
 ## Claude Code / Codex Runtime Architecture
 
 - `.claude/skills/dailynews-report/SKILL.md` is the canonical runtime procedure entry. `.agents/skills/dailynews-report/SKILL.md` must remain a symlink to the same file so Claude Code and Codex reuse one skill body.
+- `.claude/skills/dailynews-report/agents/openai.yaml` is the canonical Codex Skill metadata file. `.agents/skills/dailynews-report/agents` must remain a symlink to the same directory so Codex sees the same metadata at its skill path.
 - The shared skill orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
 - `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
 - `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
@@ -374,7 +378,7 @@ config files.
 - Keep deterministic rules in code and semantic judgment in the Claude Code runtime layer.
 - Do not move validation logic back into the orchestrator skill or subagents.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, the `.agents/skills/dailynews-report/SKILL.md` symlink, and the relevant `.claude/agents/*.md` files aligned.
+- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, `.claude/skills/dailynews-report/agents/openai.yaml`, the `.agents/skills/dailynews-report/SKILL.md` / `.agents/skills/dailynews-report/agents` symlinks, and the relevant `.claude/agents/*.md` files aligned.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json`, `pipeline_config_fixture.json`, and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make

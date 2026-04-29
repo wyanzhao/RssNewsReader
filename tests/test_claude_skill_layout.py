@@ -12,7 +12,11 @@ TASKS_MD = ROOT / "TASKS.md"
 REMOVED_RUNTIME_DOC = "PROMPT" + ".md"
 PROMPT_MD = ROOT / REMOVED_RUNTIME_DOC
 SKILL_MD = ROOT / ".claude" / "skills" / "dailynews-report" / "SKILL.md"
+SKILL_METADATA_DIR = SKILL_MD.parent / "agents"
+SKILL_OPENAI_YAML = SKILL_METADATA_DIR / "openai.yaml"
 CODEX_SKILL_MD = ROOT / ".agents" / "skills" / "dailynews-report" / "SKILL.md"
+CODEX_SKILL_METADATA_DIR = CODEX_SKILL_MD.parent / "agents"
+CODEX_SKILL_OPENAI_YAML = CODEX_SKILL_METADATA_DIR / "openai.yaml"
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
 
@@ -65,11 +69,25 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertEqual(CODEX_SKILL_MD.resolve(), SKILL_MD.resolve())
         self.assertEqual(CODEX_SKILL_MD.read_text(encoding="utf-8"), SKILL_MD.read_text(encoding="utf-8"))
 
+    def test_codex_skill_metadata_is_shared_and_manual_only(self):
+        self.assertTrue(SKILL_OPENAI_YAML.exists())
+        self.assertTrue(CODEX_SKILL_METADATA_DIR.is_symlink())
+        self.assertEqual(CODEX_SKILL_METADATA_DIR.resolve(), SKILL_METADATA_DIR.resolve())
+
+        text = SKILL_OPENAI_YAML.read_text(encoding="utf-8")
+        self.assertEqual(CODEX_SKILL_OPENAI_YAML.read_text(encoding="utf-8"), text)
+        self.assertIn('display_name: "DailyNews Report"', text)
+        self.assertIn('short_description: "Run the DailyNews RSS report workflow"', text)
+        self.assertIn('default_prompt: "Use $dailynews-report', text)
+        self.assertIn("policy:", text)
+        self.assertIn("allow_implicit_invocation: false", text)
+
     def test_skill_body_references_repo_contract_tracker_and_agents(self):
         _frontmatter, body = parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
 
         self.assertIn("[AGENTS.md](../../../AGENTS.md)", body)
         self.assertIn("[TASKS.md](../../../TASKS.md)", body)
+        self.assertIn("agents/openai.yaml", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("single shared skill file for both Claude Code and Codex", body)
         self.assertIn("python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output", body)
@@ -114,6 +132,7 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("/dailynews-report", text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".agents/skills/dailynews-report/SKILL.md", text)
+        self.assertIn(".claude/skills/dailynews-report/agents/openai.yaml", text)
         self.assertIn(".claude/agents/", text)
         self.assertIn("pipeline-runner", text)
         self.assertIn("part1_plan.json", text)

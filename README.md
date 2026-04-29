@@ -180,6 +180,7 @@ If you use Claude Code or Codex in this repo:
 - [`CLAUDE.md`](CLAUDE.md) is the project entrypoint and imports [`AGENTS.md`](AGENTS.md)
 - the shared project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
 - the Codex / agent skill path [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md) is a symlink to the same file
+- Codex Skill UI metadata lives at [`.claude/skills/dailynews-report/agents/openai.yaml`](.claude/skills/dailynews-report/agents/openai.yaml), with [`.agents/skills/dailynews-report/agents`](.agents/skills/dailynews-report/agents) symlinked to the same directory
 - the skill is exposed as `/dailynews-report`
 - the supported runtime architecture is `skill + subagents`
 - on the success path, subagents exchange machine-readable handoff artifacts
@@ -201,6 +202,8 @@ The skill delegates to seven project-level subagents under
 
 This Claude Code / Codex workflow is intentionally manual-only because it is
 write-producing and can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
+The Codex metadata keeps `policy.allow_implicit_invocation: false` for the
+same reason.
 
 ## Repository Layout
 
@@ -223,8 +226,10 @@ CLAUDE.md                  Claude Code entrypoint; imports AGENTS.md
 TASKS.md                   maintainer tracker for architecture work
 .claude/skills/dailynews-report/
   SKILL.md                 shared Claude Code / Codex orchestrator skill
+  agents/openai.yaml       Codex Skill UI metadata, manual-only policy
 .agents/skills/dailynews-report/
   SKILL.md                 symlink to .claude/skills/dailynews-report/SKILL.md
+  agents                   symlink to .claude/skills/dailynews-report/agents
 .claude/agents/
   *.md                     project-level subagents used by the orchestrator
 ```
@@ -238,6 +243,8 @@ TASKS.md                   maintainer tracker for architecture work
   shared manual Claude Code / Codex orchestrator workflow
 - [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md):
   symlinked Codex / agent skill entrypoint
+- [`.claude/skills/dailynews-report/agents/openai.yaml`](.claude/skills/dailynews-report/agents/openai.yaml):
+  Codex Skill UI metadata for the shared orchestrator
 - [`.claude/agents/`](.claude/agents/): subagents for pipeline running, artifact
   auditing, Part 1 editing, Part 2 drafting, final report assembly, debugging,
   and final review
