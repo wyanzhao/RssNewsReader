@@ -5,11 +5,17 @@
   },
   "article_text": {
     "enabled": true,
-    "max_words": 300,
+    "max_words": 150,
     "max_workers": 4
   },
   "render": {
     "part1_summary_max_chars": 300,
     "part2_summary_max_chars": 300
+  },
+  "context_budget": {
+    "llm_context_max_bytes": 200000,
+    "part1_brief_max_bytes": 100000,
+    "part2_context_max_bytes": 100000,
+    "total_context_max_bytes": 360000
   }
 }

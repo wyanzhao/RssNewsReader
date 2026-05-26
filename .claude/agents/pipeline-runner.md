@@ -33,4 +33,4 @@ description: Use proactively from /dailynews-report to run the DailyNews pipelin
 
 - `classification`
 - 已解析出的 8 个控制面字段
-- 建议下一步应调用 `artifact-auditor`、`part1-editor`、`part2-drafter`、`report-assembler`、`report-reviewer`，还是 `network-debugger`
+- 建议下一步应调用 `artifact-auditor`、`part1-editor`、`part2-drafter`、`scripts/editorial_runtime.py assemble` / `review`，还是 `network-debugger`

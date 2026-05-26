@@ -13,8 +13,12 @@ DEFAULT_PAGE_FALLBACK_CAP = 300
 DEFAULT_PART1_SUMMARY_MAX_CHARS = 200
 DEFAULT_PART2_SUMMARY_MAX_CHARS = 200
 DEFAULT_ARTICLE_TEXT_ENABLED = True
-DEFAULT_ARTICLE_TEXT_MAX_WORDS = 300
+DEFAULT_ARTICLE_TEXT_MAX_WORDS = 150
 DEFAULT_ARTICLE_TEXT_MAX_WORKERS = 4
+DEFAULT_LLM_CONTEXT_MAX_BYTES = 200_000
+DEFAULT_PART1_BRIEF_MAX_BYTES = 100_000
+DEFAULT_PART2_CONTEXT_MAX_BYTES = 100_000
+DEFAULT_TOTAL_CONTEXT_MAX_BYTES = 360_000
 
 
 def _validated_non_negative_int(value: Any, label: str) -> int:
@@ -113,10 +117,30 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
             "render.part2_summary_max_chars",
         )
 
+    context_budget_payload = payload.get("context_budget", {})
+    if context_budget_payload is None:
+        context_budget_payload = {}
+    if not isinstance(context_budget_payload, dict):
+        raise ValueError("context_budget must be a JSON object")
+
+    context_budget_config = {
+        "llm_context_max_bytes": DEFAULT_LLM_CONTEXT_MAX_BYTES,
+        "part1_brief_max_bytes": DEFAULT_PART1_BRIEF_MAX_BYTES,
+        "part2_context_max_bytes": DEFAULT_PART2_CONTEXT_MAX_BYTES,
+        "total_context_max_bytes": DEFAULT_TOTAL_CONTEXT_MAX_BYTES,
+    }
+    for key in tuple(context_budget_config):
+        if key in context_budget_payload:
+            context_budget_config[key] = _validated_positive_int(
+                context_budget_payload[key],
+                f"context_budget.{key}",
+            )
+
     return {
         "summary_enrichment": summary_config,
         "article_text": article_text_config,
         "render": render_config,
+        "context_budget": context_budget_config,
     }, resolved_path
 
 
@@ -173,6 +197,9 @@ def build_runtime_config_snapshot(
     render_config = pipeline_config.get("render", {})
     if not isinstance(render_config, dict):
         render_config = {}
+    context_budget_config = pipeline_config.get("context_budget", {})
+    if not isinstance(context_budget_config, dict):
+        context_budget_config = {}
     article_text_settings = resolve_article_text_settings(pipeline_config)
     short_summary_threshold = summary_config.get(
         "short_summary_threshold",
@@ -189,6 +216,22 @@ def build_runtime_config_snapshot(
     part2_summary_max_chars = render_config.get(
         "part2_summary_max_chars",
         DEFAULT_PART2_SUMMARY_MAX_CHARS,
+    )
+    llm_context_max_bytes = context_budget_config.get(
+        "llm_context_max_bytes",
+        DEFAULT_LLM_CONTEXT_MAX_BYTES,
+    )
+    part1_brief_max_bytes = context_budget_config.get(
+        "part1_brief_max_bytes",
+        DEFAULT_PART1_BRIEF_MAX_BYTES,
+    )
+    part2_context_max_bytes = context_budget_config.get(
+        "part2_context_max_bytes",
+        DEFAULT_PART2_CONTEXT_MAX_BYTES,
+    )
+    total_context_max_bytes = context_budget_config.get(
+        "total_context_max_bytes",
+        DEFAULT_TOTAL_CONTEXT_MAX_BYTES,
     )
     return {
         "config_path": str(Path(config_path).expanduser().resolve()),
@@ -208,5 +251,11 @@ def build_runtime_config_snapshot(
         "render": {
             "part1_summary_max_chars": int(part1_summary_max_chars),
             "part2_summary_max_chars": int(part2_summary_max_chars),
+        },
+        "context_budget": {
+            "llm_context_max_bytes": int(llm_context_max_bytes),
+            "part1_brief_max_bytes": int(part1_brief_max_bytes),
+            "part2_context_max_bytes": int(part2_context_max_bytes),
+            "total_context_max_bytes": int(total_context_max_bytes),
         },
     }

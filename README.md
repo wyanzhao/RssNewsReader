@@ -8,9 +8,10 @@ You can use it in two ways:
 1. **Deterministic Python pipeline**: fetch RSS feeds, deduplicate links,
    validate the data, build `llm_context.json`, and render failure reports for
    blocked runs.
-2. **Optional Claude Code editorial pass**: read `llm_context.json`, cluster
-   duplicate events, select a Top 30, write Chinese summaries, and rewrite the
-   final report through a project-local `skill + subagents` runtime.
+2. **Optional Claude Code editorial pass**: read compact editorial contexts,
+   cluster duplicate events, select a Top 30, write Chinese summaries, and
+   assemble the final report through a project-local `skill + subagents`
+   runtime.
 
 The default Python command is the control-plane and artifact builder. The
 formal success report is written by the Claude Code success path so it can use
@@ -37,7 +38,7 @@ This single command runs:
 
 1. fetch
 2. validate
-3. build `llm_context.json`
+3. build `llm_context.json` plus compact `part1_brief.json` and `part2_context.json`
 4. resolve the final report path; write `*.failed.md` only when validation blocks
 
 During fetch, the monitor keeps the feed-provided summary when it is usable.
@@ -46,6 +47,8 @@ from standard HTML meta summary fields. In the standard DailyNews workflow,
 page-fallback summaries are capped at 300 characters.
 Render-time summary truncation is configured separately and defaults to 200
 characters for both the Top 30 section and the per-source section.
+Article body snippets are capped separately by `article_text.max_words`, which
+defaults to 150 words to keep LLM context size bounded.
 
 If the run succeeds, stdout prints a JSON object with 8 control-plane fields:
 
@@ -69,6 +72,9 @@ For each report date, the pipeline writes runtime artifacts under
 - `raw.json`
 - `validation.json`
 - `llm_context.json`
+- `part1_brief.json`
+- `part2_context.json`
+- `context_budget.json`
 - `fetch.stderr.txt`
 - `validate.stderr.txt`
 - `llm_context.stderr.txt`
@@ -76,8 +82,8 @@ For each report date, the pipeline writes runtime artifacts under
 
 It also resolves report paths at the repository root:
 
-- success target: `rss-report-YYYY-MM-DD.md`, written by `report-assembler`
-  during `/dailynews-report`
+- success target: `rss-report-YYYY-MM-DD.md`, written by
+  `scripts/editorial_runtime.py assemble` during `/dailynews-report`
 - blocked/failure path: `rss-report-YYYY-MM-DD.failed.md`, written by the
   deterministic pipeline
 
@@ -86,10 +92,16 @@ write intermediate handoff artifacts under the same `runs/YYYY-MM-DD/`
 directory:
 
 - `part1_plan.json`
+- `part1_shortlist.json`
+- `part1_shortlist_context.json`
+- `part2_missing_summaries.json`
 - `part2_draft.json`
 
-These files belong to the Claude Code success path only. They are not emitted
-by the deterministic Python pipeline.
+`part1_brief.json`, `part2_context.json`, and `context_budget.json` are emitted
+by the deterministic pipeline. `part1_shortlist.json`,
+`part1_shortlist_context.json`, `part1_plan.json`,
+`part2_missing_summaries.json`, and `part2_draft.json` belong to the Claude
+Code success path only.
 
 These runtime outputs are local working files and are gitignored by default.
 They are not meant to be committed with the codebase.
@@ -102,7 +114,7 @@ If you want the shortest path from clone to result:
 2. Run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`.
 3. If the run is blocked, open the emitted `.failed.md` `report_path`.
 4. If the run is publishable, use `/dailynews-report` to assemble the formal
-   success report from `part1_plan.json` and `part2_draft.json`.
+   success report through `scripts/editorial_runtime.py assemble`.
 5. If the run is blocked, inspect `validation_path` and the sidecar `*.stderr.txt`
    files under the reported `run_dir`.
 
@@ -136,9 +148,20 @@ thresholds used by the deterministic pipeline:
     "short_summary_threshold": 80,
     "page_fallback_cap": 300
   },
+  "article_text": {
+    "enabled": true,
+    "max_words": 150,
+    "max_workers": 4
+  },
   "render": {
     "part1_summary_max_chars": 200,
     "part2_summary_max_chars": 200
+  },
+  "context_budget": {
+    "llm_context_max_bytes": 200000,
+    "part1_brief_max_bytes": 100000,
+    "part2_context_max_bytes": 100000,
+    "total_context_max_bytes": 360000
   }
 }
 ```
@@ -146,8 +169,14 @@ thresholds used by the deterministic pipeline:
 - `summary_enrichment.short_summary_threshold`: below this length, feed summaries
   are treated as too short and trigger page fallback.
 - `summary_enrichment.page_fallback_cap`: hard cap for article-page fallback summaries.
+- `article_text.enabled`: toggles article-body extraction for LLM editorial context.
+- `article_text.max_words`: word cap for each extracted body snippet.
+- `article_text.max_workers`: fetch concurrency for body extraction.
 - `render.part1_summary_max_chars`: final report truncation limit for the Top 30 section.
 - `render.part2_summary_max_chars`: final report truncation limit for the per-source section.
+- `context_budget.*_max_bytes`: advisory context budget thresholds written to
+  `context_budget.json`; the orchestrator uses them to choose brief-first and
+  cache-first behavior.
 
 Each run snapshots the active summary config into `raw.json.runtime_config`, so
 later render steps can stay consistent with the fetch-time settings.
@@ -184,12 +213,16 @@ If you use Claude Code or Codex in this repo:
 - the skill is exposed as `/dailynews-report`
 - the supported runtime architecture is `skill + subagents`
 - on the success path, subagents exchange machine-readable handoff artifacts
-  (`part1_plan.json` / `part2_draft.json`) under `runs/YYYY-MM-DD/`
+  (`part1_shortlist.json` / `part1_shortlist_context.json` /
+  `part1_plan.json` / `part2_missing_summaries.json` /
+  `part2_draft.json`) under `runs/YYYY-MM-DD/`
+- deterministic runtime checks, final assembly, final review, and cache updates
+  are handled by `scripts/editorial_runtime.py`
 - if a success-path handoff artifact is missing or invalid, the runtime should
   stop instead of silently falling back to raw `summary_en` or partial
   reconstruction
 
-The skill delegates to seven project-level subagents under
+The skill delegates to five project-level subagents under
 [`.claude/agents/`](.claude/agents/):
 
 - `pipeline-runner`
@@ -197,8 +230,9 @@ The skill delegates to seven project-level subagents under
 - `network-debugger`
 - `part1-editor`
 - `part2-drafter`
-- `report-assembler`
-- `report-reviewer`
+
+Final assembly and review are direct deterministic script steps, not LLM
+subagents.
 
 This Claude Code / Codex workflow is intentionally manual-only because it is
 write-producing and can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
@@ -213,6 +247,7 @@ scripts/
   rss_news_monitor.py      RSS fetch + dedup
   qc_validate.py           contract + data-quality validator
   build_llm_context.py     shapes llm_context.json
+  editorial_runtime.py     audit / shortlist / assemble / review / cache helper
   render_report.py         deterministic Markdown renderer
   network_debug.py         network/fetch diagnostics
   _common/                 shared helpers (text, pipeline, paths, schemas)

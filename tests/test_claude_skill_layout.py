@@ -91,8 +91,16 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("single shared skill file for both Claude Code and Codex", body)
         self.assertIn("python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output", body)
+        self.assertIn("part1_brief.json", body)
+        self.assertIn("part1_shortlist.json", body)
         self.assertIn("part1_plan.json", body)
+        self.assertIn("part2_context.json", body)
+        self.assertIn("part2_missing_summaries.json", body)
         self.assertIn("part2_draft.json", body)
+        self.assertIn("context_budget.json", body)
+        self.assertIn("editorial_runtime.py merge-part2", body)
+        self.assertIn("editorial_runtime.py assemble", body)
+        self.assertIn("editorial_runtime.py review", body)
         self.assertIn("summary_en", body)
         for name in (
             "pipeline-runner",
@@ -100,8 +108,6 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
             "network-debugger",
             "part1-editor",
             "part2-drafter",
-            "report-assembler",
-            "report-reviewer",
         ):
             self.assertIn(name, body)
         self.assertIn("success", body)
@@ -135,8 +141,13 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn(".claude/skills/dailynews-report/agents/openai.yaml", text)
         self.assertIn(".claude/agents/", text)
         self.assertIn("pipeline-runner", text)
+        self.assertIn("part1_shortlist.json", text)
         self.assertIn("part1_plan.json", text)
+        self.assertIn("part2_context.json", text)
+        self.assertIn("part2_missing_summaries.json", text)
         self.assertIn("part2_draft.json", text)
+        self.assertIn("editorial_runtime.py", text)
+        self.assertIn("context_budget.json", text)
         self.assertIn("TASKS.md", text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, text)
 

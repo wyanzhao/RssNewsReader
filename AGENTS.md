@@ -25,7 +25,7 @@ This repository builds a daily RSS report in two stages:
 - `.agents/skills/dailynews-report/SKILL.md` is the Codex / agent skill path and must remain a symlink to `.claude/skills/dailynews-report/SKILL.md`.
 - `.claude/skills/dailynews-report/agents/openai.yaml` is the Codex Skill UI metadata and must keep the workflow manual-only with `policy.allow_implicit_invocation: false`.
 - `.agents/skills/dailynews-report/agents` is the Codex / agent metadata path and must remain a symlink to `.claude/skills/dailynews-report/agents`.
-- `.claude/agents/*.md` defines the specialized subagents used by the orchestrator skill.
+- `.claude/agents/*.md` defines the specialized LLM subagents used by the orchestrator skill.
 
 ## Entry Points
 
@@ -48,6 +48,9 @@ For each report date, the pipeline writes:
 - `runs/YYYY-MM-DD/raw.json`
 - `runs/YYYY-MM-DD/validation.json`
 - `runs/YYYY-MM-DD/llm_context.json`
+- `runs/YYYY-MM-DD/part1_brief.json`
+- `runs/YYYY-MM-DD/part2_context.json`
+- `runs/YYYY-MM-DD/context_budget.json`
 - `runs/YYYY-MM-DD/fetch.stderr.txt`
 - `runs/YYYY-MM-DD/validate.stderr.txt`
 - `runs/YYYY-MM-DD/llm_context.stderr.txt`
@@ -60,9 +63,9 @@ Final report paths are resolved at the repo root:
 
 On the default `/dailynews-report` success path, `rss_daily_report.py` only
 emits the success `report_path`; it must not prewrite the formal success
-report. The success file is written later by `report-assembler` from
-`part1_plan.json` and `part2_draft.json`. The deterministic pipeline may write
-`*.failed.md` directly for blocked or damaged-input runs.
+report. The success file is written later by `scripts/editorial_runtime.py
+assemble` from `part1_plan.json` and `part2_draft.json`. The deterministic
+pipeline may write `*.failed.md` directly for blocked or damaged-input runs.
 
 ### Claude Code Success-Path Handoff Artifacts
 
@@ -70,6 +73,9 @@ When `/dailynews-report` runs the Claude Code success branch, the runtime may
 additionally write:
 
 - `runs/YYYY-MM-DD/part1_plan.json`
+- `runs/YYYY-MM-DD/part1_shortlist.json`
+- `runs/YYYY-MM-DD/part1_shortlist_context.json`
+- `runs/YYYY-MM-DD/part2_missing_summaries.json`
 - `runs/YYYY-MM-DD/part2_draft.json`
 
 These are success-path handoff artifacts for the LLM runtime only. They are
@@ -105,7 +111,15 @@ names, types, or semantics is a breaking change and must be coordinated with
 meta              { date, generated_at_utc, run_id, report_path }
 validation        { passed, blocking_reasons, warnings, counts, policy }
 all_articles        [<article>, ...]   # authoritative pool for part1-editor; full list, original time-desc order
-source_groups       [{ source, url, status, article_count, articles: [<article>] }]
+source_groups       [{ source, url, status, article_count, article_refs: [<article-ref>] }]
+```
+
+### LLM sidecar context files
+
+```
+part1_brief.json    concise first-pass Part 1 article list; no full article_text
+part2_context.json  concise Part 2 source-group drafting context; summary_en first
+context_budget.json byte-size counts, per-source counts, budget violations, recommended_strategy
 ```
 
 ### Per-article object (7 fields)
@@ -117,7 +131,7 @@ link              string   # full original URL
 pub_date_utc      string   # human-readable "YYYY-MM-DD HH:MM UTC"
 pub_date_iso      string   # ISO 8601 with +00:00
 summary_en        string   # English summary, may be empty
-article_text      string   # extracted article main body (up to ~300 words), may be empty
+article_text      string   # extracted article main body (up to ~150 words), may be empty
 ```
 
 The deterministic pipeline no longer emits scoring metadata
@@ -125,9 +139,17 @@ The deterministic pipeline no longer emits scoring metadata
 `candidate_articles` list. Top 30 selection, clustering, de-noising, and
 priority ordering are the sole responsibility of the `part1-editor` subagent.
 
+`source_groups[]` no longer duplicates full article payloads. It carries
+`article_refs[]` only:
+
+```
+article_refs[]    [{ title, link, pub_date_iso }]
+```
+
 `article_text` is a best-effort extraction of the source article's main body
 via `_common/article_extract.py`. It is intended as the primary input for
-LLM Chinese summarization (Part 1 and Part 2). It is empty when extraction
+LLM Chinese summarization after shortlist (Part 1) or short-summary fallback
+(Part 2). It is empty when extraction
 fails, when the page blocks scraping, when the article has no link, or when
 the `article_text` enrichment pass is disabled in `pipeline_config.json`.
 Editorial agents must fall back to `summary_en` when `article_text` is empty
@@ -149,9 +171,12 @@ shape and policy key names as the normal validator output.
 - `raw.json` is produced only by `rss_news_monitor.py`.
 - `validation.json` is produced only by `qc_validate.py`.
 - `rss_daily_report.py --json-output` is the control-plane artifact for exit-code branching and output-path resolution.
-- On publishable runs, `rss_daily_report.py --json-output` must not prewrite the success `report_path`; `report-assembler` owns that write.
+- On publishable runs, `rss_daily_report.py --json-output` must not prewrite the success `report_path`; `scripts/editorial_runtime.py assemble` owns that write.
 - On blocked or damaged-input runs, `rss_daily_report.py --json-output` must still emit the 8 control-plane fields and write a concrete `*.failed.md` report whenever `report_path` is known.
-- `llm_context.json` is the primary artifact for semantic ranking, clustering, Top 30 selection, and summarization.
+- `llm_context.json` is the compact authority for article identity, link integrity, source order, and shortlisted article material.
+- `part1_brief.json` is the first-pass Part 1 ranking input. It carries short `article_text_preview` fields so the LLM can create a 40-45 item shortlist without reading every full article body.
+- `part2_context.json` is the Part 2 drafting input. It uses `summary_en` first and only falls back to short `article_text` material when the feed summary is too short.
+- `context_budget.json` is advisory but must be inspected by the orchestrator. If `within_budget` is false, agents must follow `recommended_strategy` and avoid reading full article material outside the shortlist or missing-summary set.
 - `validation.json` may be read only for workflow gating metadata and per-feed status/error details that are not duplicated in `llm_context.json`.
 - `validation.passed == true` is required before any formal report can be produced.
 - `validation.passed` may still be `true` when `counts.error > 0`, as long as there are articles to report and no other blocking contract or data-quality checks fail.
@@ -167,7 +192,7 @@ shape and policy key names as the normal validator output.
 - `error` is warning-only for workflow gating and must be surfaced in the final report for the affected source.
 - `status == 'error'` requires non-empty `error` text.
 - `unique_source_count` is observational only. It is not a blocking integrity rule.
-- `part1_plan.json` and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for `report-assembler` to consume without scraping long prose from chat output.
+- `part1_shortlist.json`, `part1_shortlist_context.json`, `part1_plan.json`, `part2_missing_summaries.json`, and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for deterministic merge/assembly without scraping long prose from chat output.
 - If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `article_text` / `summary_en` or partial manual reconstruction.
 - `article_text` and `summary_en` are source material only. They may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
 - Titles must remain in English.
@@ -180,19 +205,19 @@ shape and policy key names as the normal validator output.
 - `.claude/skills/dailynews-report/agents/openai.yaml` is the canonical Codex Skill metadata file. `.agents/skills/dailynews-report/agents` must remain a symlink to the same directory so Codex sees the same metadata at its skill path.
 - The shared skill orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
 - `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
-- `artifact-auditor` is read-only. It inspects `llm_context.json` and `validation.json` to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
+- `artifact-auditor` is read-only. It runs `python3 scripts/editorial_runtime.py audit --llm-context ... --validation ...` or equivalent checks to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
-- `part1-editor` is success-only. It performs all Part 1 work — de-noising, clustering, Top 30 selection, priority ordering, and Chinese summarization — autonomously from `all_articles`, and writes `runs/<date>/part1_plan.json` as its structured handoff artifact. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
-- `part2-drafter` is success-only. It expands `source_groups[]` plus `validation.feed_results[].error` into the full Part 2 source-group draft, then writes `runs/<date>/part2_draft.json` as its structured handoff artifact.
-- `report-assembler` is success-only and is the only success-path writer of the final `report_path`. It assembles the final Chinese report from `part1_plan.json` and `part2_draft.json` without ever overwriting `*.failed.md`.
-- `report-reviewer` is final and read-only. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report after the write.
+- `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` to generate `part1_shortlist_context.json` and write `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
+- `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json`, writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true, then `scripts/editorial_runtime.py merge-part2` builds the full `part2_draft.json`.
+- `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report from `part1_plan.json` and `part2_draft.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`.
+- `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
 - Fixed branch order:
-  - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer`
+  - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review`
   - expected-block: `pipeline-runner -> artifact-auditor`
   - unexpected-error: `pipeline-runner -> network-debugger`
-- `part1-editor` and `part2-drafter` may write only their own handoff artifact (`part1_plan.json` / `part2_draft.json`) and must complete before `report-assembler`.
-- `report-assembler` and `network-debugger` must never run in parallel.
-- `report-reviewer` must always run after the final success-path write.
+- `part1-editor` and `part2-drafter` may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`) and must complete before deterministic merge/assembly.
+- `scripts/editorial_runtime.py assemble` and `network-debugger` must never run in parallel.
+- `scripts/editorial_runtime.py review` must always run after the final success-path write.
 - Use `rss_daily_report.py --json-output` stdout to decide whether to continue, stop, or diagnose.
 - Use `llm_context.json` for article-level semantics and editorial judgment.
 - Read `validation.json` only for gating metadata and per-feed error details that are not duplicated in `llm_context.json`.
@@ -222,8 +247,7 @@ import-safe and has dedicated unit tests.
   Owns the `rss-report-YYYY-MM-DD.md` and `runs/YYYY-MM-DD/` templates so
   renames touch one file.
 - `_common/editorial.py` — shared article normalization, source-group roster
-  construction, heuristic scoring, audit-flag derivation, Top 30 selection,
-  and defensive source-group consistency checks used by both
+  construction, and defensive source-group consistency checks used by both
   `build_llm_context.py` and `render_report.py`.
 - `_common/feed_config.py` — `feeds.json` CRUD and OPML import extracted from
   `rss_news_monitor.py`.
@@ -244,6 +268,9 @@ import-safe and has dedicated unit tests.
   `ValidationDocument`, `LlmContextDocument`, `PipelineOutput`, plus
   `STATUS_OK / STATUS_EMPTY / STATUS_ERROR` constants. Documentation-grade;
   the validator stays the source of truth for what is rejected.
+- `scripts/editorial_runtime.py` — deterministic runtime helper for artifact
+  audit, Part 1 shortlist context slicing, final assembly, final review, and
+  `runs/_cache/editorial_cache.json` updates.
 
 ## Division Of Responsibility
 
@@ -289,7 +316,7 @@ The LLM handles:
   `<footer>`, `<header>`, `<form>`, etc.), and falls back to the union of
   all `<p>` / `<li>` / `<h*>` blocks when no container is present.
 - Output is truncated to `pipeline_config.json.article_text.max_words`
-  whitespace tokens (default 300). A trailing `"..."` marks truncation.
+  whitespace tokens (default 150). A trailing `"..."` marks truncation.
 - `pipeline_config.json.article_text.enabled` toggles the pass globally.
   When disabled or when extraction fails, `article_text` is an empty
   string and editorial agents fall back to `summary_en`.
@@ -320,9 +347,9 @@ runtime procedure:
 
 When `validation.passed` is true, the LLM should:
 
-- Read `llm_context.json`
-- Select Top 30 autonomously from `all_articles`; the deterministic pipeline emits no scoring, flags, or pre-filtered candidate list — filtering, clustering, and ordering are the agent's responsibility
-- Prefer `article_text` as the source of truth for Chinese summarization; when `article_text` is empty, fall back to `summary_en`. Never fabricate body text that is not in either field.
+- Read `part1_brief.json` first and produce `part1_shortlist.json` before reading full shortlisted article context
+- Select Top 30 autonomously; the deterministic pipeline emits no scoring, flags, or pre-filtered candidate list — filtering, clustering, and ordering are the agent's responsibility
+- Prefer shortlisted `article_text` as the source of truth for Part 1 Chinese summarization; use `part2_context.json.summary_material` for Part 2. Never fabricate body text that is not in either field.
 - Cluster duplicate or near-duplicate coverage of the same event
 - Prioritize major industry events such as financing `>=100M`, acquisitions, and major regulation.
 - Then prioritize major product launches from Apple, Google, NVIDIA, OpenAI, and similar companies.

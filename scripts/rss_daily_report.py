@@ -264,8 +264,8 @@ def main() -> int:
     if validation.get("passed") is True:
         write_text(
             render_stderr_path,
-            "Skipped deterministic success render; report-assembler owns "
-            "the final success report_path.\n",
+            "Skipped deterministic success render; scripts/editorial_runtime.py "
+            "assemble owns the final success report_path.\n",
         )
     else:
         render_step = Step(

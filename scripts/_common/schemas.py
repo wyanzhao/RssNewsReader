@@ -68,6 +68,7 @@ class RuntimeConfigSnapshot(TypedDict, total=False):
     summary_enrichment: SummaryEnrichmentSnapshot
     article_text: ArticleTextSnapshot
     render: Dict[str, int]
+    context_budget: Dict[str, int]
 
 
 class RawDocument(TypedDict, total=False):
@@ -143,12 +144,18 @@ class LlmArticle(TypedDict, total=False):
     article_text: str
 
 
+class LlmArticleRef(TypedDict, total=False):
+    title: str
+    link: str
+    pub_date_iso: str
+
+
 class LlmSourceGroup(TypedDict, total=False):
     source: str
     url: str
     status: Optional[FeedStatus]
     article_count: int
-    articles: List[LlmArticle]
+    article_refs: List[LlmArticleRef]
 
 
 class LlmContextDocument(TypedDict, total=False):

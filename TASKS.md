@@ -9,8 +9,8 @@
 - `.claude/skills/dailynews-report/SKILL.md` 是 Claude Code 与 Codex 共享的唯一 runtime procedure 文件，负责 orchestrator 编排
 - `.agents/skills/dailynews-report/SKILL.md` 是指向同一文件的 Codex / agent skill symlink
 - `.claude/skills/dailynews-report/agents/openai.yaml` 是 Codex Skill UI metadata；`.agents/skills/dailynews-report/agents` 指向同一目录，保持 manual-only policy
-- `.claude/agents/*.md` 定义 `pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`、`report-assembler`、`report-reviewer`
-- success 分支通过 `runs/<date>/part1_plan.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff，`report-assembler` 只负责最终 `report_path` 写入
+- `.claude/agents/*.md` 定义 5 个 LLM subagents：`pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`
+- success 分支通过 `runs/<date>/part1_plan.json`、`runs/<date>/part2_missing_summaries.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff；最终 `report_path` 由 `scripts/editorial_runtime.py assemble` 写入并由 `scripts/editorial_runtime.py review` 复核
 - `README.md` 面向仓库使用者说明 `skill + subagents` 架构与使用方式
 - `tests/test_claude_skill_layout.py` 与 `tests/test_claude_agent_layout.py` 负责 Claude Code 布局校验
 
@@ -38,6 +38,8 @@
 - [x] Epic I — editorial core decoupling
 - [x] Epic J — `rss_news_monitor.py` 模块化拆分
 - [x] Epic M — Claude/Codex skill packaging
+- [x] Epic N — token-footprint reduction for DailyNews runtime
+- [x] Epic O — direct assembly, context budget gate, and cache-first Part 2
 
 ## Review-Driven Refactor Plan
 
@@ -106,6 +108,14 @@
 - `L4` | `done` | 忽略本地 Claude worktrees | `.gitignore` 新增 `.claude/worktrees/`，避免误提交嵌套 worktree 与旧 contract 副本
 - `M1` | `done` | 让 DailyNews skill 同时服务 Claude Code 与 Codex | 保留 `.claude/skills/dailynews-report/SKILL.md` 为物理 canonical skill 文件；`.agents/skills/dailynews-report/SKILL.md` 作为 symlink 复用同一文件；frontmatter 收敛到 `name` / `description` 公共子集，手动写入型约束移入正文
 - `M2` | `done` | 补齐 Codex Skill metadata | 新增 `.claude/skills/dailynews-report/agents/openai.yaml`，设置 display / default prompt / manual-only policy；`.agents/skills/dailynews-report/agents` 作为 symlink 复用同一 metadata 目录
+- `N1` | `done` | 降低默认正文片段体积并让 Part 2 优先使用短摘要素材 | `article_text.max_words` 默认值与 repo 配置已从 300 收窄到 150；`part2_context.json` 先用 `summary_en`，仅当摘要短于阈值时使用 60 词 `article_text` fallback；agent/docs/tests 已同步
+- `N2` | `done` | 去除 `llm_context.json` 中 source-group article payload 重复 | `all_articles[]` 保留唯一完整文章表，`source_groups[]` 改为只携带 source roster、status、article_count 与轻量 `article_refs[]`；contract snapshot 与 golden 已更新
+- `N3` | `done` | 引入 Part 1 两段式上下文 | `build_llm_context.py` 生成短 `part1_brief.json`；`editorial_runtime.py shortlist-context` 可从 `part1_shortlist.json` 生成仅含入围文章的 `part1_shortlist_context.json`
+- `N4` | `done` | 将确定性 audit / assemble / review 校验迁入 Python | 新增 `scripts/editorial_runtime.py`，覆盖 audit、shortlist-context、assemble、review；schema、count、source order、link unchanged 与 failed-report guard 已有离线测试
+- `N5` | `done` | 增加跨运行 editorial cache | `editorial_runtime.py assemble` 默认更新 `runs/_cache/editorial_cache.json`，以 link + source-material hash 缓存 `summary_zh`、noise bucket 与 event key；Part 1 / Part 2 agent 文档要求优先复用命中项
+- `O1` | `done` | 将 assembler / reviewer 从 LLM subagent 降级为直接脚本步骤 | 删除 `.claude/agents/report-assembler.md` 与 `.claude/agents/report-reviewer.md`；orchestrator skill 改为直接运行 `scripts/editorial_runtime.py assemble` / `review`
+- `O2` | `done` | 增加 context budget gate | `build_llm_context.py` 现在写 `context_budget.json`，包含各 context byte size、per-source article count、budget violations 与 `recommended_strategy`；`pipeline_config.json` / runtime snapshot / tests 已同步
+- `O3` | `done` | Part 2 改成 cache-first missing-summary workflow | `part2_context.json` 标记 cache hit / miss 与 `needs_summary`；`part2-drafter` 只写 `part2_missing_summaries.json`；`editorial_runtime.py merge-part2` 合并缓存摘要与新摘要生成完整 `part2_draft.json`
 
 ## Validation Checklist
 
@@ -114,7 +124,7 @@
 - [x] `.agents/skills/dailynews-report/SKILL.md` 是指向同一 `SKILL.md` 的 symlink
 - [x] `.claude/skills/dailynews-report/agents/openai.yaml` 存在并设置 Codex manual-only metadata
 - [x] `.agents/skills/dailynews-report/agents` 是指向同一 metadata 目录的 symlink
-- [x] `.claude/agents/` 下 7 个 agent 文件存在
+- [x] `.claude/agents/` 下 5 个 LLM agent 文件存在；assembly/review 为 direct script steps
 - [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件
 - [x] `README.md`、`CLAUDE.md`、`AGENTS.md` 已统一为 `skill + subagents` 架构
@@ -131,11 +141,16 @@
 - [x] `tests/test_contracts_snapshot.py`、`tests/test_qc_offline.py`、`tests/test_common_text.py`、`tests/test_pipeline_step.py` 全绿
 - [x] 至少一次真实 `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output` smoke 通过
 - [x] 摘要相关阈值已从硬编码迁移到 `pipeline_config.json`，且测试固定到 fixture config
+- [x] `llm_context.json` 不再在 `source_groups[]` 内重复完整 article payload
+- [x] `part1_brief.json` / `part2_context.json` 已纳入 deterministic context 输出
+- [x] `scripts/editorial_runtime.py` 已覆盖 audit / shortlist-context / assemble / review / cache helper
+- [x] `context_budget.json` 已纳入 deterministic context 输出
+- [x] Part 2 cache-first flow 已覆盖：cache hit 不再需要 LLM 重写摘要，missing summaries 经 `merge-part2` 合并
 
 ## Backlog
 
 - [ ] 将 orchestrator skill 的可配置参数进一步显式化，例如时间窗口、摘要长度、保留天数
 - [ ] 为常见失败模式补充 supporting skills 或 agent variants
 - [ ] 增加更细粒度的自动化验证，覆盖 README / AGENTS / TASKS 的一致性
-- [ ] 评估是否为 report-reviewer 增加更严格的结构化审查输出格式
-- [ ] 评估是否为 `part1_plan.json` / `part2_draft.json` 增加本地 schema 校验与装配前 fail-fast
+- [x] report-reviewer 已降级为 `scripts/editorial_runtime.py review`
+- [x] `part1_plan.json` / `part2_draft.json` 已通过 `scripts/editorial_runtime.py assemble` 做本地 schema 校验与装配前 fail-fast

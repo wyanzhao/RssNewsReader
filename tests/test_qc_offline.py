@@ -70,6 +70,13 @@ def make_runtime_config_snapshot(
     short_summary_threshold: int = 80,
     page_fallback_cap: int = 300,
     effective_page_fallback_cap: int | None = None,
+    article_text_enabled: bool = True,
+    article_text_max_words: int = 150,
+    article_text_max_workers: int = 4,
+    llm_context_max_bytes: int = 12000,
+    part1_brief_max_bytes: int = 8000,
+    part2_context_max_bytes: int = 8000,
+    total_context_max_bytes: int = 24000,
     config_path: Path | None = None,
 ):
     return {
@@ -81,9 +88,20 @@ def make_runtime_config_snapshot(
                 page_fallback_cap if effective_page_fallback_cap is None else effective_page_fallback_cap
             ),
         },
+        "article_text": {
+            "enabled": article_text_enabled,
+            "max_words": article_text_max_words,
+            "max_workers": article_text_max_workers,
+        },
         "render": {
             "part1_summary_max_chars": part1_summary_max_chars,
             "part2_summary_max_chars": part2_summary_max_chars,
+        },
+        "context_budget": {
+            "llm_context_max_bytes": llm_context_max_bytes,
+            "part1_brief_max_bytes": part1_brief_max_bytes,
+            "part2_context_max_bytes": part2_context_max_bytes,
+            "total_context_max_bytes": total_context_max_bytes,
         },
     }
 

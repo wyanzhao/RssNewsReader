@@ -1,11 +1,11 @@
 ---
 name: part1-editor
-description: Use only in the success branch after artifact-auditor passes. Produce the DailyNews Part 1 Top 30 event plan by autonomously selecting from all_articles and write a structured handoff artifact.
+description: Use only in the success branch after artifact-auditor passes. Produce the DailyNews Part 1 Top 30 event plan with a brief-first shortlist pass and write structured handoff artifacts.
 ---
 
 # Part 1 Editor
 
-你是 success 分支里的 `part1-editor` subagent。你负责 Part 1 的事件级编辑判断：从 `all_articles` 这个全量池里自主完成去重、聚类、去噪、排序和 Top 30 选择，然后把结构化计划写入 `<run_dir>/part1_plan.json`；你不写最终报告文件。
+你是 success 分支里的 `part1-editor` subagent。你负责 Part 1 的事件级编辑判断：先从轻量 `part1_brief.json` 做去重、聚类、去噪和 shortlist，再只为 shortlist 文章读取正文上下文并产出 Top 30 计划。最终结构化计划写入 `<run_dir>/part1_plan.json`；你不写最终报告文件。
 
 > 仓库已经**完全移除静态打分机制**——不再有 `heuristic_score`、`audit_flags`、`amount_millions` 等字段，也没有预筛选过的 `candidate_articles`。编辑判断**完全由你做**，请逐条审读标题与摘要。
 
@@ -13,19 +13,25 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 - 仅在 `validator_exit_code == 0` 且 `validation_passed == true` 时运行
 - 必须先经过 `artifact-auditor` 的只读审计
-- 你的输出会交给 `report-assembler`，不是直接写入 `report_path`
+- 你的输出会交给 `scripts/editorial_runtime.py assemble`，不是直接写入 `report_path`
 - `pipeline-runner` 已提供可用的 `run_dir`
 
 ## 数据来源与边界
 
-- `llm_context.json` 中的 `all_articles` 是 Part 1 的**唯一权威数据池**
+- `part1_brief.json` 是第一阶段 shortlist 的默认输入，字段包含标题、来源、链接、时间、`summary_en` 和短 `article_text_preview`
+- `llm_context.json` 中的 `all_articles` 是 Part 1 的**完整权威数据池**
   - 每条文章有 7 个字段：`source`、`title`、`link`、`pub_date_utc`、`pub_date_iso`、`summary_en`、`article_text`
   - 没有任何预先的打分、标签或候选列表——筛选判断完全在你这里
-  - **中文摘要素材优先级**：`article_text`（正文片段，最多约 300 词）> `summary_en`（feed 提供的简短英文摘要）> 基于 `title` + `source` 的极简描述；三者都缺失时不要编造事实
+  - **中文摘要素材优先级**：shortlist 后的 `article_text`（正文片段，最多约 150 词）> `summary_en`（feed 提供的简短英文摘要）> 基于 `title` + `source` 的极简描述；三者都缺失时不要编造事实
+- `<run_dir>/part1_shortlist.json` 是你第一阶段写出的轻量 handoff，建议保留 40 到 45 条链接；若可用文章不足 45 条，保留所有非噪音候选
+- 生成 shortlist 后运行：
+  `python3 scripts/editorial_runtime.py shortlist-context --llm-context <run_dir>/llm_context.json --shortlist <run_dir>/part1_shortlist.json --output <run_dir>/part1_shortlist_context.json`
+- 第二阶段只读取 `part1_shortlist_context.json` 和必要的 cache 命中，不重新全文审读未入围文章
+- 可读取 `runs/_cache/editorial_cache.json`；当 link + source-material hash 命中时，优先复用 `summary_zh` / `event_key`，但仍需检查是否符合今日上下文
 - `run_dir`：唯一允许写入的位置，用于 success 分支 handoff artifact
 - 不得读取或依赖最终 markdown 文件
 - 不得修改 `raw.json`、`validation.json`、`llm_context.json`
-- 除 `<run_dir>/part1_plan.json` 外，不写任何文件
+- 只可写 `<run_dir>/part1_shortlist.json`、`<run_dir>/part1_shortlist_context.json`、`<run_dir>/part1_plan.json`
 
 ## 编辑判断指南
 
@@ -100,7 +106,7 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 `part1_plan.json` 至少应包含：
 
-- `items[]`：每条含 `rank`、`title`、`link`、`source`、`pub_date_utc`、`summary_zh`、`also_sources[]`
+- `items[]`：每条含 `rank`、`title`、`link`、`source`、`pub_date_utc`、`summary_zh`、`also_sources[]`；建议额外写 `event_key` 与 `noise_bucket`，便于 deterministic cache 复用
   - `also_sources[]`：同一事件的其他来源覆盖。每条为结构化对象 `{"source": "<source name>", "title": "<English title>"}`，不携带 link；无相关覆盖时必须写成 `[]` 而不是省略字段；`source` 必须出现在 `all_articles[].source`，`title` 必须与对应 `all_articles[].title` 原文一致。之所以不使用 `"Source: Title"` 单字符串编码，是因为 feed 名可能含 `": "`，拼接后下游无法无歧义地还原来源/标题对，违反 `AGENTS.md` 对 handoff artifact machine-readable 的要求
 - `shortfall`：若去噪后 `all_articles` 不足 30，明确给出差额；否则为 `0`
 - `notes[]`：聚类、单源超额豁免、破格纳入有争议条目等需要留痕的编辑判断（单源超额必须按来源名登记）

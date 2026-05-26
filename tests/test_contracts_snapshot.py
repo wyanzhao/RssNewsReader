@@ -68,7 +68,9 @@ EXPECTED_ARTICLE_KEYS = {
     "article_text",
 }
 
-EXPECTED_SOURCE_GROUP_KEYS = {"source", "url", "status", "article_count", "articles"}
+EXPECTED_ARTICLE_REF_KEYS = {"title", "link", "pub_date_iso"}
+
+EXPECTED_SOURCE_GROUP_KEYS = {"source", "url", "status", "article_count", "article_refs"}
 
 
 def _import_test_helpers():
@@ -194,8 +196,8 @@ class LlmContextContractTests(unittest.TestCase):
     def test_source_group_fields_match_contract(self):
         for group in self.context["source_groups"]:
             self.assertEqual(set(group.keys()), EXPECTED_SOURCE_GROUP_KEYS)
-            for article in group["articles"]:
-                self.assertEqual(set(article.keys()), EXPECTED_ARTICLE_KEYS)
+            for article_ref in group["article_refs"]:
+                self.assertEqual(set(article_ref.keys()), EXPECTED_ARTICLE_REF_KEYS)
 
     def test_all_articles_sorted_time_desc(self):
         isos = [a["pub_date_iso"] for a in self.context["all_articles"]]
@@ -210,6 +212,12 @@ class LlmContextContractTests(unittest.TestCase):
     def test_part2_article_total_equals_validation_counts(self):
         total = sum(g["article_count"] for g in self.context["source_groups"])
         self.assertEqual(total, self.context["validation"]["counts"]["articles"])
+
+    def test_source_groups_do_not_duplicate_article_text(self):
+        for group in self.context["source_groups"]:
+            for article_ref in group["article_refs"]:
+                self.assertNotIn("summary_en", article_ref)
+                self.assertNotIn("article_text", article_ref)
 
     def test_byte_level_match_with_golden(self):
         """If this fails, you changed an LLM-visible field. Update both the
@@ -256,7 +264,9 @@ class RawFixtureConfigSnapshotTests(unittest.TestCase):
             "page_fallback_cap": load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
             "effective_page_fallback_cap": load_pipeline_config_fixture()["summary_enrichment"]["page_fallback_cap"],
         })
+        self.assertEqual(raw.get("runtime_config", {}).get("article_text"), load_pipeline_config_fixture()["article_text"])
         self.assertEqual(raw.get("runtime_config", {}).get("render"), load_pipeline_config_fixture()["render"])
+        self.assertEqual(raw.get("runtime_config", {}).get("context_budget"), load_pipeline_config_fixture()["context_budget"])
 
 
 class ExitCodeTranslationContractTests(unittest.TestCase):

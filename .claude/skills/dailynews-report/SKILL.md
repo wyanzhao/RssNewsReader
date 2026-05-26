@@ -26,27 +26,28 @@ Read these files before acting:
 ## Architecture Contract
 
 - `/dailynews-report` is the only runtime procedure entry in this repository.
-- Keep the runtime split as `orchestrator skill + subagents`; do not collapse it back into a single long instruction file.
+- Keep the runtime split as `orchestrator skill + editorial subagents + deterministic helper scripts`; do not collapse it back into a single long instruction file.
 - Do not bypass `pipeline-runner` by calling fetch / validate / llm_context / render subcommands directly.
-- `part1-editor` and `part2-drafter` may write only their own structured handoff artifacts, `part1_plan.json` and `part2_draft.json`, under the emitted `run_dir`. `report-assembler` is the only final report writer.
-- `report-assembler` and `network-debugger` must never run in parallel.
-- `report-reviewer` must run exactly once after the final success-path write.
+- `part1-editor` writes `part1_shortlist.json`, `part1_shortlist_context.json`, and `part1_plan.json`; `part2-drafter` writes `part2_missing_summaries.json` and then uses `scripts/editorial_runtime.py merge-part2` to produce `part2_draft.json`.
+- The orchestrator runs `scripts/editorial_runtime.py assemble` as the only final success-report writer.
+- The orchestrator runs `scripts/editorial_runtime.py review` exactly once after the final success-path write.
 
 ## Workflow
 
 1. Work from the repository root.
 2. Invoke `pipeline-runner` to run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output` and classify the result as `success`, `expected-block`, or `unexpected-error`.
 3. If the classification is `success`, invoke `artifact-auditor` in read-only mode to verify `llm_context.json`, `validation.json`, `counts.articles`, source order, and error-text readiness before any write.
-4. On a clean `success` audit, invoke `part1-editor` to write `runs/<date>/part1_plan.json` and `part2-drafter` to write `runs/<date>/part2_draft.json`. Treat these as independent structured handoff steps; both must finish before assembly.
+4. On a clean `success` audit, inspect `context_budget.json` and use its `recommended_strategy` to keep LLM reads scoped. Invoke `part1-editor` to read `part1_brief.json`, write `part1_shortlist.json`, build `part1_shortlist_context.json`, and then write `part1_plan.json`. Invoke `part2-drafter` to read `part2_context.json`, write only `part2_missing_summaries.json`, then run `python3 scripts/editorial_runtime.py merge-part2 --part2-context <run_dir>/part2_context.json --missing <run_dir>/part2_missing_summaries.json --output <run_dir>/part2_draft.json`. Treat final Part 1 and Part 2 handoffs as independent structured steps; both must finish before assembly.
 5. If either success-path handoff artifact is missing, truncated, or schema-invalid, stop the success branch and return an `ERROR:` line instead of assembling.
-6. After both Part 1 and Part 2 artifacts are ready, invoke `report-assembler` to read them and write the formal Chinese report into the success `report_path`, then invoke `report-reviewer` once to perform a final read-only check.
+6. After both Part 1 and Part 2 artifacts are ready, run `python3 scripts/editorial_runtime.py assemble --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --output <report_path>` to write the formal Chinese report into the success `report_path`, then run `python3 scripts/editorial_runtime.py review --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --report <report_path>` once.
 7. If the classification is `expected-block`, invoke `artifact-auditor` in read-only mode, keep the existing failure report untouched, and return only the emitted absolute `report_path`.
-8. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, `report-assembler`, or `report-reviewer` in this branch.
+8. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, assemble, or review in this branch.
 
 ## Guardrails
 
-- Only `report-assembler` may write the final success report.
-- Use `llm_context.json` for article-level semantics, ranking, clustering, and summaries.
+- Only `scripts/editorial_runtime.py assemble` may write the final success report.
+- Use `part1_brief.json` for first-pass Part 1 ranking, `part1_shortlist_context.json` for final Part 1 summaries, and `part2_context.json` for Part 2 summaries. Use full `llm_context.json` only when a deterministic check or shortlisted article requires it.
+- Use `context_budget.json` to decide whether to stay on normal context reads or force brief-first/cache-first behavior.
 - Use `validation.json` only for gating metadata, `counts.articles`, source order cross-checks, and per-feed error text that is not duplicated in `llm_context.json`.
 - Do not silently reconstruct Part 1 / Part 2 from `article_text`, `summary_en`, or partially copied chat text when a subagent handoff is incomplete.
 - Treat oversize, truncated, or schema-invalid success-path handoffs as blocking errors.
@@ -60,14 +61,18 @@ Read these files before acting:
 - `pipeline-runner` — runs the pipeline, parses the 8 control-plane fields, and returns the branch classification
 - `artifact-auditor` — read-only audit of `llm_context.json` and `validation.json`
 - `network-debugger` — unexpected-error diagnosis using sidecar stderr and `python3 scripts/network_debug.py --limit 5` only when warranted
-- `part1-editor` — success-only Part 1 event clustering, Top 30 selection, and summary planning
-- `part2-drafter` — success-only Part 2 source-group drafting and count-safe article coverage
-- `report-assembler` — success-only final markdown assembly and write
-- `report-reviewer` — final read-only review after the success-path write
+- `part1-editor` — success-only Part 1 brief-first shortlist, event clustering, Top 30 selection, and summary planning
+- `part2-drafter` — success-only Part 2 missing-summary drafting from compact `part2_context.json`
+
+Deterministic helper steps, run directly by the orchestrator:
+
+- `scripts/editorial_runtime.py merge-part2` — merges cached Part 2 summaries plus missing summaries into `part2_draft.json`
+- `scripts/editorial_runtime.py assemble` — validates handoffs and writes the final success report
+- `scripts/editorial_runtime.py review` — validates the final report after the write
 
 ## Response Contract
 
 - On normal completion, including `success` and `expected-block`, return only the absolute `report_path`.
-- On `unexpected-error`, or when `artifact-auditor` / `report-reviewer` reports a blocking issue, return at most two lines:
+- On `unexpected-error`, or when `artifact-auditor` / `editorial_runtime.py review` reports a blocking issue, return at most two lines:
   1. `ERROR: <one-line diagnosis>`
   2. the absolute `report_path`, if it is known with confidence

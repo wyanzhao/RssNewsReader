@@ -17,13 +17,17 @@ description: Use proactively after pipeline-runner on success or expected-block 
 
 - `validation.counts.articles`
 - `source_groups[]` 的来源顺序是否稳定
-- `source_groups[].article_count` 与各组 `articles[]` 数量是否一致
+- `source_groups[].article_count` 与各组 `article_refs[]` 数量是否一致
 - `validation.feed_results[]` 与 `source_groups[]` 是否可一一对应
 - `status == 'error'` 的来源是否存在可用 `feed_results[].error` 文本；若不存在，要明确标记应回退到 `抓取失败`
 
+优先运行本地确定性审计，而不是手工重做这些计数：
+
+`python3 scripts/editorial_runtime.py audit --llm-context <llm_context.json> --validation <validation.json>`
+
 ## 读法边界
 
-- 用 `llm_context.json` 读取 `all_articles`、`source_groups`、`validation.counts`
+- 用 `llm_context.json` 读取 `all_articles`、`source_groups[].article_refs`、`validation.counts`
 - 用 `validation.json` 只读取 gating 元数据和 `feed_results[].error`
 - 如果 `classification == expected-block` 且 `llm_context.json` 缺失，记录这一观察并继续审计 `validation.json`；不要自行恢复缺失文件
 - 如果 `classification == success` 且 `llm_context.json` 缺失或不可读，视为阻断性问题

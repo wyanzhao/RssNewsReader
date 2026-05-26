@@ -26,6 +26,7 @@ EXPECTED_AGENTS = {
         "validation.json",
         "counts.articles",
         "source_groups",
+        "editorial_runtime.py audit",
         "不写文件",
     ],
     "network-debugger": [
@@ -37,7 +38,9 @@ EXPECTED_AGENTS = {
         "不生成最终报告",
     ],
     "part1-editor": [
-        "all_articles",
+        "part1_brief.json",
+        "part1_shortlist.json",
+        "part1_shortlist_context.json",
         "Part 1",
         "Top 30",
         "part1_plan.json",
@@ -45,31 +48,16 @@ EXPECTED_AGENTS = {
         "UTF-8 JSON",
     ],
     "part2-drafter": [
-        "source_groups",
+        "part2_context.json",
+        "source_groups[].article_refs",
+        "part2_missing_summaries.json",
+        "merge-part2",
         "validation.json",
         "Part 2",
         "counts.articles",
         "part2_draft.json",
         "绝对路径",
         "UTF-8 JSON",
-    ],
-    "report-assembler": [
-        "part1_plan.json",
-        "part2_draft.json",
-        "report_path",
-        "*.failed.md",
-        "summary_en",
-        "唯一可以写 `report_path`",
-    ],
-    "report-reviewer": [
-        "标题保持英文原文",
-        "原始 link",
-        "source order",
-        "validation.counts.articles",
-        "part1_plan.json",
-        "part2_draft.json",
-        "summary_en",
-        "只读",
     ],
 }
 
@@ -121,15 +109,20 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertIn("skill + subagents", readme_text)
         self.assertIn("pipeline-runner", readme_text)
         self.assertIn("part1-editor", readme_text)
-        self.assertIn("report-assembler", readme_text)
+        self.assertIn("editorial_runtime.py", readme_text)
+        self.assertNotIn("- `report-assembler`", readme_text)
+        self.assertNotIn("- `report-reviewer`", readme_text)
 
         self.assertIn("TASKS.md", agents_text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".agents/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".claude/agents/*.md", agents_text)
         self.assertIn("part1_plan.json", agents_text)
+        self.assertIn("part1_shortlist.json", agents_text)
+        self.assertIn("part2_context.json", agents_text)
+        self.assertIn("part2_missing_summaries.json", agents_text)
         self.assertIn("part2_draft.json", agents_text)
-        self.assertIn("pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> report-assembler -> report-reviewer", agents_text)
+        self.assertIn("pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review", agents_text)
         self.assertIn("pipeline-runner -> network-debugger", agents_text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, agents_text)
 

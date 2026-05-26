@@ -173,7 +173,8 @@ def choose_top_articles(articles: List[Article], limit: int = TOP_N) -> List[Art
 
     This is a deterministic fallback used only by the static renderer. The
     Claude Code runtime overwrites Part 1 on the success path via
-    `report-assembler`, which consumes `part1_plan.json` produced by the LLM.
+    `scripts/editorial_runtime.py assemble`, which consumes `part1_plan.json`
+    produced by the LLM.
     """
     return list(articles)[: max(limit, 0)]
 
