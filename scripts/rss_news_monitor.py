@@ -57,6 +57,7 @@ from _common.article_extract import (  # noqa: E402
 )
 from _common.feed_fetch import (  # noqa: E402
     decode_content as _decode_content,
+    enrich_article_pages as _enrich_article_pages,
     enrich_article_text as _enrich_article_text,
     enrich_missing_summaries as _enrich_missing_summaries,
     fetch_all_feeds as _fetch_all_feeds,
@@ -187,6 +188,19 @@ def enrich_article_text(articles: List[Dict],
         articles,
         pipeline_config,
         fetch_article_text_fn=fetch_article_text,
+    )
+
+
+def enrich_article_pages(articles: List[Dict], max_summary: int = 0,
+                         pipeline_config: Optional[Dict[str, Any]] = None) -> None:
+    """Single-fetch enrichment: backfill summary + ``article_text`` in one pass."""
+    _enrich_article_pages(
+        articles,
+        max_summary=max_summary,
+        pipeline_config=pipeline_config,
+        fetch_url_fn=fetch_url,
+        decode_content_fn=decode_content,
+        extract_summary_fn=extract_html_summary,
     )
 
 
@@ -323,18 +337,21 @@ def main():
 
     # Deduplicate
     all_articles = dedup_articles(all_articles)
-    enrich_missing_summaries(
-        all_articles,
-        max_summary=args.max_summary,
-        pipeline_config=pipeline_config,
-    )
-    # article_text enrichment fetches every article URL a second time, so
-    # only run it when the output mode actually consumes the field. Today
-    # only the JSON output (downstream of --json) carries article_text;
-    # --summary and the default grouped-text output do not.
+    # Only the JSON output mode consumes article_text; --summary and the
+    # default grouped-text output do not. On the JSON path, fetch each article
+    # page once and extract both the summary fallback and the body text from the
+    # same response (enrich_article_pages) instead of fetching every short
+    # summary's page twice. Other modes keep the summary-only single fetch.
     if args.json:
-        enrich_article_text(
+        enrich_article_pages(
             all_articles,
+            max_summary=args.max_summary,
+            pipeline_config=pipeline_config,
+        )
+    else:
+        enrich_missing_summaries(
+            all_articles,
+            max_summary=args.max_summary,
             pipeline_config=pipeline_config,
         )
     config_snapshot = _build_runtime_config_snapshot(

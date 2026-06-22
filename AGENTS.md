@@ -305,12 +305,20 @@ The LLM handles:
   cap for page-fallback summaries even if `--max-summary` is set higher.
 - The fetch step snapshots the effective values into `raw.json.runtime_config`
   so downstream render steps do not silently drift with later config edits.
+- On the JSON output path, the summary fallback and the `article_text`
+  extraction below share a single page fetch per article
+  (`_common/feed_fetch.py:enrich_article_pages`): each article page is fetched
+  at most once and the same response feeds both the meta-summary extractor and
+  the main-body extractor. Non-JSON modes (`--summary`, default grouped text)
+  do not need `article_text`, so they keep the summary-only single fetch
+  (`enrich_missing_summaries`).
 
 ## Article Body Extraction
 
-- After summary enrichment, `rss_news_monitor.py` runs an `article_text`
-  enrichment pass that fetches each article page and extracts its main
-  body via `_common/article_extract.py`.
+- On the JSON output path, `rss_news_monitor.py` enriches each article page in a
+  single fetch: `enrich_article_pages` extracts both the HTML meta-summary
+  fallback and the `article_text` main body (via `_common/article_extract.py`)
+  from one response, rather than fetching the page once per enrichment.
 - Extraction prefers `<article>`, `<main>`, or `role='main'` containers,
   strips `<script>`, `<style>`, and obvious chrome (`<nav>`, `<aside>`,
   `<footer>`, `<header>`, `<form>`, etc.), and falls back to the union of
@@ -321,7 +329,7 @@ The LLM handles:
   When disabled or when extraction fails, `article_text` is an empty
   string and editorial agents fall back to `summary_en`.
 - `pipeline_config.json.article_text.max_workers` (default 4) caps fetch
-  concurrency for this pass.
+  concurrency for the merged single-fetch enrichment pass.
 - The fetch step snapshots effective values into
   `raw.json.runtime_config.article_text` for later reference.
 - `article_text` is best-effort. It is never used by the deterministic

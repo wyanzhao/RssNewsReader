@@ -202,15 +202,12 @@ class EditorialRuntimeTests(unittest.TestCase):
             code, validation = run_validator(raw)
             self.assertEqual(code, 0)
             cached_article = raw["articles"][0]
-            cache_key_source = "\0".join(
-                [
-                    cached_article["link"],
-                    cached_article["summary_en"],
-                    cached_article.get("article_text", ""),
-                ]
-            )
-            import hashlib
-            cache_key = hashlib.sha256(cache_key_source.encode("utf-8")).hexdigest()
+            # Compute the key with the real cache helper so this test follows
+            # the implementation's keying scheme (stable link-based v2 key)
+            # instead of duplicating the formula.
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from _common.editorial_cache import cache_key as _cache_key
+            cache_key = _cache_key(cached_article)
             cache_path = tmp / "runs" / "_cache" / "editorial_cache.json"
             cache_path.parent.mkdir(parents=True)
             cache_path.write_text(

@@ -147,6 +147,20 @@
 - [x] `context_budget.json` 已纳入 deterministic context 输出
 - [x] Part 2 cache-first flow 已覆盖：cache hit 不再需要 LLM 重写摘要，missing summaries 经 `merge-part2` 合并
 
+## 性能 / 成本优化 (2026-06-21)
+
+- [x] 取消文章页的二次抓取：JSON 路径改用 `_common/feed_fetch.py:enrich_article_pages`，
+      每个文章页只抓取一次，同一响应同时产出 `summary_en` 兜底与 `article_text` 正文；
+      非 JSON 模式保持 `enrich_missing_summaries` 单次抓取
+- [x] 修复 editorial 缓存命中率：`cache_key` 改为基于稳定 `link` 的 v2 键
+      （旧键含易变的 `summary_en`/`article_text`，命中率≈0%）；`lookup_entry` 在 v2 未命中时
+      回退到 `legacy_cache_key`；`update_entries` 写入后按 `updated_at_utc` 调用
+      `prune_stale_entries`（默认 90 天）限制缓存无界增长
+- [x] 新增 fetch 路径单测 `tests/test_feed_fetch.py`（含 legacy 双段与合并单抓取的等价性测试）
+- [x] 新增缓存单测 `tests/test_editorial_cache.py`；`tests/test_editorial_runtime.py` 缓存命中用例改用真实 `cache_key`
+- [x] `python3 -m unittest discover -s tests -p 'test_*.py'` 全绿（159 项）
+- [x] 真实网络 smoke：`rss_news_monitor.py --json` 29/29 文章 `summary_en`+`article_text` 均填充
+
 ## Backlog
 
 - [ ] 将 orchestrator skill 的可配置参数进一步显式化，例如时间窗口、摘要长度、保留天数
