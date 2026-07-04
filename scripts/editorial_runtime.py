@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
 from _common.editorial_cache import (  # noqa: E402
-    cache_key,
     clean_text,
     default_cache_path,
     event_key,
     load_cache,
+    lookup_entry,
     update_entries,
     write_cache,
 )
@@ -51,6 +51,18 @@ def _as_list(value: Any) -> List[Any]:
 
 def _clean_text(value: Any) -> str:
     return clean_text(value)
+
+
+def _md_link_text(value: Any) -> str:
+    """Escape square brackets so a feed title cannot break the [title](link) form."""
+    return _clean_text(value).replace("[", "\\[").replace("]", "\\]")
+
+
+def _md_link(title: Any, link: Any) -> str:
+    target = _clean_text(link)
+    if any(ch in target for ch in ("(", ")", " ")):
+        target = f"<{target}>"
+    return f"[{_md_link_text(title)}]({target})"
 
 
 def _article_map(context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -162,16 +174,39 @@ def _extract_shortlist_links(shortlist: Dict[str, Any]) -> List[str]:
     return links
 
 
-def build_shortlist_context(context: Dict[str, Any], shortlist: Dict[str, Any]) -> Dict[str, Any]:
+def build_shortlist_context(context: Dict[str, Any],
+                            shortlist: Dict[str, Any],
+                            cache: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Slice the shortlist out of ``all_articles`` and inject cache hits.
+
+    Cache reuse is deterministic-only: when a shortlisted link has a prior
+    Part 1 summary in the editorial cache, the article entry gains
+    ``cached_summary_zh`` / ``cached_event_key`` so the LLM can reuse it
+    without ever reading the cache file itself.
+    """
     article_by_link = _article_map(context)
     links = _extract_shortlist_links(shortlist)
     missing = [link for link in links if link not in article_by_link]
     if missing:
         raise ValueError(f"shortlist contains links absent from all_articles: {missing}")
+    articles: List[Dict[str, Any]] = []
+    cache_hits = 0
+    for link in links:
+        article = dict(article_by_link[link])
+        entry = lookup_entry(article, cache)
+        cached_summary = _clean_text(entry.get("part1_summary_zh")) if isinstance(entry, dict) else ""
+        if cached_summary:
+            article["cached_summary_zh"] = cached_summary
+            cached_event = _clean_text(entry.get("event_key")) if isinstance(entry, dict) else ""
+            if cached_event:
+                article["cached_event_key"] = cached_event
+            cache_hits += 1
+        articles.append(article)
     return {
         "meta": context.get("meta", {}),
         "article_count": len(links),
-        "articles": [article_by_link[link] for link in links],
+        "cache_hits": cache_hits,
+        "articles": articles,
     }
 
 
@@ -183,30 +218,45 @@ def _require_fields(item: Dict[str, Any], fields: Iterable[str], label: str, err
 
 
 def validate_part1(context: Dict[str, Any], part1: Dict[str, Any]) -> List[str]:
+    """Validate the link-keyed part1 plan.
+
+    Plan items reference articles by ``link`` only; titles, sources, and
+    timestamps are joined from ``llm_context.json`` at assemble time, so the
+    plan never echoes (and can never corrupt) those authoritative fields.
+    """
     errors: List[str] = []
     article_by_link = _article_map(context)
     items = _as_list(part1.get("items"))
     if "shortfall" not in part1:
         errors.append("part1_plan missing shortfall")
+    seen_links: set[str] = set()
     for idx, item in enumerate(items, 1):
         if not isinstance(item, dict):
             errors.append(f"part1 item {idx} is not an object")
             continue
-        _require_fields(
-            item,
-            ["rank", "title", "link", "source", "pub_date_utc", "summary_zh", "also_sources"],
-            f"part1 item {idx}",
-            errors,
-        )
         link = _clean_text(item.get("link"))
-        article = article_by_link.get(link)
-        if article is None:
-            errors.append(f"part1 item {idx} link absent from all_articles: {link}")
+        if not link:
+            errors.append(f"part1 item {idx} missing link")
             continue
-        if item.get("title") != article.get("title"):
-            errors.append(f"part1 item {idx} title changed for {link}")
-        if item.get("source") != article.get("source"):
-            errors.append(f"part1 item {idx} source changed for {link}")
+        if link in seen_links:
+            errors.append(f"part1 item {idx} duplicates link {link}")
+        seen_links.add(link)
+        if link not in article_by_link:
+            errors.append(f"part1 item {idx} link absent from all_articles: {link}")
+        if not _clean_text(item.get("summary_zh")):
+            errors.append(f"part1 item {idx} missing summary_zh")
+        also_links = item.get("also_links")
+        if not isinstance(also_links, list):
+            errors.append(f"part1 item {idx} missing also_links list")
+            continue
+        for also_link in also_links:
+            cleaned = _clean_text(also_link)
+            if not cleaned:
+                errors.append(f"part1 item {idx} has an empty also_link")
+            elif cleaned == link:
+                errors.append(f"part1 item {idx} also_links repeats its own link")
+            elif cleaned not in article_by_link:
+                errors.append(f"part1 item {idx} also_link absent from all_articles: {cleaned}")
     return errors
 
 
@@ -369,23 +419,31 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
         lines.append(f"> 抓取异常：{failure_text}")
 
     lines.extend(["", "## Part 1：当日 TOP 30", ""])
+    article_by_link = _article_map(context)
     items = _as_list(part1.get("items"))
     if not items:
         lines.extend(["本次没有可进入 Part 1 的文章。", ""])
-    for item in items:
-        lines.append(f"{item.get('rank')}. [{_clean_text(item.get('title'))}]({item.get('link')})")
-        lines.append(f"   - 来源：{item.get('source')}")
-        lines.append(f"   - 时间：{item.get('pub_date_utc')}")
+    # The link-keyed plan carries only editorial fields; title, source, and
+    # timestamp are joined here from the authoritative llm_context articles.
+    for rank, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            continue
+        link = _clean_text(item.get("link"))
+        article = article_by_link.get(link, {})
+        lines.append(f"{rank}. {_md_link(article.get('title'), link)}")
+        lines.append(f"   - 来源：{article.get('source')}")
+        lines.append(f"   - 时间：{article.get('pub_date_utc')}")
         lines.append(f"   - 摘要：{item.get('summary_zh')}")
-        also_sources = _as_list(item.get("also_sources"))
-        if also_sources:
-            also_text = "；".join(
-                f"{entry.get('source')}: {_clean_text(entry.get('title'))}"
-                for entry in also_sources
-                if isinstance(entry, dict)
+        also_text = "；".join(
+            f"{article_by_link[also_link].get('source')}: "
+            f"{_clean_text(article_by_link[also_link].get('title'))}"
+            for also_link in (
+                _clean_text(entry) for entry in _as_list(item.get("also_links"))
             )
-            if also_text:
-                lines.append(f"   - 相关来源：{also_text}")
+            if also_link in article_by_link
+        )
+        if also_text:
+            lines.append(f"   - 相关来源：{also_text}")
         lines.append("")
 
     lines.extend(["## Part 2：按来源分组", ""])
@@ -402,7 +460,7 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
             lines.append("")
             continue
         for idx, article in enumerate(articles, 1):
-            lines.append(f"{idx}. [{_clean_text(article.get('title'))}]({article.get('link')})")
+            lines.append(f"{idx}. {_md_link(article.get('title'), article.get('link'))}")
             lines.append(f"   - 时间：{article.get('pub_date_iso')}")
             lines.append(f"   - 摘要：{article.get('summary_zh')}")
             lines.append("")
@@ -424,27 +482,31 @@ def update_cache(cache_path: str | Path,
     path = Path(cache_path)
     cache = load_cache(path)
     article_by_link = _article_map(context)
-    summary_items: Dict[str, Dict[str, Any]] = {}
+    # Part 1 and Part 2 summaries have different length/style targets, so both
+    # are kept per link and update_entries merges them into separate fields.
+    summary_items: List[Dict[str, Any]] = []
     for group in _as_list(part2.get("groups")):
         if not isinstance(group, dict):
             continue
         for article in _as_list(group.get("articles")):
             if isinstance(article, dict) and article.get("link"):
-                summary_items[str(article["link"])] = {
+                summary_items.append({
                     "link": article.get("link", ""),
                     "summary_zh": article.get("summary_zh", ""),
                     "noise_bucket": article.get("noise_bucket", "covered"),
                     "event_key": event_key(article),
-                }
+                    "part": "part2",
+                })
     for item in _as_list(part1.get("items")):
         if isinstance(item, dict) and item.get("link"):
-            summary_items[str(item["link"])] = {
+            summary_items.append({
                 "link": item.get("link", ""),
                 "summary_zh": item.get("summary_zh", ""),
                 "noise_bucket": item.get("noise_bucket", "selected"),
-                "event_key": event_key(item),
-            }
-    update_entries(cache, article_by_link, summary_items.values())
+                "event_key": item.get("event_key", ""),
+                "part": "part1",
+            })
+    update_entries(cache, article_by_link, summary_items)
     write_cache(path, cache)
     entries = cache.get("entries", {})
     return {"path": str(path), "entries": len(entries)}
@@ -468,7 +530,9 @@ def review_report(report_path: str | Path,
             if not isinstance(article, dict):
                 continue
             link = _clean_text(article.get("link"))
-            title = _clean_text(article.get("title"))
+            # Titles are bracket-escaped at render time, so compare against
+            # the same escaped form.
+            title = _md_link_text(article.get("title"))
             if link and link not in text:
                 errors.append(f"report missing link: {link}")
             if title and title not in text:
@@ -493,6 +557,8 @@ def build_parser() -> argparse.ArgumentParser:
     shortlist.add_argument("--llm-context", required=True)
     shortlist.add_argument("--shortlist", required=True)
     shortlist.add_argument("--output", required=True)
+    shortlist.add_argument("--cache-path")
+    shortlist.add_argument("--no-cache", action="store_true")
 
     merge_part2 = subparsers.add_parser("merge-part2")
     merge_part2.add_argument("--part2-context", required=True)
@@ -532,7 +598,20 @@ def main() -> int:
             return 0 if result["passed"] else 20
 
         if args.command == "shortlist-context":
-            output = build_shortlist_context(load_json(args.llm_context), load_json(args.shortlist))
+            cache: Dict[str, Any] | None = None
+            if not args.no_cache:
+                cache_source = args.cache_path or default_cache_path(args.llm_context)
+                try:
+                    cache = load_cache(cache_source)
+                except (OSError, ValueError, json.JSONDecodeError):
+                    # Cache injection is a best-effort optimization; a corrupt
+                    # cache must not block the shortlist step.
+                    cache = None
+            output = build_shortlist_context(
+                load_json(args.llm_context),
+                load_json(args.shortlist),
+                cache,
+            )
             write_json(args.output, output)
             print(args.output)
             return 0

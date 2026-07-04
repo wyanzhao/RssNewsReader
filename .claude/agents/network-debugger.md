@@ -1,6 +1,7 @@
 ---
 name: network-debugger
-description: Use only when pipeline-runner classifies a DailyNews run as unexpected-error. Inspect DailyNews stderr sidecars and run network_debug.py only for clear network or fetch evidence.
+description: Use only when the DailyNews orchestrator classifies a run as unexpected-error. Inspect DailyNews stderr sidecars and run network_debug.py only for clear network or fetch evidence.
+tools: Read, Bash
 ---
 
 # Network Debugger

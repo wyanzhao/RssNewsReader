@@ -1,6 +1,7 @@
 ---
 name: part1-editor
-description: Use only in the success branch after artifact-auditor passes. Produce the DailyNews Part 1 Top 30 event plan with a brief-first shortlist pass and write structured handoff artifacts.
+description: Use only in the DailyNews success branch after the deterministic audit passes. Produce the Part 1 Top 30 event plan with a brief-first shortlist pass and write link-keyed structured handoff artifacts.
+tools: Read, Write, Edit, Bash
 ---
 
 # Part 1 Editor
@@ -12,13 +13,13 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 ## 前置条件
 
 - 仅在 `validator_exit_code == 0` 且 `validation_passed == true` 时运行
-- 必须先经过 `artifact-auditor` 的只读审计
+- 必须在 orchestrator 已通过 `scripts/editorial_runtime.py audit` 的确定性审计之后运行
 - 你的输出会交给 `scripts/editorial_runtime.py assemble`，不是直接写入 `report_path`
-- `pipeline-runner` 已提供可用的 `run_dir`
+- orchestrator 已提供可用的 `run_dir`
 
 ## 数据来源与边界
 
-- `part1_brief.json` 是第一阶段 shortlist 的默认输入，字段包含标题、来源、链接、时间、`summary_en` 和短 `article_text_preview`
+- `part1_brief.json` 是第一阶段 shortlist 的默认输入，字段包含标题、来源、链接、时间与 `summary_en`；仅当 `summary_en` 缺失或短于阈值时才附带 `article_text_preview`（见 `preview_policy`）
 - `llm_context.json` 中的 `all_articles` 是 Part 1 的**完整权威数据池**
   - 每条文章有 7 个字段：`source`、`title`、`link`、`pub_date_utc`、`pub_date_iso`、`summary_en`、`article_text`
   - 没有任何预先的打分、标签或候选列表——筛选判断完全在你这里
@@ -26,8 +27,9 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 - `<run_dir>/part1_shortlist.json` 是你第一阶段写出的轻量 handoff，建议保留 40 到 45 条链接；若可用文章不足 45 条，保留所有非噪音候选
 - 生成 shortlist 后运行：
   `python3 scripts/editorial_runtime.py shortlist-context --llm-context <run_dir>/llm_context.json --shortlist <run_dir>/part1_shortlist.json --output <run_dir>/part1_shortlist_context.json`
-- 第二阶段只读取 `part1_shortlist_context.json` 和必要的 cache 命中，不重新全文审读未入围文章
-- 可读取 `runs/_cache/editorial_cache.json`；当 link + source-material hash 命中时，优先复用 `summary_zh` / `event_key`，但仍需检查是否符合今日上下文
+- 该命令会自动为缓存命中的文章注入 `cached_summary_zh` / `cached_event_key`（往日已写过的 Part 1 事件摘要）；当事件与今日上下文仍一致时可直接复用或轻改，不一致时重写
+- **不要读取 `runs/_cache/` 下的任何缓存文件**；缓存复用完全由脚本注入
+- 第二阶段只读取 `part1_shortlist_context.json`，不重新全文审读未入围文章
 - `run_dir`：唯一允许写入的位置，用于 success 分支 handoff artifact
 - 不得读取或依赖最终 markdown 文件
 - 不得修改 `raw.json`、`validation.json`、`llm_context.json`
@@ -80,7 +82,7 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 - 若多条文章讲的是同一事件（同一公司 + 同一动作 + 同一时间段），合并为一条
 - 合并后选一条作为代表项，优先考虑：信源权威性 → 摘要质量 → 标题清晰度 → 发布时间
-- 其余来源写入 `also_sources[]`
+- 其余来源的 `link` 写入 `also_links[]`
 
 ### 第四步：来源多样性
 
@@ -97,6 +99,7 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 - 为每一条生成一段 60–180 字的中文事件级摘要：概括事件主体、关键数字（如金额、比例）、时间节点与可观察的影响
 - **素材优先级**：优先用 `article_text` 写摘要（更完整、含具体数字与原声引言）；`article_text` 为空时回退到 `summary_en`；两者都空则基于 `title` + `source` 写一条极简事件描述
+- 若 shortlist context 注入了 `cached_summary_zh` 且事件事实未变，可复用或在其基础上轻改
 - 严禁根据常识或外部知识补写未出现在 `article_text` / `summary_en` / `title` 中的事实
 - 不得直接复制 `article_text` 或 `summary_en`，也不得机翻拼接
 
@@ -104,10 +107,15 @@ description: Use only in the success branch after artifact-auditor passes. Produ
 
 把结构化的 Part 1 计划写到 `<run_dir>/part1_plan.json`，并只返回该文件的绝对路径。不要把完整内容以长 prose 列表回传到聊天里。
 
-`part1_plan.json` 至少应包含：
+`part1_plan.json` 是 **link-keyed** 的：条目只携带编辑产出字段，**不要复述** `title`、`source` 或时间——最终报告由 `scripts/editorial_runtime.py assemble` 按 `link` 从 `llm_context.json` 反查这些权威字段，复述只会引入抄写错误并浪费输出。
 
-- `items[]`：每条含 `rank`、`title`、`link`、`source`、`pub_date_utc`、`summary_zh`、`also_sources[]`；建议额外写 `event_key` 与 `noise_bucket`，便于 deterministic cache 复用
-  - `also_sources[]`：同一事件的其他来源覆盖。每条为结构化对象 `{"source": "<source name>", "title": "<English title>"}`，不携带 link；无相关覆盖时必须写成 `[]` 而不是省略字段；`source` 必须出现在 `all_articles[].source`，`title` 必须与对应 `all_articles[].title` 原文一致。之所以不使用 `"Source: Title"` 单字符串编码，是因为 feed 名可能含 `": "`，拼接后下游无法无歧义地还原来源/标题对，违反 `AGENTS.md` 对 handoff artifact machine-readable 的要求
+结构要求：
+
+- `items[]`：按最终展示顺序排列（**数组顺序即排名**，无需 `rank` 字段）。每条包含：
+  - `link`：必须与 `all_articles[].link` 完全一致，是条目的唯一标识
+  - `summary_zh`：60–180 字中文事件摘要
+  - `also_links[]`：同一事件其他来源覆盖的 `link` 数组；每个 link 必须存在于 `all_articles[].link`，不得包含条目自身的 link；无相关覆盖时必须写 `[]` 而不是省略字段
+  - `event_key`（建议）与 `noise_bucket`（建议）：便于 deterministic cache 复用
 - `shortfall`：若去噪后 `all_articles` 不足 30，明确给出差额；否则为 `0`
 - `notes[]`：聚类、单源超额豁免、破格纳入有争议条目等需要留痕的编辑判断（单源超额必须按来源名登记）
 

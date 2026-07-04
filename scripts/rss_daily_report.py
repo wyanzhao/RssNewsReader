@@ -22,6 +22,7 @@ from _common.paths import (  # noqa: E402
     stale_run_dirs,
 )
 from _common.pipeline import Step, StepResult, run_step  # noqa: E402
+from _common.runtime_config import resolve_fetch_settings  # noqa: E402
 
 
 ROOT_DIR = SCRIPT_DIR.parent
@@ -36,10 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run fetch -> validate -> render for the RSS daily report."
     )
-    parser.add_argument("--hours", type=int, default=24,
-                        help="Number of hours to look back (default: 24)")
-    parser.add_argument("--max-summary", type=int, default=300,
-                        help="Max summary length passed through to the fetch step")
+    parser.add_argument("--hours", type=int, default=None,
+                        help="Number of hours to look back "
+                             "(default: pipeline_config.json fetch.hours, else 24)")
+    parser.add_argument("--max-summary", type=int, default=None,
+                        help="Max summary length passed through to the fetch step "
+                             "(default: pipeline_config.json fetch.max_summary, else 300)")
     parser.add_argument("--config",
                         help="Optional path to pipeline_config.json for fetch and render")
     parser.add_argument("--date", metavar="YYYY-MM-DD",
@@ -179,6 +182,16 @@ def write_synthetic_failure_report(path: Path,
 def main() -> int:
     args = build_parser().parse_args()
 
+    # Explicit CLI flags win; otherwise fall back to pipeline_config.json's
+    # fetch section (or built-in defaults when the config is absent/invalid),
+    # so callers like /dailynews-report do not hardcode the time window.
+    fetch_defaults = resolve_fetch_settings(args.config)
+    hours = args.hours if args.hours is not None else fetch_defaults["hours"]
+    max_summary = (
+        args.max_summary if args.max_summary is not None
+        else fetch_defaults["max_summary"]
+    )
+
     report_date = args.date or datetime.now().date().isoformat()
     runs_root = Path(args.runs_dir).expanduser().resolve()
     runs_dir = runs_dir_for(runs_root, report_date)
@@ -196,8 +209,8 @@ def main() -> int:
         script=FETCH_SCRIPT,
         args=[
             "--json",
-            "--hours", str(args.hours),
-            "--max-summary", str(args.max_summary),
+            "--hours", str(hours),
+            "--max-summary", str(max_summary),
         ],
         stdout_path=raw_path,
         stderr_path=fetch_stderr_path,

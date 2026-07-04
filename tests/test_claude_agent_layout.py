@@ -13,22 +13,12 @@ REMOVED_RUNTIME_DOC = "PROMPT" + ".md"
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
 
+# pipeline-runner and artifact-auditor were demoted to direct deterministic
+# orchestrator steps (same pattern as the earlier report-assembler /
+# report-reviewer demotion); only judgment-bearing agents remain.
+REMOVED_AGENTS = ("pipeline-runner", "artifact-auditor")
+
 EXPECTED_AGENTS = {
-    "pipeline-runner": [
-        "python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output",
-        "success",
-        "expected-block",
-        "unexpected-error",
-        "8 个控制面字段",
-    ],
-    "artifact-auditor": [
-        "llm_context.json",
-        "validation.json",
-        "counts.articles",
-        "source_groups",
-        "editorial_runtime.py audit",
-        "不写文件",
-    ],
     "network-debugger": [
         "fetch.stderr.txt",
         "validate.stderr.txt",
@@ -44,6 +34,10 @@ EXPECTED_AGENTS = {
         "Part 1",
         "Top 30",
         "part1_plan.json",
+        "link-keyed",
+        "also_links",
+        "cached_summary_zh",
+        "不要读取 `runs/_cache/",
         "绝对路径",
         "UTF-8 JSON",
     ],
@@ -56,9 +50,24 @@ EXPECTED_AGENTS = {
         "Part 2",
         "counts.articles",
         "part2_draft.json",
+        "needs_summary",
+        "不要读取 `runs/_cache/",
         "绝对路径",
         "UTF-8 JSON",
     ],
+}
+
+# Prose-only guardrails became mechanical: each agent gets an explicit tool
+# whitelist (no network tools anywhere), and the mechanical Part 2 drafting
+# is pinned to a cheaper model.
+EXPECTED_TOOLS = {
+    "network-debugger": "Read, Bash",
+    "part1-editor": "Read, Write, Edit, Bash",
+    "part2-drafter": "Read, Write, Edit",
+}
+
+EXPECTED_MODELS = {
+    "part2-drafter": "haiku",
 }
 
 
@@ -84,6 +93,11 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertTrue(AGENT_DIR.is_dir())
         actual = {path.stem for path in AGENT_DIR.glob("*.md")}
         self.assertEqual(actual, set(EXPECTED_AGENTS))
+        for name in REMOVED_AGENTS:
+            self.assertFalse(
+                (AGENT_DIR / f"{name}.md").exists(),
+                msg=f"{name} was demoted to a direct orchestrator step and must stay removed",
+            )
 
     def test_each_agent_has_matching_frontmatter(self):
         for name in EXPECTED_AGENTS:
@@ -93,6 +107,14 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
             description = frontmatter.get("description", "")
             self.assertTrue(description, msg=f"{name} description must not be empty")
             self.assertIn("DailyNews", description)
+            self.assertEqual(
+                frontmatter.get("tools"),
+                EXPECTED_TOOLS[name],
+                msg=f"{name} must declare its tool whitelist",
+            )
+            expected_model = EXPECTED_MODELS.get(name)
+            if expected_model is not None:
+                self.assertEqual(frontmatter.get("model"), expected_model)
 
     def test_each_agent_body_contains_its_role_keywords(self):
         for name, keywords in EXPECTED_AGENTS.items():
@@ -107,11 +129,12 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
 
         self.assertIn(".claude/agents/", readme_text)
         self.assertIn("skill + subagents", readme_text)
-        self.assertIn("pipeline-runner", readme_text)
         self.assertIn("part1-editor", readme_text)
         self.assertIn("editorial_runtime.py", readme_text)
         self.assertNotIn("- `report-assembler`", readme_text)
         self.assertNotIn("- `report-reviewer`", readme_text)
+        for name in REMOVED_AGENTS:
+            self.assertNotIn(name, readme_text)
 
         self.assertIn("TASKS.md", agents_text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", agents_text)
@@ -122,8 +145,10 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertIn("part2_context.json", agents_text)
         self.assertIn("part2_missing_summaries.json", agents_text)
         self.assertIn("part2_draft.json", agents_text)
-        self.assertIn("pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review", agents_text)
-        self.assertIn("pipeline-runner -> network-debugger", agents_text)
+        self.assertIn("run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review", agents_text)
+        self.assertIn("run pipeline -> network-debugger", agents_text)
+        for name in REMOVED_AGENTS:
+            self.assertNotIn(name, agents_text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, agents_text)
 
 

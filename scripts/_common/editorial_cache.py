@@ -82,7 +82,12 @@ def load_cache(path: str | Path) -> Dict[str, Any]:
 def write_cache(path: str | Path, cache: Dict[str, Any]) -> None:
     cache_path = Path(path)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Machine-only artifact rewritten on every assemble; compact separators
+    # keep the on-disk size roughly half of the pretty-printed form.
+    cache_path.write_text(
+        json.dumps(cache, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
 
 def lookup_entry(article: Dict[str, Any],
@@ -141,6 +146,15 @@ def update_entries(cache: Dict[str, Any],
                    *,
                    max_age_days: Optional[int] = DEFAULT_CACHE_MAX_AGE_DAYS,
                    now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Merge Part 1 / Part 2 summaries into one entry per link.
+
+    Items may carry ``part: "part1"`` or ``part: "part2"`` (default). The two
+    styles live in separate fields: ``summary_zh`` holds the short per-article
+    Part 2 summary that ``build_llm_context`` injects into ``part2_context``,
+    while ``part1_summary_zh`` holds the longer event-level Part 1 summary that
+    ``shortlist-context`` injects. Keeping them apart prevents a 60-180字
+    Part 1 summary from being replayed into a 40-60字 Part 2 slot on re-runs.
+    """
     entries = cache.setdefault("entries", {})
     if not isinstance(entries, dict):
         raise ValueError("editorial cache entries must be a JSON object")
@@ -155,15 +169,25 @@ def update_entries(cache: Dict[str, Any],
         if not article:
             continue
         key = cache_key(article)
-        entries[key] = {
-            "link": link,
-            "source": article.get("source", ""),
-            "title": article.get("title", ""),
-            "summary_zh": item.get("summary_zh", ""),
-            "noise_bucket": item.get("noise_bucket", "covered"),
-            "event_key": event_key(item),
-            "updated_at_utc": now_iso,
-        }
+        entry = entries.get(key)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["link"] = link
+        entry["source"] = article.get("source", "")
+        entry["title"] = article.get("title", "")
+        # Link-keyed part1 items no longer carry a title; fall back to the
+        # authoritative article title when deriving the event slug.
+        item_event_key = event_key({**item, "title": article.get("title", "")})
+        if item.get("part") == "part1":
+            entry["part1_summary_zh"] = item.get("summary_zh", "")
+            entry["part1_noise_bucket"] = item.get("noise_bucket", "selected")
+            entry["event_key"] = item_event_key
+        else:
+            entry["summary_zh"] = item.get("summary_zh", "")
+            entry["noise_bucket"] = item.get("noise_bucket", "covered")
+            entry.setdefault("event_key", item_event_key)
+        entry["updated_at_utc"] = now_iso
+        entries[key] = entry
     # Bound cache growth: freshly written entries carry ``now_iso`` and always
     # survive; only genuinely stale entries are dropped.
     prune_stale_entries(cache, max_age_days=max_age_days, now=now_dt)

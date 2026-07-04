@@ -162,6 +162,42 @@ class UpdateEntriesTests(unittest.TestCase):
         )
         self.assertEqual(cache["entries"], {})
 
+    def test_part1_and_part2_summaries_use_separate_slots(self):
+        """A Top-30 link carries both styles; the 60-180字 Part 1 event summary
+        must never clobber the 40-60字 Part 2 slot (and vice versa)."""
+        article = {"link": "https://x/1", "source": "S", "title": "Big Event"}
+        cache = {"version": 1, "entries": {}}
+        now = datetime(2026, 7, 3, tzinfo=timezone.utc)
+        update_entries(
+            cache,
+            {"https://x/1": article},
+            [
+                {"link": "https://x/1", "summary_zh": "短摘要", "part": "part2"},
+                {"link": "https://x/1", "summary_zh": "长的事件级摘要",
+                 "noise_bucket": "major_capital", "event_key": "big-event", "part": "part1"},
+            ],
+            now=now,
+        )
+        entry = cache["entries"][cache_key(article)]
+        self.assertEqual(entry["summary_zh"], "短摘要")
+        self.assertEqual(entry["part1_summary_zh"], "长的事件级摘要")
+        self.assertEqual(entry["part1_noise_bucket"], "major_capital")
+        self.assertEqual(entry["event_key"], "big-event")
+
+    def test_part1_item_without_title_derives_event_key_from_article(self):
+        """Link-keyed part1 items carry no title; the event slug must fall back
+        to the authoritative article title, not an empty string."""
+        article = {"link": "https://x/1", "source": "S", "title": "OpenAI Ships GPT"}
+        cache = {"version": 1, "entries": {}}
+        update_entries(
+            cache,
+            {"https://x/1": article},
+            [{"link": "https://x/1", "summary_zh": "摘要", "part": "part1"}],
+            now=datetime(2026, 7, 3, tzinfo=timezone.utc),
+        )
+        entry = cache["entries"][cache_key(article)]
+        self.assertEqual(entry["event_key"], "openai-ships-gpt")
+
 
 class LoadCacheTests(unittest.TestCase):
     def test_missing_file_returns_empty_cache(self):

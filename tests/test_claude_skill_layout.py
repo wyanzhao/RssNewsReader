@@ -90,7 +90,9 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("agents/openai.yaml", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("single shared skill file for both Claude Code and Codex", body)
-        self.assertIn("python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output", body)
+        self.assertIn("python3 scripts/rss_daily_report.py --json-output", body)
+        self.assertIn("editorial_runtime.py audit", body)
+        self.assertIn("in parallel", body)
         self.assertIn("part1_brief.json", body)
         self.assertIn("part1_shortlist.json", body)
         self.assertIn("part1_plan.json", body)
@@ -103,13 +105,14 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("editorial_runtime.py review", body)
         self.assertIn("summary_en", body)
         for name in (
-            "pipeline-runner",
-            "artifact-auditor",
             "network-debugger",
             "part1-editor",
             "part2-drafter",
         ):
             self.assertIn(name, body)
+        # Demoted to direct orchestrator steps; the skill must not resurrect them.
+        for name in ("pipeline-runner", "artifact-auditor"):
+            self.assertNotIn(name, body)
         self.assertIn("success", body)
         self.assertIn("expected-block", body)
         self.assertIn("unexpected-error", body)
@@ -140,7 +143,7 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn(".agents/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".claude/skills/dailynews-report/agents/openai.yaml", text)
         self.assertIn(".claude/agents/", text)
-        self.assertIn("pipeline-runner", text)
+        self.assertIn("part1-editor", text)
         self.assertIn("part1_shortlist.json", text)
         self.assertIn("part1_plan.json", text)
         self.assertIn("part2_context.json", text)

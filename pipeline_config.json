@@ -1,4 +1,8 @@
 {
+  "fetch": {
+    "hours": 24,
+    "max_summary": 300
+  },
   "summary_enrichment": {
     "short_summary_threshold": 100,
     "page_fallback_cap": 300

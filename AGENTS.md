@@ -19,7 +19,7 @@ This repository builds a daily RSS report in two stages:
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
 - `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the shared project skill.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
-- `pipeline_config.json` is the repo-level deterministic pipeline config for summary-enrichment and renderer truncation thresholds.
+- `pipeline_config.json` is the repo-level deterministic pipeline config for fetch defaults (time window, summary cap), summary-enrichment, and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
 - `.claude/skills/dailynews-report/SKILL.md` is the project-local orchestrator skill and the canonical runtime procedure file shared by Claude Code and Codex.
 - `.agents/skills/dailynews-report/SKILL.md` is the Codex / agent skill path and must remain a symlink to `.claude/skills/dailynews-report/SKILL.md`.
@@ -29,14 +29,14 @@ This repository builds a daily RSS report in two stages:
 
 ## Entry Points
 
-- Main pipeline: `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output [--config pipeline_config.json] [--retain-days 90] [--no-cleanup]`
+- Main pipeline: `python3 scripts/rss_daily_report.py --json-output [--hours N] [--max-summary N] [--config pipeline_config.json] [--retain-days 90] [--no-cleanup]` — the time window and summary cap default from `pipeline_config.json.fetch` (`hours: 24`, `max_summary: 300`); explicit CLI flags override the config
 - Fetch only: `python3 scripts/rss_news_monitor.py --json --max-summary 300 --hours 24 [--config pipeline_config.json]`
 - Validate only: `python3 scripts/qc_validate.py --input runs/<date>/raw.json --feeds feeds.json`
 - Build LLM context: `python3 scripts/build_llm_context.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output runs/<date>/llm_context.json --report-path $REPO_ROOT/rss-report-<date>.md`
 - Deterministic renderer: `python3 scripts/render_report.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output $REPO_ROOT/rss-report-<date>.md`
 - Network diagnostic: `python3 scripts/network_debug.py --limit 5`
 - Offline tests: `python3 -m unittest discover -s $REPO_ROOT/tests -p 'test_*.py'`
-- End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output --no-cleanup`
+- End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --json-output --no-cleanup`
 - Claude Code runtime entry: `/dailynews-report`
 - Codex skill entry: `.agents/skills/dailynews-report/SKILL.md`
 - Codex skill metadata: `.agents/skills/dailynews-report/agents/openai.yaml`
@@ -117,9 +117,10 @@ source_groups       [{ source, url, status, article_count, article_refs: [<artic
 ### LLM sidecar context files
 
 ```
-part1_brief.json    concise first-pass Part 1 article list; no full article_text
+part1_brief.json    concise first-pass Part 1 article list; no full article_text;
+                    article_text_preview present only when summary_en is missing/short
 part2_context.json  concise Part 2 source-group drafting context; summary_en first
-context_budget.json byte-size counts, per-source counts, budget violations, recommended_strategy
+context_budget.json byte-size counts, per-source counts, within_budget flag, budget violations
 ```
 
 ### Per-article object (7 fields)
@@ -174,9 +175,11 @@ shape and policy key names as the normal validator output.
 - On publishable runs, `rss_daily_report.py --json-output` must not prewrite the success `report_path`; `scripts/editorial_runtime.py assemble` owns that write.
 - On blocked or damaged-input runs, `rss_daily_report.py --json-output` must still emit the 8 control-plane fields and write a concrete `*.failed.md` report whenever `report_path` is known.
 - `llm_context.json` is the compact authority for article identity, link integrity, source order, and shortlisted article material.
-- `part1_brief.json` is the first-pass Part 1 ranking input. It carries short `article_text_preview` fields so the LLM can create a 40-45 item shortlist without reading every full article body.
+- `part1_brief.json` is the first-pass Part 1 ranking input. First-pass shortlisting works from title, source, and `summary_en`; a short `article_text_preview` is attached only when `summary_en` is missing or shorter than the configured threshold (see the brief's `preview_policy`), so the LLM can create a 40-45 item shortlist without reading every full article body.
 - `part2_context.json` is the Part 2 drafting input. It uses `summary_en` first and only falls back to short `article_text` material when the feed summary is too short.
-- `context_budget.json` is advisory but must be inspected by the orchestrator. If `within_budget` is false, agents must follow `recommended_strategy` and avoid reading full article material outside the shortlist or missing-summary set.
+- `context_budget.json` is advisory but must be inspected by the orchestrator. If `within_budget` is false, the orchestrator must surface the violations and keep every LLM read strictly scoped to the shortlist and missing-summary sets.
+- `part1_plan.json` is link-keyed: items reference articles by `link` (with `also_links[]` for merged same-event coverage) and carry only editorial fields such as `summary_zh`; rank is implicit in array order, and titles, sources, and timestamps are joined from `llm_context.json` at assemble time. Plans must not echo those authoritative fields.
+- Editorial agents must never read `runs/_cache/` files directly. Cache reuse is injected deterministically: `part2_context.json` marks hits with `needs_summary == false`, and `shortlist-context` attaches `cached_summary_zh` / `cached_event_key` to shortlisted articles.
 - `validation.json` may be read only for workflow gating metadata and per-feed status/error details that are not duplicated in `llm_context.json`.
 - `validation.passed == true` is required before any formal report can be produced.
 - `validation.passed` may still be `true` when `counts.error > 0`, as long as there are articles to report and no other blocking contract or data-quality checks fail.
@@ -204,17 +207,18 @@ shape and policy key names as the normal validator output.
 - `.claude/skills/dailynews-report/SKILL.md` is the canonical runtime procedure entry. `.agents/skills/dailynews-report/SKILL.md` must remain a symlink to the same file so Claude Code and Codex reuse one skill body.
 - `.claude/skills/dailynews-report/agents/openai.yaml` is the canonical Codex Skill metadata file. `.agents/skills/dailynews-report/agents` must remain a symlink to the same directory so Codex sees the same metadata at its skill path.
 - The shared skill orchestrates the branch flow but should not absorb every specialized task into one monolithic prompt.
-- `pipeline-runner` runs `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error`.
-- `artifact-auditor` is read-only. It runs `python3 scripts/editorial_runtime.py audit --llm-context ... --validation ...` or equivalent checks to verify `counts.articles`, source order, source-group consistency, and error-text readiness.
+- Pipeline execution and branch classification are deterministic orchestrator steps, not subagents. The orchestrator runs `python3 scripts/rss_daily_report.py --json-output` directly, parses the 8 control-plane fields, and classifies the result as `success`, `expected-block`, or `unexpected-error` using the three fixed rules in the skill.
+- The artifact audit is a deterministic orchestrator step, not a subagent. On `success` the orchestrator runs `python3 scripts/editorial_runtime.py audit --llm-context ... --validation ...` before any editorial work; it verifies `counts.articles`, source order, source-group consistency, and error-text readiness, and a non-zero exit blocks the success branch.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
-- `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` to generate `part1_shortlist_context.json` and write `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
-- `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json`, writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true, then `scripts/editorial_runtime.py merge-part2` builds the full `part2_draft.json`.
-- `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report from `part1_plan.json` and `part2_draft.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`.
+- `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` (which injects deterministic cache hits) to generate `part1_shortlist_context.json` and write the link-keyed `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
+- `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json` and writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true. The orchestrator then runs `scripts/editorial_runtime.py merge-part2` to build the full `part2_draft.json`.
+- `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly.
+- `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`.
 - `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
 - Fixed branch order:
-  - success: `pipeline-runner -> artifact-auditor -> part1-editor + part2-drafter -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review`
-  - expected-block: `pipeline-runner -> artifact-auditor`
-  - unexpected-error: `pipeline-runner -> network-debugger`
+  - success: `run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review`
+  - expected-block: `run pipeline -> keep failure report; return report_path`
+  - unexpected-error: `run pipeline -> network-debugger`
 - `part1-editor` and `part2-drafter` may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`) and must complete before deterministic merge/assembly.
 - `scripts/editorial_runtime.py assemble` and `network-debugger` must never run in parallel.
 - `scripts/editorial_runtime.py review` must always run after the final success-path write.
@@ -421,8 +425,8 @@ config files.
 - Runtime outputs (`rss-report-*.md` and `runs/`) are gitignored. Fetched
   content lives in the user's local clone, not the repo.
 - When refactoring `rss_news_monitor.py` or any fetch-path code, run a real
-  end-to-end smoke (`python3 scripts/rss_daily_report.py --hours 24
-  --json-output`) before declaring done. Unit tests bypass `parse_feed` and
+  end-to-end smoke (`python3 scripts/rss_daily_report.py --json-output`)
+  before declaring done. Unit tests bypass `parse_feed` and
   cannot catch missing imports on that path.
 - Prefer extending `scripts/_common/*` over duplicating helpers; the
   contract-snapshot tests will catch behavioural drift in raw.json /

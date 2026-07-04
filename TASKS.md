@@ -9,8 +9,8 @@
 - `.claude/skills/dailynews-report/SKILL.md` 是 Claude Code 与 Codex 共享的唯一 runtime procedure 文件，负责 orchestrator 编排
 - `.agents/skills/dailynews-report/SKILL.md` 是指向同一文件的 Codex / agent skill symlink
 - `.claude/skills/dailynews-report/agents/openai.yaml` 是 Codex Skill UI metadata；`.agents/skills/dailynews-report/agents` 指向同一目录，保持 manual-only policy
-- `.claude/agents/*.md` 定义 5 个 LLM subagents：`pipeline-runner`、`artifact-auditor`、`network-debugger`、`part1-editor`、`part2-drafter`
-- success 分支通过 `runs/<date>/part1_plan.json`、`runs/<date>/part2_missing_summaries.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff；最终 `report_path` 由 `scripts/editorial_runtime.py assemble` 写入并由 `scripts/editorial_runtime.py review` 复核
+- `.claude/agents/*.md` 定义 3 个 LLM subagents：`part1-editor`、`part2-drafter`、`network-debugger`；pipeline 运行/分类与 artifact audit 是 orchestrator 直接执行的确定性步骤
+- success 分支通过 link-keyed `runs/<date>/part1_plan.json`、`runs/<date>/part2_missing_summaries.json` 与 `runs/<date>/part2_draft.json` 做 machine-readable handoff；最终 `report_path` 由 `scripts/editorial_runtime.py assemble` 写入并由 `scripts/editorial_runtime.py review` 复核
 - `README.md` 面向仓库使用者说明 `skill + subagents` 架构与使用方式
 - `tests/test_claude_skill_layout.py` 与 `tests/test_claude_agent_layout.py` 负责 Claude Code 布局校验
 
@@ -40,6 +40,7 @@
 - [x] Epic M — Claude/Codex skill packaging
 - [x] Epic N — token-footprint reduction for DailyNews runtime
 - [x] Epic O — direct assembly, context budget gate, and cache-first Part 2
+- [x] Epic P — agent runtime cost & robustness optimization (2026-07-03)
 
 ## Review-Driven Refactor Plan
 
@@ -116,6 +117,16 @@
 - `O1` | `done` | 将 assembler / reviewer 从 LLM subagent 降级为直接脚本步骤 | 删除 `.claude/agents/report-assembler.md` 与 `.claude/agents/report-reviewer.md`；orchestrator skill 改为直接运行 `scripts/editorial_runtime.py assemble` / `review`
 - `O2` | `done` | 增加 context budget gate | `build_llm_context.py` 现在写 `context_budget.json`，包含各 context byte size、per-source article count、budget violations 与 `recommended_strategy`；`pipeline_config.json` / runtime snapshot / tests 已同步
 - `O3` | `done` | Part 2 改成 cache-first missing-summary workflow | `part2_context.json` 标记 cache hit / miss 与 `needs_summary`；`part2-drafter` 只写 `part2_missing_summaries.json`；`editorial_runtime.py merge-part2` 合并缓存摘要与新摘要生成完整 `part2_draft.json`
+- `P1` | `done` | 将 `pipeline-runner` / `artifact-auditor` 降级为 orchestrator 直接步骤 | 删除两个 agent 文件；SKILL.md 直接运行 `rss_daily_report.py --json-output` 并按三条固定规则分类，success 分支直接运行 `editorial_runtime.py audit`；每次运行减少两次 subagent 启动开销（与 O1 同一模式）
+- `P2` | `done` | `part1_plan.json` 改为 link-keyed schema | items 只携带 `link` / `summary_zh` / `also_links[]`（+ 可选 `event_key` / `noise_bucket`），rank 由数组顺序隐含；`assemble` 按 link 从 `llm_context.json` 反查 title / source / 时间；消灭「复述标题抄错导致 exit 20」失败类，Part 1 输出 token 约省 40-50%
+- `P3` | `done` | `part1_brief.json` 按需携带 preview | 仅当 `summary_en` 缺失或短于 `short_summary_threshold` 时附 `article_text_preview`，brief 新增 `preview_policy`；两段式从「约等于单遍读全量」变成真正省一半上下文
+- `P4` | `done` | 缓存消费全面确定性化 | `shortlist-context` 支持 `--cache-path` / `--no-cache` 并注入 `cached_summary_zh` / `cached_event_key`；两个编辑 agent 提示词禁止直读 `runs/_cache/`（该文件已 2.5MB，LLM 直读不可行）
+- `P5` | `done` | 缓存区分 Part 1 / Part 2 摘要风格 | `update_entries` 支持 `part` 标签，Part 1 事件摘要写入 `part1_summary_zh` 独立槽位，不再覆盖 Part 2 短摘要；`write_cache` 改 compact separators 体积约减半
+- `P6` | `done` | fetch 参数下沉到 `pipeline_config.json.fetch` | 新增 `fetch.hours` / `fetch.max_summary` 配置段与 `resolve_fetch_settings`（缺失/损坏时静默回退 24/300）；SKILL.md / AGENTS.md / README 的命令行不再硬编码 `--hours 24 --max-summary 300`
+- `P7` | `done` | subagent 工具白名单与模型钉定 | `part1-editor` tools 收敛为 Read/Write/Edit/Bash，`part2-drafter` 为 Read/Write/Edit 且 `model: haiku`（机械式 40-60 字摘要），`network-debugger` 为 Read/Bash；无网络工具，杜绝外部知识注入
+- `P8` | `done` | merge-part2 归属统一到 orchestrator | `part2-drafter` 只写 `part2_missing_summaries.json`，与 AGENTS.md allowed-writes 列表一致；SKILL.md 在两个编辑 agent 并行返回后由 orchestrator 运行 merge
+- `P9` | `done` | 移除 `recommended_strategy` 死旋钮 | 工作流恒为 brief-first + cache-first，该字段无行为映射；`context_budget.json` 收敛为 `within_budget` + `violations`，文档同步
+- `P10` | `done` | assemble markdown 链接防注入 | 标题方括号转义、含括号/空格的 URL 用 `<...>` 包裹；`review` 用同一转义形式做包含校验
 
 ## Validation Checklist
 
@@ -124,7 +135,7 @@
 - [x] `.agents/skills/dailynews-report/SKILL.md` 是指向同一 `SKILL.md` 的 symlink
 - [x] `.claude/skills/dailynews-report/agents/openai.yaml` 存在并设置 Codex manual-only metadata
 - [x] `.agents/skills/dailynews-report/agents` 是指向同一 metadata 目录的 symlink
-- [x] `.claude/agents/` 下 5 个 LLM agent 文件存在；assembly/review 为 direct script steps
+- [x] `.claude/agents/` 下 3 个 LLM agent 文件存在（`part1-editor` / `part2-drafter` / `network-debugger`）；pipeline 运行、分类、audit、merge、assembly、review 均为 direct script steps
 - [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件
 - [x] `README.md`、`CLAUDE.md`、`AGENTS.md` 已统一为 `skill + subagents` 架构
@@ -146,6 +157,11 @@
 - [x] `scripts/editorial_runtime.py` 已覆盖 audit / shortlist-context / assemble / review / cache helper
 - [x] `context_budget.json` 已纳入 deterministic context 输出
 - [x] Part 2 cache-first flow 已覆盖：cache hit 不再需要 LLM 重写摘要，missing summaries 经 `merge-part2` 合并
+- [x] `part1_plan.json` link-keyed schema 已锁：`validate_part1` 校验 link/`also_links` 存在性与去重，`assemble` 按 link 反查权威字段
+- [x] `part1_brief.json` preview 条件化与 `preview_policy` 已有回归测试
+- [x] `shortlist-context` 缓存注入（part1 槽位命中、part2-only 不注入)已有回归测试
+- [x] 缓存 part1/part2 双槽位与 compact 写盘已有回归测试
+- [x] `rss_daily_report.py` fetch 默认值来自 `pipeline_config.json.fetch`，CLI 显式传参可覆盖
 
 ## 性能 / 成本优化 (2026-06-21)
 

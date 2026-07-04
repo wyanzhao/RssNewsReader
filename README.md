@@ -31,8 +31,12 @@ This repo currently uses the Python standard library only. There is no
 From the repository root:
 
 ```bash
-python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output
+python3 scripts/rss_daily_report.py --json-output
 ```
+
+The look-back window and summary cap default from `pipeline_config.json`
+(`fetch.hours: 24`, `fetch.max_summary: 300`); pass explicit `--hours` /
+`--max-summary` flags to override them for a single run.
 
 This single command runs:
 
@@ -111,7 +115,7 @@ They are not meant to be committed with the codebase.
 If you want the shortest path from clone to result:
 
 1. Review or edit [`feeds.json`](feeds.json) and [`pipeline_config.json`](pipeline_config.json).
-2. Run `python3 scripts/rss_daily_report.py --hours 24 --max-summary 300 --json-output`.
+2. Run `python3 scripts/rss_daily_report.py --json-output`.
 3. If the run is blocked, open the emitted `.failed.md` `report_path`.
 4. If the run is publishable, use `/dailynews-report` to assemble the formal
    success report through `scripts/editorial_runtime.py assemble`.
@@ -144,6 +148,10 @@ thresholds used by the deterministic pipeline:
 
 ```json
 {
+  "fetch": {
+    "hours": 24,
+    "max_summary": 300
+  },
   "summary_enrichment": {
     "short_summary_threshold": 80,
     "page_fallback_cap": 300
@@ -166,6 +174,8 @@ thresholds used by the deterministic pipeline:
 }
 ```
 
+- `fetch.hours` / `fetch.max_summary`: default look-back window and summary cap
+  for `rss_daily_report.py`; explicit CLI flags override them per run.
 - `summary_enrichment.short_summary_threshold`: below this length, feed summaries
   are treated as too short and trigger page fallback.
 - `summary_enrichment.page_fallback_cap`: hard cap for article-page fallback summaries.
@@ -175,8 +185,8 @@ thresholds used by the deterministic pipeline:
 - `render.part1_summary_max_chars`: final report truncation limit for the Top 30 section.
 - `render.part2_summary_max_chars`: final report truncation limit for the per-source section.
 - `context_budget.*_max_bytes`: advisory context budget thresholds written to
-  `context_budget.json`; the orchestrator uses them to choose brief-first and
-  cache-first behavior.
+  `context_budget.json`; when a size exceeds its limit, the orchestrator keeps
+  LLM reads strictly scoped to the shortlist and missing-summary sets.
 
 Each run snapshots the active summary config into `raw.json.runtime_config`, so
 later render steps can stay consistent with the fetch-time settings.
@@ -222,16 +232,16 @@ If you use Claude Code or Codex in this repo:
   stop instead of silently falling back to raw `summary_en` or partial
   reconstruction
 
-The skill delegates to five project-level subagents under
+The skill delegates to three project-level subagents under
 [`.claude/agents/`](.claude/agents/):
 
-- `pipeline-runner`
-- `artifact-auditor`
-- `network-debugger`
 - `part1-editor`
 - `part2-drafter`
+- `network-debugger`
 
-Final assembly and review are direct deterministic script steps, not LLM
+Pipeline execution, branch classification, the artifact audit
+(`editorial_runtime.py audit`), Part 2 merging, final assembly, and final
+review are direct deterministic script steps run by the orchestrator, not LLM
 subagents.
 
 This Claude Code / Codex workflow is intentionally manual-only because it is
@@ -280,9 +290,8 @@ TASKS.md                   maintainer tracker for architecture work
   symlinked Codex / agent skill entrypoint
 - [`.claude/skills/dailynews-report/agents/openai.yaml`](.claude/skills/dailynews-report/agents/openai.yaml):
   Codex Skill UI metadata for the shared orchestrator
-- [`.claude/agents/`](.claude/agents/): subagents for pipeline running, artifact
-  auditing, Part 1 editing, Part 2 drafting, final report assembly, debugging,
-  and final review
+- [`.claude/agents/`](.claude/agents/): subagents for Part 1 editing, Part 2
+  drafting, and unexpected-error debugging
 - [`TASKS.md`](TASKS.md): long-running tracker for repository architecture work
 
 ## License

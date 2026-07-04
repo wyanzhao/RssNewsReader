@@ -85,19 +85,25 @@ def article_ref_payload(article: Article) -> Dict[str, Any]:
     }
 
 
-def part1_brief_article_payload(article: Article) -> Dict[str, Any]:
-    return {
+def part1_brief_article_payload(article: Article,
+                                short_summary_threshold: int) -> Dict[str, Any]:
+    payload = {
         "source": article.source,
         "title": article.title,
         "link": article.link,
         "pub_date_utc": format_utc(article.pub_date),
         "pub_date_iso": article.pub_date.astimezone(timezone.utc).isoformat(),
         "summary_en": article.summary,
-        "article_text_preview": _clip_words(
-            article.article_text,
-            PART1_BRIEF_ARTICLE_TEXT_WORDS,
-        ),
     }
+    # First-pass shortlisting works from title + source + summary_en; the body
+    # preview is only needed as a fallback signal when the feed summary is
+    # missing or too short. Skipping it otherwise roughly halves the brief.
+    summary = " ".join((article.summary or "").split())
+    if not summary or len(summary) < short_summary_threshold:
+        preview = _clip_words(article.article_text, PART1_BRIEF_ARTICLE_TEXT_WORDS)
+        if preview:
+            payload["article_text_preview"] = preview
+    return payload
 
 
 def part2_summary_material(article: Article,
@@ -208,11 +214,19 @@ def build_part1_brief(raw: Dict[str, Any],
                       date_str: str,
                       report_path: Optional[str]) -> Dict[str, Any]:
     articles = normalize_articles(raw)
+    short_summary_threshold = _config_short_summary_threshold(raw)
     return {
         "meta": _context_meta(raw, validation, date_str, report_path),
         "article_count": len(articles),
         "article_text_preview_words": PART1_BRIEF_ARTICLE_TEXT_WORDS,
-        "articles": [part1_brief_article_payload(article) for article in articles],
+        "preview_policy": {
+            "short_summary_threshold": short_summary_threshold,
+            "included_when": "summary_en_missing_or_shorter_than_threshold",
+        },
+        "articles": [
+            part1_brief_article_payload(article, short_summary_threshold)
+            for article in articles
+        ],
     }
 
 
@@ -345,11 +359,6 @@ def build_context_budget(raw: Dict[str, Any],
         "per_source": per_source,
         "within_budget": not violations,
         "violations": violations,
-        "recommended_strategy": (
-            "normal"
-            if not violations
-            else "brief_first_part1_and_cache_first_part2"
-        ),
     }
 
 

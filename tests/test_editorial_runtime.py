@@ -51,16 +51,14 @@ class EditorialRuntimeTests(unittest.TestCase):
 
     def _handoffs(self, context):
         articles_by_link = {article["link"]: article for article in context["all_articles"]}
+        # part1_plan is link-keyed: rank is implicit in array order and the
+        # authoritative title/source/timestamp are joined at assemble time.
         part1_items = []
         for rank, article in enumerate(context["all_articles"][:2], 1):
             part1_items.append({
-                "rank": rank,
-                "title": article["title"],
                 "link": article["link"],
-                "source": article["source"],
-                "pub_date_utc": article["pub_date_utc"],
                 "summary_zh": f"中文摘要 {rank}",
-                "also_sources": [],
+                "also_links": [],
                 "noise_bucket": "selected",
                 "event_key": f"event-{rank}",
             })
@@ -113,7 +111,8 @@ class EditorialRuntimeTests(unittest.TestCase):
                     self.assertEqual(article["cache_status"], "miss")
                     self.assertNotIn("article_text", article)
             self.assertIn("sizes", context_budget)
-            self.assertIn("recommended_strategy", context_budget)
+            self.assertIn("within_budget", context_budget)
+            self.assertNotIn("recommended_strategy", context_budget)
 
     def test_part2_context_uses_article_text_only_for_short_summary_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -187,10 +186,6 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             budget = json.loads((tmp / "context_budget.json").read_text(encoding="utf-8"))
             self.assertFalse(budget["within_budget"])
-            self.assertEqual(
-                budget["recommended_strategy"],
-                "brief_first_part1_and_cache_first_part2",
-            )
             self.assertGreaterEqual(len(budget["violations"]), 1)
 
     def test_part2_context_uses_cache_and_merge_part2_requires_only_missing_summaries(self):
@@ -331,6 +326,7 @@ class EditorialRuntimeTests(unittest.TestCase):
                     "--llm-context", str(context_path),
                     "--shortlist", str(shortlist_path),
                     "--output", str(shortlist_context_path),
+                    "--no-cache",
                 ],
                 capture_output=True,
                 text=True,
@@ -339,6 +335,7 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertEqual(shortlist.returncode, 0, shortlist.stderr)
             shortlist_context = json.loads(shortlist_context_path.read_text(encoding="utf-8"))
             self.assertEqual(shortlist_context["article_count"], 1)
+            self.assertEqual(shortlist_context["cache_hits"], 0)
 
             report_path = tmp / "rss-report-2026-04-10.md"
             cache_path = tmp / "editorial_cache.json"
@@ -361,7 +358,13 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertEqual(assemble.returncode, 0, assemble.stderr)
             self.assertTrue(report_path.exists())
             self.assertTrue(cache_path.exists())
-            self.assertIn("# DailyNews · 2026-04-10", report_path.read_text(encoding="utf-8"))
+            report_text = report_path.read_text(encoding="utf-8")
+            self.assertIn("# DailyNews · 2026-04-10", report_text)
+            # Titles / sources come from llm_context via the link join, not
+            # from the link-keyed part1 plan.
+            first_article = context["all_articles"][0]
+            self.assertIn(first_article["title"], report_text)
+            self.assertIn(f"来源：{first_article['source']}", report_text)
 
             review = subprocess.run(
                 [
@@ -382,6 +385,114 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertTrue(json.loads(review.stdout)["passed"])
             cache = json.loads(cache_path.read_text(encoding="utf-8"))
             self.assertGreaterEqual(len(cache["entries"]), len(context["all_articles"]))
+            # Part 1 and Part 2 summaries land in separate cache slots so the
+            # long event summary never replays into the short Part 2 slot.
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from _common.editorial_cache import cache_key as _cache_key
+            top_entry = cache["entries"][_cache_key(context["all_articles"][0])]
+            self.assertEqual(top_entry["part1_summary_zh"], "中文摘要 1")
+            self.assertTrue(top_entry["summary_zh"].endswith("的中文摘要"))
+
+    def test_part1_brief_carries_preview_only_for_short_summaries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            raw = materialize_raw("golden_success.json")
+            raw["articles"][0]["summary_en"] = "tiny"
+            raw["articles"][0]["article_text"] = " ".join(f"body{idx}" for idx in range(100))
+            code, validation = run_validator(raw)
+            self.assertEqual(code, 0)
+
+            raw_path = _write_json(tmp / "raw.json", raw)
+            validation_path = _write_json(tmp / "validation.json", validation)
+            context_path = tmp / "llm_context.json"
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(LLM_CONTEXT_SCRIPT),
+                    "--input", str(raw_path),
+                    "--validation", str(validation_path),
+                    "--output", str(context_path),
+                    "--date", "2026-04-10",
+                    "--report-path", str(tmp / "rss-report-2026-04-10.md"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            brief = json.loads((tmp / "part1_brief.json").read_text(encoding="utf-8"))
+            threshold = raw["runtime_config"]["summary_enrichment"]["short_summary_threshold"]
+            self.assertEqual(
+                brief["preview_policy"]["short_summary_threshold"], threshold
+            )
+            raw_by_link = {article["link"]: article for article in raw["articles"]}
+            with_preview = 0
+            for article in brief["articles"]:
+                source_article = raw_by_link[article["link"]]
+                summary = " ".join((source_article.get("summary_en") or "").split())
+                has_text = bool((source_article.get("article_text") or "").strip())
+                expected = (not summary or len(summary) < threshold) and has_text
+                self.assertEqual(
+                    "article_text_preview" in article,
+                    expected,
+                    msg=f"unexpected preview presence for {article['link']}",
+                )
+                with_preview += int("article_text_preview" in article)
+            self.assertGreaterEqual(with_preview, 1)
+            self.assertLess(with_preview, len(brief["articles"]))
+
+    def test_shortlist_context_injects_part1_cache_hits(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _raw, _validation, context_path, _validation_path = self._build_artifacts(tmp)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from _common.editorial_cache import cache_key as _cache_key
+
+            part1_cached, part2_only = context["all_articles"][:2]
+            cache_path = _write_json(tmp / "editorial_cache.json", {
+                "version": 1,
+                "entries": {
+                    _cache_key(part1_cached): {
+                        "link": part1_cached["link"],
+                        "part1_summary_zh": "昨日的事件级摘要",
+                        "event_key": "cached-event",
+                        "summary_zh": "昨日的短摘要",
+                    },
+                    # part2-style flat entry must NOT inject into Part 1.
+                    _cache_key(part2_only): {
+                        "link": part2_only["link"],
+                        "summary_zh": "只有 Part 2 摘要",
+                    },
+                },
+            })
+            shortlist_path = _write_json(
+                tmp / "part1_shortlist.json",
+                {"links": [part1_cached["link"], part2_only["link"]]},
+            )
+            output_path = tmp / "part1_shortlist_context.json"
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITORIAL_RUNTIME_SCRIPT),
+                    "shortlist-context",
+                    "--llm-context", str(context_path),
+                    "--shortlist", str(shortlist_path),
+                    "--output", str(output_path),
+                    "--cache-path", str(cache_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["cache_hits"], 1)
+            by_link = {article["link"]: article for article in payload["articles"]}
+            hit = by_link[part1_cached["link"]]
+            self.assertEqual(hit["cached_summary_zh"], "昨日的事件级摘要")
+            self.assertEqual(hit["cached_event_key"], "cached-event")
+            self.assertNotIn("cached_summary_zh", by_link[part2_only["link"]])
 
 
 if __name__ == "__main__":

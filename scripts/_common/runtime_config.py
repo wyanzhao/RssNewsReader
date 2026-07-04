@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional, Tuple
 
 
 DEFAULT_PIPELINE_CONFIG_FILE = Path(__file__).resolve().parents[2] / "pipeline_config.json"
+DEFAULT_FETCH_HOURS = 24
+DEFAULT_FETCH_MAX_SUMMARY = 300
 DEFAULT_SHORT_SUMMARY_THRESHOLD = 80
 DEFAULT_PAGE_FALLBACK_CAP = 300
 DEFAULT_PART1_SUMMARY_MAX_CHARS = 200
@@ -47,6 +49,27 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
 
     if not isinstance(payload, dict):
         raise ValueError("pipeline config root must be a JSON object")
+
+    fetch_payload = payload.get("fetch", {})
+    if fetch_payload is None:
+        fetch_payload = {}
+    if not isinstance(fetch_payload, dict):
+        raise ValueError("fetch must be a JSON object")
+
+    fetch_config = {
+        "hours": DEFAULT_FETCH_HOURS,
+        "max_summary": DEFAULT_FETCH_MAX_SUMMARY,
+    }
+    if "hours" in fetch_payload:
+        fetch_config["hours"] = _validated_positive_int(
+            fetch_payload["hours"],
+            "fetch.hours",
+        )
+    if "max_summary" in fetch_payload:
+        fetch_config["max_summary"] = _validated_positive_int(
+            fetch_payload["max_summary"],
+            "fetch.max_summary",
+        )
 
     summary_payload = payload.get("summary_enrichment", {})
     if summary_payload is None:
@@ -137,11 +160,35 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
             )
 
     return {
+        "fetch": fetch_config,
         "summary_enrichment": summary_config,
         "article_text": article_text_config,
         "render": render_config,
         "context_budget": context_budget_config,
     }, resolved_path
+
+
+def resolve_fetch_settings(config_path: str | Path | None = None) -> Dict[str, int]:
+    """Resolve fetch defaults (hours / max_summary) for the pipeline entry.
+
+    Never raises: a missing or invalid config falls back to the built-in
+    defaults so the control-plane entrypoint stays runnable and tests never
+    depend on the user's local ``pipeline_config.json``.
+    """
+    try:
+        config, _ = load_pipeline_config(config_path)
+    except (OSError, ValueError):
+        return {
+            "hours": DEFAULT_FETCH_HOURS,
+            "max_summary": DEFAULT_FETCH_MAX_SUMMARY,
+        }
+    fetch_config = config.get("fetch", {})
+    if not isinstance(fetch_config, dict):
+        fetch_config = {}
+    return {
+        "hours": int(fetch_config.get("hours", DEFAULT_FETCH_HOURS)),
+        "max_summary": int(fetch_config.get("max_summary", DEFAULT_FETCH_MAX_SUMMARY)),
+    }
 
 
 def resolve_article_text_settings(
