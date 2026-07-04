@@ -373,14 +373,14 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
     if not items:
         lines.extend(["本次没有可进入 Part 1 的文章。", ""])
     for item in items:
-        lines.append(f"{item.get('rank')}. [{item.get('title')}]({item.get('link')})")
+        lines.append(f"{item.get('rank')}. [{_clean_text(item.get('title'))}]({item.get('link')})")
         lines.append(f"   - 来源：{item.get('source')}")
         lines.append(f"   - 时间：{item.get('pub_date_utc')}")
         lines.append(f"   - 摘要：{item.get('summary_zh')}")
         also_sources = _as_list(item.get("also_sources"))
         if also_sources:
             also_text = "；".join(
-                f"{entry.get('source')}: {entry.get('title')}"
+                f"{entry.get('source')}: {_clean_text(entry.get('title'))}"
                 for entry in also_sources
                 if isinstance(entry, dict)
             )
@@ -402,7 +402,7 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
             lines.append("")
             continue
         for idx, article in enumerate(articles, 1):
-            lines.append(f"{idx}. [{article.get('title')}]({article.get('link')})")
+            lines.append(f"{idx}. [{_clean_text(article.get('title'))}]({article.get('link')})")
             lines.append(f"   - 时间：{article.get('pub_date_iso')}")
             lines.append(f"   - 摘要：{article.get('summary_zh')}")
             lines.append("")
