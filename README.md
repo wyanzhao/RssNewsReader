@@ -100,12 +100,14 @@ directory:
 - `part1_shortlist_context.json`
 - `part2_missing_summaries.json`
 - `part2_draft.json`
+- `top30.md` — persisted copy of the fixed-format Top 30 digest that the
+  workflow prints as its final chat reply
 
 `part1_brief.json`, `part2_context.json`, and `context_budget.json` are emitted
 by the deterministic pipeline. `part1_shortlist.json`,
 `part1_shortlist_context.json`, `part1_plan.json`,
-`part2_missing_summaries.json`, and `part2_draft.json` belong to the Claude
-Code success path only.
+`part2_missing_summaries.json`, `part2_draft.json`, and `top30.md` belong to
+the Claude Code success path only.
 
 These runtime outputs are local working files and are gitignored by default.
 They are not meant to be committed with the codebase.
@@ -240,9 +242,11 @@ The skill delegates to three project-level subagents under
 - `network-debugger`
 
 Pipeline execution, branch classification, the artifact audit
-(`editorial_runtime.py audit`), Part 2 merging, final assembly, and final
-review are direct deterministic script steps run by the orchestrator, not LLM
-subagents.
+(`editorial_runtime.py audit`), Part 2 merging, final assembly, final review,
+and the Top 30 digest (`editorial_runtime.py top30`) are direct deterministic
+script steps run by the orchestrator, not LLM subagents. On success, the
+workflow's final chat reply is the digest's stdout verbatim, so the Top 30
+lands directly in the conversation without opening the full report.
 
 This Claude Code / Codex workflow is intentionally manual-only because it is
 write-producing and can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.

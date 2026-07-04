@@ -127,6 +127,7 @@
 - `P8` | `done` | merge-part2 归属统一到 orchestrator | `part2-drafter` 只写 `part2_missing_summaries.json`，与 AGENTS.md allowed-writes 列表一致；SKILL.md 在两个编辑 agent 并行返回后由 orchestrator 运行 merge
 - `P9` | `done` | 移除 `recommended_strategy` 死旋钮 | 工作流恒为 brief-first + cache-first，该字段无行为映射；`context_budget.json` 收敛为 `within_budget` + `violations`，文档同步
 - `P10` | `done` | assemble markdown 链接防注入 | 标题方括号转义、含括号/空格的 URL 用 `<...>` 包裹；`review` 用同一转义形式做包含校验
+- `P11` | `done` | success 分支最终回复改为确定性 Top 30 digest | 新增 `editorial_runtime.py top30`：复用 `assemble` 的 Part 1 条目渲染器（chat 输出与报告 Part 1 逐字一致），重校验 `part1_plan.json`，stdout 输出固定格式 digest 并落盘 `runs/<date>/top30.md`；SKILL.md Response Contract 改为原样转发该 stdout，禁止 LLM 改写/重排/追加评论；格式控制权从 LLM 移交给脚本
 
 ## Validation Checklist
 
@@ -162,6 +163,7 @@
 - [x] `shortlist-context` 缓存注入（part1 槽位命中、part2-only 不注入)已有回归测试
 - [x] 缓存 part1/part2 双槽位与 compact 写盘已有回归测试
 - [x] `rss_daily_report.py` fetch 默认值来自 `pipeline_config.json.fetch`，CLI 显式传参可覆盖
+- [x] `editorial_runtime.py top30` digest 格式已有逐字符回归测试；skill 成功分支最终回复为其 stdout 原文
 
 ## 性能 / 成本优化 (2026-06-21)
 

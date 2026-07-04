@@ -31,6 +31,7 @@ Read these files before acting:
 - `part1-editor` writes `part1_shortlist.json`, `part1_shortlist_context.json`, and `part1_plan.json`; `part2-drafter` writes only `part2_missing_summaries.json`. The orchestrator runs `scripts/editorial_runtime.py merge-part2` to produce `part2_draft.json`.
 - The orchestrator runs `scripts/editorial_runtime.py assemble` as the only final success-report writer.
 - The orchestrator runs `scripts/editorial_runtime.py review` exactly once after the final success-path write.
+- The chat-facing Top 30 digest is rendered only by `scripts/editorial_runtime.py top30`; the orchestrator relays its stdout verbatim and never composes its own summary of the news.
 
 ## Workflow
 
@@ -45,8 +46,9 @@ Read these files before acting:
 6. After both subagents return, run `python3 scripts/editorial_runtime.py merge-part2 --part2-context <run_dir>/part2_context.json --missing <run_dir>/part2_missing_summaries.json --output <run_dir>/part2_draft.json`.
 7. If any success-path handoff artifact is missing, truncated, or schema-invalid, stop the success branch and return an `ERROR:` line instead of assembling.
 8. After both Part 1 and Part 2 artifacts are ready, run `python3 scripts/editorial_runtime.py assemble --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --output <report_path>` to write the formal Chinese report into the success `report_path`, then run `python3 scripts/editorial_runtime.py review --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --report <report_path>` once.
-9. If the classification is `expected-block`, keep the existing failure report untouched and return only the emitted absolute `report_path`.
-10. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, assemble, or review in this branch.
+9. After review passes, run `python3 scripts/editorial_runtime.py top30 --llm-context <run_dir>/llm_context.json --part1 <run_dir>/part1_plan.json --report-path <report_path> --output <run_dir>/top30.md` and capture its stdout — this fixed-format digest is the final success reply.
+10. If the classification is `expected-block`, keep the existing failure report untouched and return only the emitted absolute `report_path`.
+11. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, assemble, review, or top30 in this branch.
 
 ## Guardrails
 
@@ -74,12 +76,14 @@ Deterministic steps, run directly by the orchestrator:
 - `scripts/editorial_runtime.py merge-part2` — merges cached Part 2 summaries plus missing summaries into `part2_draft.json`
 - `scripts/editorial_runtime.py assemble` — validates handoffs and writes the final success report
 - `scripts/editorial_runtime.py review` — validates the final report after the write
+- `scripts/editorial_runtime.py top30` — renders the fixed-format Top 30 digest (stdout + `runs/<date>/top30.md`) that the orchestrator returns verbatim
 
 (`scripts/editorial_runtime.py shortlist-context` is run inside `part1-editor` between its two passes.)
 
 ## Response Contract
 
-- On normal completion, including `success` and `expected-block`, return only the absolute `report_path`.
+- On `success`, respond with the **verbatim stdout of the `top30` step** — it is the fixed-format Top 30 digest and already ends with the full `report_path` line. Do not rephrase, reorder, re-rank, summarize, translate, truncate, or append any commentary before or after it.
+- On `expected-block`, return only the absolute `report_path`.
 - On `unexpected-error`, or when the audit / `editorial_runtime.py review` reports a blocking issue, return at most two lines:
   1. `ERROR: <one-line diagnosis>`
   2. the absolute `report_path`, if it is known with confidence

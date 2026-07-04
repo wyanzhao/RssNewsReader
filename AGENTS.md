@@ -77,9 +77,12 @@ additionally write:
 - `runs/YYYY-MM-DD/part1_shortlist_context.json`
 - `runs/YYYY-MM-DD/part2_missing_summaries.json`
 - `runs/YYYY-MM-DD/part2_draft.json`
+- `runs/YYYY-MM-DD/top30.md`
 
 These are success-path handoff artifacts for the LLM runtime only. They are
-not deterministic pipeline outputs.
+not deterministic pipeline outputs. `top30.md` is the persisted copy of the
+fixed-format Top 30 digest that `scripts/editorial_runtime.py top30` prints
+for the chat-facing final reply.
 
 `raw.json` may additionally carry a top-level `runtime_config` snapshot with the
 effective summary-enrichment and render-threshold values used for that run.
@@ -198,6 +201,7 @@ shape and policy key names as the normal validator output.
 - `part1_shortlist.json`, `part1_shortlist_context.json`, `part1_plan.json`, `part2_missing_summaries.json`, and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for deterministic merge/assembly without scraping long prose from chat output.
 - If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `article_text` / `summary_en` or partial manual reconstruction.
 - `article_text` and `summary_en` are source material only. They may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
+- The success-path chat deliverable is the verbatim stdout of `scripts/editorial_runtime.py top30` (persisted at `runs/<date>/top30.md`). Agents must not hand-compose, rephrase, or re-rank the Top 30 in chat output.
 - Titles must remain in English.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
@@ -215,8 +219,9 @@ shape and policy key names as the normal validator output.
 - `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly.
 - `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`.
 - `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
+- `scripts/editorial_runtime.py top30` runs after review. It re-validates `part1_plan.json`, renders the fixed-format Top 30 digest (shared item renderer with `assemble`, so chat output and the report's Part 1 can never diverge), writes `runs/<date>/top30.md`, and prints the digest to stdout. The orchestrator's final success reply is that stdout verbatim — the LLM never composes or reformats the digest.
 - Fixed branch order:
-  - success: `run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review`
+  - success: `run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review -> editorial_runtime top30`
   - expected-block: `run pipeline -> keep failure report; return report_path`
   - unexpected-error: `run pipeline -> network-debugger`
 - `part1-editor` and `part2-drafter` may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`) and must complete before deterministic merge/assembly.

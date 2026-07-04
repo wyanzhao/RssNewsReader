@@ -145,7 +145,7 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertIn("part2_context.json", agents_text)
         self.assertIn("part2_missing_summaries.json", agents_text)
         self.assertIn("part2_draft.json", agents_text)
-        self.assertIn("run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review", agents_text)
+        self.assertIn("run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review -> editorial_runtime top30", agents_text)
         self.assertIn("run pipeline -> network-debugger", agents_text)
         for name in REMOVED_AGENTS:
             self.assertNotIn(name, agents_text)

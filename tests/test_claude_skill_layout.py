@@ -103,6 +103,9 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("editorial_runtime.py merge-part2", body)
         self.assertIn("editorial_runtime.py assemble", body)
         self.assertIn("editorial_runtime.py review", body)
+        self.assertIn("editorial_runtime.py top30", body)
+        # The success reply must be the deterministic digest, relayed verbatim.
+        self.assertIn("verbatim stdout of the `top30` step", body)
         self.assertIn("summary_en", body)
         for name in (
             "network-debugger",

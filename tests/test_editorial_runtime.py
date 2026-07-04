@@ -383,6 +383,40 @@ class EditorialRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(review.returncode, 0, review.stderr)
             self.assertTrue(json.loads(review.stdout)["passed"])
+
+            top30_output_path = tmp / "top30.md"
+            top30 = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITORIAL_RUNTIME_SCRIPT),
+                    "top30",
+                    "--llm-context", str(context_path),
+                    "--part1", str(part1_path),
+                    "--report-path", str(report_path),
+                    "--output", str(top30_output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(top30.returncode, 0, top30.stderr)
+            # The digest is the chat-facing final reply; its format is owned
+            # by the renderer, so lock it character-for-character.
+            expected_lines = ["# DailyNews Top 30 · 2026-04-10", ""]
+            expected_lines += ["> 本日入选 2 条（不足 30，缺口 28）", ""]
+            for rank, article in enumerate(context["all_articles"][:2], 1):
+                expected_lines += [
+                    f"{rank}. [{article['title']}]({article['link']})",
+                    f"   - 来源：{article['source']}",
+                    f"   - 时间：{article['pub_date_utc']}",
+                    f"   - 摘要：中文摘要 {rank}",
+                    "",
+                ]
+            expected_lines += ["---", f"完整报告：{report_path}"]
+            expected_digest = "\n".join(expected_lines).rstrip() + "\n"
+            self.assertEqual(top30.stdout, expected_digest)
+            self.assertEqual(top30_output_path.read_text(encoding="utf-8"), expected_digest)
+
             cache = json.loads(cache_path.read_text(encoding="utf-8"))
             self.assertGreaterEqual(len(cache["entries"]), len(context["all_articles"]))
             # Part 1 and Part 2 summaries land in separate cache slots so the

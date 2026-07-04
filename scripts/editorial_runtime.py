@@ -395,6 +395,64 @@ def validate_handoffs(context: Dict[str, Any],
     return errors
 
 
+def _part1_item_lines(article_by_link: Dict[str, Dict[str, Any]],
+                      items: List[Any]) -> List[str]:
+    """Render the numbered Part 1 item blocks.
+
+    Shared verbatim by the final report and the top30 digest so the two can
+    never diverge. The link-keyed plan carries only editorial fields; title,
+    source, and timestamp are joined here from the authoritative llm_context
+    articles.
+    """
+    lines: List[str] = []
+    if not items:
+        lines.extend(["本次没有可进入 Part 1 的文章。", ""])
+        return lines
+    for rank, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            continue
+        link = _clean_text(item.get("link"))
+        article = article_by_link.get(link, {})
+        lines.append(f"{rank}. {_md_link(article.get('title'), link)}")
+        lines.append(f"   - 来源：{article.get('source')}")
+        lines.append(f"   - 时间：{article.get('pub_date_utc')}")
+        lines.append(f"   - 摘要：{item.get('summary_zh')}")
+        also_text = "；".join(
+            f"{article_by_link[also_link].get('source')}: "
+            f"{_clean_text(article_by_link[also_link].get('title'))}"
+            for also_link in (
+                _clean_text(entry) for entry in _as_list(item.get("also_links"))
+            )
+            if also_link in article_by_link
+        )
+        if also_text:
+            lines.append(f"   - 相关来源：{also_text}")
+        lines.append("")
+    return lines
+
+
+def render_top30(context: Dict[str, Any],
+                 part1: Dict[str, Any],
+                 report_path: str | Path | None = None) -> str:
+    """Render the fixed-format Top 30 digest used as the chat-facing reply.
+
+    The orchestrator relays this text verbatim as its final success message,
+    so the output format is owned by this deterministic renderer — never by
+    the LLM. The trailing report-path line makes the reply self-contained.
+    """
+    meta = context.get("meta", {}) if isinstance(context.get("meta"), dict) else {}
+    date = meta.get("date") or "unknown-date"
+    items = _as_list(part1.get("items"))
+    lines: List[str] = [f"# DailyNews Top 30 · {date}", ""]
+    shortfall = part1.get("shortfall")
+    if isinstance(shortfall, int) and not isinstance(shortfall, bool) and shortfall > 0:
+        lines.extend([f"> 本日入选 {len(items)} 条（不足 30，缺口 {shortfall}）", ""])
+    lines.extend(_part1_item_lines(_article_map(context), items))
+    if report_path:
+        lines.extend(["---", f"完整报告：{report_path}"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1: Dict[str, Any], part2: Dict[str, Any]) -> str:
     meta = context.get("meta", {}) if isinstance(context.get("meta"), dict) else {}
     date = meta.get("date") or "unknown-date"
@@ -419,32 +477,8 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
         lines.append(f"> 抓取异常：{failure_text}")
 
     lines.extend(["", "## Part 1：当日 TOP 30", ""])
-    article_by_link = _article_map(context)
     items = _as_list(part1.get("items"))
-    if not items:
-        lines.extend(["本次没有可进入 Part 1 的文章。", ""])
-    # The link-keyed plan carries only editorial fields; title, source, and
-    # timestamp are joined here from the authoritative llm_context articles.
-    for rank, item in enumerate(items, 1):
-        if not isinstance(item, dict):
-            continue
-        link = _clean_text(item.get("link"))
-        article = article_by_link.get(link, {})
-        lines.append(f"{rank}. {_md_link(article.get('title'), link)}")
-        lines.append(f"   - 来源：{article.get('source')}")
-        lines.append(f"   - 时间：{article.get('pub_date_utc')}")
-        lines.append(f"   - 摘要：{item.get('summary_zh')}")
-        also_text = "；".join(
-            f"{article_by_link[also_link].get('source')}: "
-            f"{_clean_text(article_by_link[also_link].get('title'))}"
-            for also_link in (
-                _clean_text(entry) for entry in _as_list(item.get("also_links"))
-            )
-            if also_link in article_by_link
-        )
-        if also_text:
-            lines.append(f"   - 相关来源：{also_text}")
-        lines.append("")
+    lines.extend(_part1_item_lines(_article_map(context), items))
 
     lines.extend(["## Part 2：按来源分组", ""])
     for group in _as_list(part2.get("groups")):
@@ -581,6 +615,12 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--part2", required=True)
     review.add_argument("--report", required=True)
 
+    top30 = subparsers.add_parser("top30")
+    top30.add_argument("--llm-context", required=True)
+    top30.add_argument("--part1", required=True)
+    top30.add_argument("--report-path")
+    top30.add_argument("--output")
+
     cache = subparsers.add_parser("update-cache")
     cache.add_argument("--llm-context", required=True)
     cache.add_argument("--part1", required=True)
@@ -649,6 +689,19 @@ def main() -> int:
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["passed"] else 20
+
+        if args.command == "top30":
+            context = load_json(args.llm_context)
+            part1 = load_json(args.part1)
+            errors = validate_part1(context, part1)
+            if errors:
+                print(json.dumps({"passed": False, "errors": errors}, ensure_ascii=False, indent=2), file=sys.stderr)
+                return 20
+            text = render_top30(context, part1, args.report_path)
+            if args.output:
+                write_text(args.output, text)
+            sys.stdout.write(text)
+            return 0
 
         if args.command == "update-cache":
             result = update_cache(
