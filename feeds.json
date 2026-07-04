@@ -22,8 +22,13 @@
       "url": "https://blog.google/innovation-and-ai/technology/ai/rss/"
     },
     {
+      "name": "Google DeepMind",
+      "url": "https://deepmind.google/blog/rss.xml"
+    },
+    {
       "name": "Apple Machine Learning Research",
-      "url": "https://machinelearning.apple.com/rss.xml"
+      "url": "https://machinelearning.apple.com/rss.xml",
+      "error_policy": "warn"
     },
     {
       "name": "NVIDIA Blog",
@@ -32,6 +37,10 @@
     {
       "name": "Engineering at Meta",
       "url": "https://engineering.fb.com/feed/"
+    },
+    {
+      "name": "Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/rss/"
     },
     {
       "name": "Sebastian Raschka",
@@ -78,12 +87,24 @@
       "url": "https://techcrunch.com/feed/"
     },
     {
+      "name": "Crunchbase News",
+      "url": "https://news.crunchbase.com/feed/"
+    },
+    {
+      "name": "The Hacker News",
+      "url": "https://feeds.feedburner.com/TheHackersNews"
+    },
+    {
+      "name": "The Record",
+      "url": "https://therecord.media/feed"
+    },
+    {
       "name": "Chips and Cheese",
       "url": "https://chipsandcheese.com/feed/"
     },
     {
       "name": "SemiAnalysis",
-      "url": "https://semianalysis.com/feed/"
+      "url": "https://newsletter.semianalysis.com/feed"
     },
     {
       "name": "Semiconductor Engineering",
