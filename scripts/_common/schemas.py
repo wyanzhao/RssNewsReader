@@ -49,6 +49,7 @@ class FeedResult(TypedDict, total=False):
     status: FeedStatus
     error: Optional[str]
     article_count: int
+    newest_item_date: Optional[str]  # ISO timestamp of newest feed item, pre-window-filter
 
 
 class SummaryEnrichmentSnapshot(TypedDict, total=False):

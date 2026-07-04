@@ -37,6 +37,8 @@ EXPECTED_AGENTS = {
         "link-keyed",
         "also_links",
         "cached_summary_zh",
+        "recent_top30",
+        "editor_feedback",
         "不要读取 `runs/_cache/",
         "绝对路径",
         "UTF-8 JSON",
@@ -146,7 +148,7 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
         self.assertIn("part2_missing_summaries.json", agents_text)
         self.assertIn("part2_draft.json", agents_text)
         self.assertIn("run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review -> editorial_runtime top30", agents_text)
-        self.assertIn("run pipeline -> network-debugger", agents_text)
+        self.assertIn("run pipeline -> retry pipeline once -> network-debugger", agents_text)
         for name in REMOVED_AGENTS:
             self.assertNotIn(name, agents_text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, agents_text)

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tests.test_qc_offline import (
@@ -339,6 +340,7 @@ class EditorialRuntimeTests(unittest.TestCase):
 
             report_path = tmp / "rss-report-2026-04-10.md"
             cache_path = tmp / "editorial_cache.json"
+            seen_links_path = tmp / "_seen_links.json"
             assemble = subprocess.run(
                 [
                     sys.executable,
@@ -350,6 +352,7 @@ class EditorialRuntimeTests(unittest.TestCase):
                     "--part2", str(part2_path),
                     "--output", str(report_path),
                     "--cache-path", str(cache_path),
+                    "--seen-links-path", str(seen_links_path),
                 ],
                 capture_output=True,
                 text=True,
@@ -358,6 +361,12 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertEqual(assemble.returncode, 0, assemble.stderr)
             self.assertTrue(report_path.exists())
             self.assertTrue(cache_path.exists())
+            # Every published article is marked seen, dated with the report date.
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from _common.text import dedup_link_key as _link_key
+            seen = json.loads(seen_links_path.read_text(encoding="utf-8"))["entries"]
+            for article in context["all_articles"]:
+                self.assertEqual(seen[_link_key(article["link"])], "2026-04-10")
             report_text = report_path.read_text(encoding="utf-8")
             self.assertIn("# DailyNews · 2026-04-10", report_text)
             # Titles / sources come from llm_context via the link join, not
@@ -484,19 +493,34 @@ class EditorialRuntimeTests(unittest.TestCase):
             from _common.editorial_cache import cache_key as _cache_key
 
             part1_cached, part2_only = context["all_articles"][:2]
+            yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            long_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
             cache_path = _write_json(tmp / "editorial_cache.json", {
                 "version": 1,
                 "entries": {
                     _cache_key(part1_cached): {
                         "link": part1_cached["link"],
+                        "title": part1_cached["title"],
+                        "source": part1_cached["source"],
                         "part1_summary_zh": "昨日的事件级摘要",
                         "event_key": "cached-event",
                         "summary_zh": "昨日的短摘要",
+                        "updated_at_utc": yesterday,
                     },
                     # part2-style flat entry must NOT inject into Part 1.
                     _cache_key(part2_only): {
                         "link": part2_only["link"],
                         "summary_zh": "只有 Part 2 摘要",
+                        "updated_at_utc": yesterday,
+                    },
+                    # Old part1 entries fall outside the continuity window.
+                    "unrelated-old-entry": {
+                        "link": "https://x/old",
+                        "title": "Old Event",
+                        "source": "S",
+                        "part1_summary_zh": "很久以前的事件",
+                        "event_key": "old-event",
+                        "updated_at_utc": long_ago,
                     },
                 },
             })
@@ -527,6 +551,89 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertEqual(hit["cached_summary_zh"], "昨日的事件级摘要")
             self.assertEqual(hit["cached_event_key"], "cached-event")
             self.assertNotIn("cached_summary_zh", by_link[part2_only["link"]])
+            # Continuity roster: recent part1 events only — part2-only and
+            # out-of-window entries are excluded.
+            recent = payload["recent_top30"]
+            self.assertEqual(
+                [record["event_key"] for record in recent], ["cached-event"]
+            )
+            self.assertEqual(recent[0]["title"], part1_cached["title"])
+            self.assertEqual(
+                recent[0]["covered_on"],
+                yesterday[:10],
+            )
+
+    def test_assemble_lint_blocks_links_and_runaway_summaries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _raw, _validation, context_path, validation_path = self._build_artifacts(tmp)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            part1, part2 = self._handoffs(context)
+            # Injection artifact: a link smuggled into a Part 1 summary.
+            part1["items"][0]["summary_zh"] = "点击 https://evil.example 了解详情"
+            # Runaway Part 2 summary far beyond the hard cap.
+            part2["groups"][0]["articles"][0]["summary_zh"] = "长" * 250
+            part1_path = _write_json(tmp / "part1_plan.json", part1)
+            part2_path = _write_json(tmp / "part2_draft.json", part2)
+
+            report_path = tmp / "rss-report-2026-04-10.md"
+            assemble = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITORIAL_RUNTIME_SCRIPT),
+                    "assemble",
+                    "--llm-context", str(context_path),
+                    "--validation", str(validation_path),
+                    "--part1", str(part1_path),
+                    "--part2", str(part2_path),
+                    "--output", str(report_path),
+                    "--no-cache",
+                    "--no-seen-links",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(assemble.returncode, 20)
+            self.assertIn("must not contain links", assemble.stderr)
+            self.assertIn("exceeds 200 chars", assemble.stderr)
+            self.assertFalse(report_path.exists())
+
+    def test_part1_brief_injects_recent_feedback_lines(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            run_dir = tmp / "runs" / "2026-04-10"
+            run_dir.mkdir(parents=True)
+            (tmp / "runs" / "_feedback.md").write_text(
+                "# 主编反馈\n\n少选纯传言类条目\nApple 供应链传闻权重太高\n",
+                encoding="utf-8",
+            )
+            raw = materialize_raw("golden_success.json")
+            code, validation = run_validator(raw)
+            self.assertEqual(code, 0)
+            raw_path = _write_json(run_dir / "raw.json", raw)
+            validation_path = _write_json(run_dir / "validation.json", validation)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(LLM_CONTEXT_SCRIPT),
+                    "--input", str(raw_path),
+                    "--validation", str(validation_path),
+                    "--output", str(run_dir / "llm_context.json"),
+                    "--date", "2026-04-10",
+                    "--report-path", str(tmp / "rss-report-2026-04-10.md"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            brief = json.loads((run_dir / "part1_brief.json").read_text(encoding="utf-8"))
+            # Comment lines are skipped; content lines ride along in order.
+            self.assertEqual(
+                brief["editor_feedback"],
+                ["少选纯传言类条目", "Apple 供应链传闻权重太高"],
+            )
 
 
 if __name__ == "__main__":

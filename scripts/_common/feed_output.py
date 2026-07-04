@@ -32,6 +32,7 @@ def output_json(
     feed_status: Optional[Dict[str, Optional[str]]] = None,
     input_mode: str = "feeds.json",
     config_snapshot: Optional[Dict[str, Any]] = None,
+    feed_newest: Optional[Dict[str, Optional[str]]] = None,
 ) -> None:
     """Output articles as JSON for downstream processing."""
     articles.sort(key=lambda article: article["pub_date"], reverse=True)
@@ -87,6 +88,9 @@ def output_json(
                 "status": status,
                 "error": error,
                 "article_count": article_count,
+                # Newest item in the whole feed before window filtering; lets
+                # the validator flag feeds that are alive but dormant.
+                "newest_item_date": (feed_newest or {}).get(name),
             })
 
         output["feed_results"] = feed_results

@@ -18,10 +18,11 @@ workflow is write-producing and should be invoked explicitly.
 
 This is a manual, write-producing orchestrator skill. Do not invoke it automatically.
 
-Read these files before acting:
-
-- [AGENTS.md](../../../AGENTS.md) for the repo contract, artifact schema, and guardrails.
-- [TASKS.md](../../../TASKS.md) for the long-running tracker, current epics, and validation checklist.
+This file is the self-contained runtime procedure. Do not read maintainer
+docs as a runtime step: consult [AGENTS.md](../../../AGENTS.md) only when a
+contract question arises that this file does not answer, and never read the
+maintainer tracker at runtime — both are large and irrelevant to a normal
+daily run.
 
 ## Architecture Contract
 
@@ -48,7 +49,7 @@ Read these files before acting:
 8. After both Part 1 and Part 2 artifacts are ready, run `python3 scripts/editorial_runtime.py assemble --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --output <report_path>` to write the formal Chinese report into the success `report_path`, then run `python3 scripts/editorial_runtime.py review --llm-context <run_dir>/llm_context.json --validation <run_dir>/validation.json --part1 <run_dir>/part1_plan.json --part2 <run_dir>/part2_draft.json --report <report_path>` once.
 9. After review passes, run `python3 scripts/editorial_runtime.py top30 --llm-context <run_dir>/llm_context.json --part1 <run_dir>/part1_plan.json --report-path <report_path> --output <run_dir>/top30.md` and capture its stdout — this fixed-format digest is the final success reply.
 10. If the classification is `expected-block`, keep the existing failure report untouched and return only the emitted absolute `report_path`.
-11. If the classification is `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, assemble, review, or top30 in this branch.
+11. If the classification is `unexpected-error`, re-run the pipeline command once — transient network flakes are common and a missed window is unrecoverable because RSS is a rolling window. If the retry classifies as `success` or `expected-block`, continue on that branch as normal. Only when the retry is also `unexpected-error`, invoke `network-debugger`. Do not invoke `part1-editor`, `part2-drafter`, assemble, review, or top30 while unresolved.
 
 ## Guardrails
 

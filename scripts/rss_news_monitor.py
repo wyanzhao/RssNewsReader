@@ -79,6 +79,10 @@ from _common.runtime_config import (  # noqa: E402
     build_runtime_config_snapshot as _build_runtime_config_snapshot,
     load_pipeline_config as _load_pipeline_config,
 )
+from _common.seen_links import (  # noqa: E402
+    filter_previously_reported as _filter_previously_reported,
+    load_seen_links as _load_seen_links,
+)
 from _common.text import parse_rss_date, strip_html  # noqa: E402
 
 
@@ -278,6 +282,12 @@ examples:
                              'Use 300 for compact output suitable for LLM processing.')
     parser.add_argument('--config', metavar='FILE',
                         help='Path to pipeline_config.json (defaults to repo pipeline_config.json)')
+    parser.add_argument('--seen-links', metavar='FILE',
+                        help='Optional cross-run seen-links ledger; articles reported '
+                             'on an earlier date are dropped at fetch time')
+    parser.add_argument('--seen-links-date', metavar='YYYY-MM-DD',
+                        help='Report date used for the seen-links comparison '
+                             '(default: local date)')
 
     return parser
 
@@ -332,11 +342,27 @@ def main():
 
     # Fetch all feeds concurrently
     start_time = time.time()
-    all_articles, feed_status = fetch_all_feeds(feed_list, args.hours, args.workers, args.max_summary)
+    all_articles, feed_status, feed_newest = fetch_all_feeds(
+        feed_list, args.hours, args.workers, args.max_summary)
     elapsed = time.time() - start_time
 
     # Deduplicate
     all_articles = dedup_articles(all_articles)
+    # Cross-run dedup: with a widened fetch window, boundary articles already
+    # published in an earlier day's report are dropped here — before page
+    # enrichment, so no fetches are wasted on them. Best-effort: a corrupt
+    # ledger must never break the daily fetch.
+    if args.seen_links:
+        try:
+            ledger = _load_seen_links(args.seen_links)
+            report_date = args.seen_links_date or datetime.now().date().isoformat()
+            all_articles, dropped = _filter_previously_reported(
+                all_articles, ledger, report_date)
+            if dropped:
+                print(f"[INFO] Seen-links ledger dropped {dropped} previously "
+                      f"reported article(s)", file=sys.stderr)
+        except Exception as exc:
+            print(f"[WARN] Seen-links filter skipped: {exc}", file=sys.stderr)
     # Only the JSON output mode consumes article_text; --summary and the
     # default grouped-text output do not. On the JSON path, fetch each article
     # page once and extract both the summary fallback and the body text from the
@@ -375,6 +401,7 @@ def main():
             feed_status,
             input_mode=input_mode,
             config_snapshot=config_snapshot,
+            feed_newest=feed_newest,
         )
     else:
         output_text_grouped(all_articles, args.hours, feed_list)

@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -20,6 +21,13 @@ EXIT_UNEXPECTED = 40
 
 VALID_STATUSES = {'ok', 'empty', 'error'}
 VALID_ERROR_POLICIES = {'block', 'warn'}
+
+# Warn when a non-error feed's newest item (pre-window-filter) is at least
+# this many days old — an HTTP-healthy feed can still be dormant and this is
+# the only signal that distinguishes it from a quiet day. Overridable via
+# pipeline_config.json fetch.stale_feed_warn_days (snapshotted into
+# raw.json.runtime_config by the fetch step). Warning-only, never blocking.
+DEFAULT_STALE_FEED_WARN_DAYS = 30
 
 
 def _blank_result() -> Dict[str, Any]:
@@ -96,6 +104,53 @@ def _count_feed_results(feed_results: List[Dict[str, Any]]) -> Tuple[int, int, i
 def _has_error_detail(item: Dict[str, Any]) -> bool:
     error_detail = item.get('error')
     return isinstance(error_detail, str) and bool(error_detail.strip())
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _stale_feed_warn_days(raw_obj: Dict[str, Any]) -> int:
+    runtime_config = raw_obj.get('runtime_config')
+    if isinstance(runtime_config, dict):
+        fetch_config = runtime_config.get('fetch')
+        if isinstance(fetch_config, dict):
+            value = fetch_config.get('stale_feed_warn_days')
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+    return DEFAULT_STALE_FEED_WARN_DAYS
+
+
+def _stale_feed_labels(feed_results: List[Any],
+                       generated_at_utc: Any,
+                       threshold_days: int) -> List[str]:
+    """Feeds that are alive (non-error) but whose newest item is old.
+
+    Older raw artifacts without ``newest_item_date`` are skipped silently so
+    this check never affects pre-existing runs or fixtures.
+    """
+    generated = _parse_iso_datetime(generated_at_utc)
+    if generated is None:
+        return []
+    labels: List[str] = []
+    for item in feed_results:
+        if not isinstance(item, dict) or item.get('status') == 'error':
+            continue
+        newest = _parse_iso_datetime(item.get('newest_item_date'))
+        if newest is None:
+            continue
+        age_days = (generated - newest).days
+        if age_days >= threshold_days:
+            labels.append(f"{item.get('source')} (newest item {age_days}d old)")
+    return labels
 
 
 def validate(raw: Dict[str, Any], feeds: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
@@ -291,6 +346,15 @@ def validate(raw: Dict[str, Any], feeds: Dict[str, Any]) -> Tuple[Dict[str, Any]
         if non_warn_error_sources:
             result['warnings'].append(
                 f'{len(non_warn_error_sources)} failed feed(s): ' + ', '.join(non_warn_error_sources)
+            )
+        stale_labels = _stale_feed_labels(
+            feed_results,
+            generated_at_utc,
+            _stale_feed_warn_days(raw_obj),
+        )
+        if stale_labels:
+            result['warnings'].append(
+                f'{len(stale_labels)} stale feed(s): ' + ', '.join(stale_labels)
             )
 
         if total_articles != count:

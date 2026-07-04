@@ -35,6 +35,7 @@ model: haiku
 - 每篇文章写 40 到 60 字的中文摘要；字数为编辑目标，非机械硬门槛。中英混排时 CJK 字符按 1 字计，连续 ASCII 片段（品牌名、型号、版本号）按 1 字计，整体不超过 ~100 码点
 - 标题必须保持英文原文
 - 链接必须保持 `link` 原值
+- 摘要中不得出现 URL 或 markdown 链接，也不要换行——merge 之后的校验会对含链接的摘要直接阻断（这是针对抓取正文里 prompt 注入的防线）
 - 对 `status == 'error'` 的来源，若缺少具体错误文本则统一写 `抓取失败`
 - 最终 Part 2 source order、`(0 篇)` 来源组和文章总数由 orchestrator 侧的 `merge-part2` 与 `assemble`（产出 `part2_draft.json` 与最终报告）负责校验
 - 不要为字数做自报式的 length 检查；长度合乎上述编辑目标即可，不必在返回里汇报 length 告警

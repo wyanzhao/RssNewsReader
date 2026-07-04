@@ -1,7 +1,8 @@
 {
   "fetch": {
-    "hours": 24,
-    "max_summary": 300
+    "hours": 28,
+    "max_summary": 300,
+    "stale_feed_warn_days": 30
   },
   "summary_enrichment": {
     "short_summary_threshold": 100,
@@ -17,9 +18,9 @@
     "part2_summary_max_chars": 300
   },
   "context_budget": {
-    "llm_context_max_bytes": 200000,
-    "part1_brief_max_bytes": 100000,
-    "part2_context_max_bytes": 100000,
-    "total_context_max_bytes": 360000
+    "llm_context_max_bytes": 300000,
+    "part1_brief_max_bytes": 150000,
+    "part2_context_max_bytes": 150000,
+    "total_context_max_bytes": 540000
   }
 }

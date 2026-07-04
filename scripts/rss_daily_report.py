@@ -220,6 +220,12 @@ def main() -> int:
             "--config",
             str(Path(args.config).expanduser().resolve()),
         ])
+    # Cross-run dedup ledger (written only by editorial_runtime.py assemble,
+    # i.e. only for links that landed in a published success report).
+    fetch_step.args.extend([
+        "--seen-links", str(runs_root / "_seen_links.json"),
+        "--seen-links-date", report_date,
+    ])
     fetch_result = run_step(fetch_step)
 
     validate_step = Step(

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 DEFAULT_PIPELINE_CONFIG_FILE = Path(__file__).resolve().parents[2] / "pipeline_config.json"
 DEFAULT_FETCH_HOURS = 24
 DEFAULT_FETCH_MAX_SUMMARY = 300
+DEFAULT_STALE_FEED_WARN_DAYS = 30
 DEFAULT_SHORT_SUMMARY_THRESHOLD = 80
 DEFAULT_PAGE_FALLBACK_CAP = 300
 DEFAULT_PART1_SUMMARY_MAX_CHARS = 200
@@ -59,6 +60,7 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
     fetch_config = {
         "hours": DEFAULT_FETCH_HOURS,
         "max_summary": DEFAULT_FETCH_MAX_SUMMARY,
+        "stale_feed_warn_days": DEFAULT_STALE_FEED_WARN_DAYS,
     }
     if "hours" in fetch_payload:
         fetch_config["hours"] = _validated_positive_int(
@@ -69,6 +71,11 @@ def load_pipeline_config(config_path: str | Path | None = None) -> Tuple[Dict[st
         fetch_config["max_summary"] = _validated_positive_int(
             fetch_payload["max_summary"],
             "fetch.max_summary",
+        )
+    if "stale_feed_warn_days" in fetch_payload:
+        fetch_config["stale_feed_warn_days"] = _validated_positive_int(
+            fetch_payload["stale_feed_warn_days"],
+            "fetch.stale_feed_warn_days",
         )
 
     summary_payload = payload.get("summary_enrichment", {})
@@ -238,6 +245,9 @@ def build_runtime_config_snapshot(
     max_summary: int,
 ) -> Dict[str, Any]:
     """Build the config snapshot persisted into raw.json."""
+    fetch_config = pipeline_config.get("fetch", {})
+    if not isinstance(fetch_config, dict):
+        fetch_config = {}
     summary_config = pipeline_config.get("summary_enrichment", {})
     if not isinstance(summary_config, dict):
         summary_config = {}
@@ -282,6 +292,12 @@ def build_runtime_config_snapshot(
     )
     return {
         "config_path": str(Path(config_path).expanduser().resolve()),
+        "fetch": {
+            "stale_feed_warn_days": int(fetch_config.get(
+                "stale_feed_warn_days",
+                DEFAULT_STALE_FEED_WARN_DAYS,
+            )),
+        },
         "summary_enrichment": {
             "short_summary_threshold": int(short_summary_threshold),
             "page_fallback_cap": int(page_fallback_cap),

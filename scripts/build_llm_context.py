@@ -40,6 +40,22 @@ from _common.runtime_config import (  # noqa: E402
 PART1_BRIEF_ARTICLE_TEXT_WORDS = 70
 PART2_FALLBACK_ARTICLE_TEXT_WORDS = 60
 
+# runs/_feedback.md is an optional, user-maintained taste log ("this pick was
+# noise", "we missed X"). The most recent lines ride into part1_brief.json so
+# the editor can calibrate without anyone editing the agent prompt.
+FEEDBACK_MAX_LINES = 20
+FEEDBACK_MAX_LINE_CHARS = 200
+
+
+def load_feedback_lines(path: Path) -> list:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    lines = [line.strip() for line in text.splitlines()]
+    lines = [line for line in lines if line and not line.startswith("#")]
+    return [line[:FEEDBACK_MAX_LINE_CHARS] for line in lines[-FEEDBACK_MAX_LINES:]]
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -212,10 +228,11 @@ def build_context(raw: Dict[str, Any], validation: Dict[str, Any], date_str: str
 def build_part1_brief(raw: Dict[str, Any],
                       validation: Dict[str, Any],
                       date_str: str,
-                      report_path: Optional[str]) -> Dict[str, Any]:
+                      report_path: Optional[str],
+                      feedback_lines: Optional[list] = None) -> Dict[str, Any]:
     articles = normalize_articles(raw)
     short_summary_threshold = _config_short_summary_threshold(raw)
-    return {
+    brief = {
         "meta": _context_meta(raw, validation, date_str, report_path),
         "article_count": len(articles),
         "article_text_preview_words": PART1_BRIEF_ARTICLE_TEXT_WORDS,
@@ -228,6 +245,9 @@ def build_part1_brief(raw: Dict[str, Any],
             for article in articles
         ],
     }
+    if feedback_lines:
+        brief["editor_feedback"] = list(feedback_lines)
+    return brief
 
 
 def build_part2_context(raw: Dict[str, Any],
@@ -377,7 +397,11 @@ def main() -> int:
         context = build_context(raw, validation, date_str, args.report_path)
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        part1_brief = build_part1_brief(raw, validation, date_str, args.report_path)
+        feedback_lines = load_feedback_lines(output_path.parent.parent / "_feedback.md")
+        part1_brief = build_part1_brief(
+            raw, validation, date_str, args.report_path,
+            feedback_lines=feedback_lines,
+        )
         cache_path = default_cache_path(output_path)
         part2_context = build_part2_context(
             raw,

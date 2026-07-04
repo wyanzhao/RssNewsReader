@@ -214,7 +214,7 @@ class FetchPathRegressionTests(unittest.TestCase):
         def fake_fetch_url(*_args, **_kwargs):
             return b"<rss><channel>", "utf-8"
 
-        articles, error = fetch_rss_feed(
+        articles, error, newest = fetch_rss_feed(
             "Broken Feed",
             "https://example.com/feed.xml",
             fetch_url_fn=fake_fetch_url,
@@ -223,6 +223,7 @@ class FetchPathRegressionTests(unittest.TestCase):
         self.assertEqual(articles, [])
         self.assertIsInstance(error, str)
         self.assertIn("XML parse failed", error)
+        self.assertIsNone(newest)
 
     def test_extract_html_summary_prefers_standard_meta_tags(self):
         import importlib.util

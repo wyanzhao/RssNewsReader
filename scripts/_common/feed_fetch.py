@@ -336,8 +336,15 @@ def fetch_rss_feed(
     fetch_url_fn: Callable[..., Tuple[bytes, Optional[str]]] = fetch_url,
     decode_content_fn: Callable[[bytes, Optional[str]], str] = decode_content,
     parse_feed_fn: Callable[[str, int], List[Dict]] = parse_feed,
-) -> Tuple[List[Dict], Optional[str]]:
-    """Fetch and parse a single RSS/Atom feed."""
+) -> Tuple[List[Dict], Optional[str], Optional[str]]:
+    """Fetch and parse a single RSS/Atom feed.
+
+    Returns ``(articles_within_window, error, newest_item_date)``.
+    ``newest_item_date`` is the ISO timestamp of the newest item in the whole
+    feed *before* window filtering — a feed can be HTTP-healthy and XML-valid
+    yet dormant, and only this pre-filter timestamp can tell (a stale feed
+    otherwise looks identical to a quiet day).
+    """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
 
@@ -345,24 +352,29 @@ def fetch_rss_feed(
         raw, charset = fetch_url_fn(url)
         content = decode_content_fn(raw, charset)
         articles = parse_feed_fn(content, max_summary=max_summary)
+        newest = max(
+            (article["pub_date"] for article in articles if article.get("pub_date")),
+            default=None,
+        )
+        newest_iso = newest.isoformat() if newest else None
         articles = [article for article in articles if article["pub_date"] >= cutoff]
 
         for article in articles:
             article["source"] = name
 
-        return articles, None
+        return articles, None, newest_iso
     except HTTPError as exc:
         msg = f"HTTP {exc.code}"
         print(f"[WARN] {name}: {msg} - {url}", file=sys.stderr)
-        return [], msg
+        return [], msg, None
     except URLError as exc:
         msg = f"Connection failed - {exc.reason}"
         print(f"[WARN] {name}: {msg}", file=sys.stderr)
-        return [], msg
+        return [], msg, None
     except Exception as exc:
         msg = str(exc)
         print(f"[WARN] {name}: {msg}", file=sys.stderr)
-        return [], msg
+        return [], msg, None
 
 
 def fetch_all_feeds(
@@ -371,11 +383,17 @@ def fetch_all_feeds(
     max_workers: int = 8,
     max_summary: int = 0,
     *,
-    fetch_feed_fn: Callable[[str, str, int, int], Tuple[List[Dict], Optional[str]]] = fetch_rss_feed,
-) -> Tuple[List[Dict], Dict[str, Optional[str]]]:
-    """Concurrently fetch all feeds."""
+    fetch_feed_fn: Callable[..., Tuple] = fetch_rss_feed,
+) -> Tuple[List[Dict], Dict[str, Optional[str]], Dict[str, Optional[str]]]:
+    """Concurrently fetch all feeds.
+
+    Returns ``(all_articles, feed_status, feed_newest)`` where ``feed_newest``
+    maps feed name to the pre-window-filter newest item timestamp (or None).
+    Injected ``fetch_feed_fn`` stubs may still return the legacy 2-tuple.
+    """
     all_articles = []
     feed_status: Dict[str, Optional[str]] = {}
+    feed_newest: Dict[str, Optional[str]] = {}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -385,11 +403,18 @@ def fetch_all_feeds(
         for future in as_completed(futures):
             name = futures[future]
             try:
-                articles, error = future.result()
+                result = future.result()
+                if len(result) >= 3:
+                    articles, error, newest = result[0], result[1], result[2]
+                else:
+                    articles, error = result
+                    newest = None
                 all_articles.extend(articles)
                 feed_status[name] = error
+                feed_newest[name] = newest
             except Exception as exc:
                 feed_status[name] = str(exc)
+                feed_newest[name] = None
                 print(f"[WARN] {name}: {exc}", file=sys.stderr)
 
-    return all_articles, feed_status
+    return all_articles, feed_status, feed_newest

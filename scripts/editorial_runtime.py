@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -22,6 +23,13 @@ from _common.editorial_cache import (  # noqa: E402
     lookup_entry,
     update_entries,
     write_cache,
+)
+from _common.seen_links import (  # noqa: E402
+    default_seen_links_path,
+    load_seen_links,
+    prune_seen_links,
+    record_reported_links,
+    write_seen_links,
 )
 
 
@@ -63,6 +71,24 @@ def _md_link(title: Any, link: Any) -> str:
     if any(ch in target for ch in ("(", ")", " ")):
         target = f"<{target}>"
     return f"[{_md_link_text(title)}]({target})"
+
+
+# Hard safety caps for LLM-written summaries — deliberately looser than the
+# editorial targets (60-180字 / 40-60字) so borderline output never blocks,
+# while runaway text or prompt-injection payloads smuggled in via scraped
+# article_text do. Links in a summary are the classic injection artifact.
+PART1_SUMMARY_HARD_CAP = 400
+PART2_SUMMARY_HARD_CAP = 200
+
+
+def _summary_lint_errors(summary: Any, label: str, hard_cap: int) -> List[str]:
+    errors: List[str] = []
+    cleaned = _clean_text(summary)
+    if len(cleaned) > hard_cap:
+        errors.append(f"{label} summary_zh exceeds {hard_cap} chars ({len(cleaned)})")
+    if "http://" in cleaned.lower() or "https://" in cleaned.lower() or "](" in cleaned:
+        errors.append(f"{label} summary_zh must not contain links")
+    return errors
 
 
 def _article_map(context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -174,6 +200,46 @@ def _extract_shortlist_links(shortlist: Dict[str, Any]) -> List[str]:
     return links
 
 
+# How far back the recent-Top-30 continuity roster looks. Cross-day duplicate
+# links are already filtered by the seen-links ledger; this roster is for the
+# other case — a *new* article covering an event that already ran, which only
+# the editor can judge (pure repeat vs. substantive follow-up).
+RECENT_TOP30_DAYS = 3
+
+
+def _recent_top30(cache: Dict[str, Any] | None,
+                  now: datetime | None = None) -> List[Dict[str, str]]:
+    if not cache:
+        return []
+    entries = cache.get("entries")
+    if not isinstance(entries, dict):
+        return []
+    now_dt = now or datetime.now(timezone.utc)
+    cutoff = now_dt - timedelta(days=RECENT_TOP30_DAYS)
+    records: List[Dict[str, str]] = []
+    for entry in entries.values():
+        if not isinstance(entry, dict):
+            continue
+        if not _clean_text(entry.get("part1_summary_zh")):
+            continue
+        try:
+            updated = datetime.fromisoformat(str(entry.get("updated_at_utc")))
+        except (TypeError, ValueError):
+            continue
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        if updated < cutoff:
+            continue
+        records.append({
+            "title": entry.get("title", ""),
+            "source": entry.get("source", ""),
+            "event_key": entry.get("event_key", ""),
+            "covered_on": updated.date().isoformat(),
+        })
+    records.sort(key=lambda record: (record["covered_on"], record["event_key"]), reverse=True)
+    return records
+
+
 def build_shortlist_context(context: Dict[str, Any],
                             shortlist: Dict[str, Any],
                             cache: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -182,7 +248,9 @@ def build_shortlist_context(context: Dict[str, Any],
     Cache reuse is deterministic-only: when a shortlisted link has a prior
     Part 1 summary in the editorial cache, the article entry gains
     ``cached_summary_zh`` / ``cached_event_key`` so the LLM can reuse it
-    without ever reading the cache file itself.
+    without ever reading the cache file itself. ``recent_top30`` lists the
+    last few days' Part 1 events so the editor can judge continuity for new
+    articles about already-covered events.
     """
     article_by_link = _article_map(context)
     links = _extract_shortlist_links(shortlist)
@@ -206,6 +274,7 @@ def build_shortlist_context(context: Dict[str, Any],
         "meta": context.get("meta", {}),
         "article_count": len(links),
         "cache_hits": cache_hits,
+        "recent_top30": _recent_top30(cache),
         "articles": articles,
     }
 
@@ -245,6 +314,9 @@ def validate_part1(context: Dict[str, Any], part1: Dict[str, Any]) -> List[str]:
             errors.append(f"part1 item {idx} link absent from all_articles: {link}")
         if not _clean_text(item.get("summary_zh")):
             errors.append(f"part1 item {idx} missing summary_zh")
+        else:
+            errors.extend(_summary_lint_errors(
+                item.get("summary_zh"), f"part1 item {idx}", PART1_SUMMARY_HARD_CAP))
         also_links = item.get("also_links")
         if not isinstance(also_links, list):
             errors.append(f"part1 item {idx} missing also_links list")
@@ -288,6 +360,8 @@ def validate_part2(context: Dict[str, Any], validation: Dict[str, Any], part2: D
                 errors.append(f"{source} article {idx} is not an object")
                 continue
             _require_fields(article, ["title", "link", "pub_date_iso", "summary_zh"], f"{source} article {idx}", errors)
+            errors.extend(_summary_lint_errors(
+                article.get("summary_zh"), f"{source} article {idx}", PART2_SUMMARY_HARD_CAP))
             link = _clean_text(article.get("link"))
             source_article = article_by_link.get(link)
             if source_article is None:
@@ -416,7 +490,7 @@ def _part1_item_lines(article_by_link: Dict[str, Dict[str, Any]],
         lines.append(f"{rank}. {_md_link(article.get('title'), link)}")
         lines.append(f"   - 来源：{article.get('source')}")
         lines.append(f"   - 时间：{article.get('pub_date_utc')}")
-        lines.append(f"   - 摘要：{item.get('summary_zh')}")
+        lines.append(f"   - 摘要：{_clean_text(item.get('summary_zh'))}")
         also_text = "；".join(
             f"{article_by_link[also_link].get('source')}: "
             f"{_clean_text(article_by_link[also_link].get('title'))}"
@@ -496,7 +570,7 @@ def assemble_markdown(context: Dict[str, Any], validation: Dict[str, Any], part1
         for idx, article in enumerate(articles, 1):
             lines.append(f"{idx}. {_md_link(article.get('title'), article.get('link'))}")
             lines.append(f"   - 时间：{article.get('pub_date_iso')}")
-            lines.append(f"   - 摘要：{article.get('summary_zh')}")
+            lines.append(f"   - 摘要：{_clean_text(article.get('summary_zh'))}")
             lines.append("")
 
     lines.extend([
@@ -544,6 +618,29 @@ def update_cache(cache_path: str | Path,
     write_cache(path, cache)
     entries = cache.get("entries", {})
     return {"path": str(path), "entries": len(entries)}
+
+
+def update_seen_links_ledger(ledger_path: str | Path,
+                             context: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark every article of this published report as seen.
+
+    Runs only from ``assemble`` — the one step that actually writes a success
+    report — so blocked or failed days never mark their articles as covered.
+    A corrupt ledger is rebuilt fresh rather than blocking the report write.
+    """
+    meta = context.get("meta", {}) if isinstance(context.get("meta"), dict) else {}
+    report_date = _clean_text(meta.get("date"))
+    if not report_date:
+        return {"path": str(ledger_path), "entries": 0, "skipped": "no report date"}
+    try:
+        entries = load_seen_links(ledger_path)
+    except (ValueError, json.JSONDecodeError):
+        print(f"WARN: rebuilding corrupt seen-links ledger: {ledger_path}", file=sys.stderr)
+        entries = {}
+    record_reported_links(entries, _article_map(context).keys(), report_date)
+    prune_seen_links(entries, report_date)
+    write_seen_links(ledger_path, entries)
+    return {"path": str(ledger_path), "entries": len(entries)}
 
 
 def review_report(report_path: str | Path,
@@ -607,6 +704,8 @@ def build_parser() -> argparse.ArgumentParser:
     assemble.add_argument("--output", required=True)
     assemble.add_argument("--cache-path")
     assemble.add_argument("--no-cache", action="store_true")
+    assemble.add_argument("--seen-links-path")
+    assemble.add_argument("--no-seen-links", action="store_true")
 
     review = subparsers.add_parser("review")
     review.add_argument("--llm-context", required=True)
@@ -676,6 +775,9 @@ def main() -> int:
             if not args.no_cache:
                 cache_path = args.cache_path or default_cache_path(args.llm_context)
                 update_cache(cache_path, context, part1, part2)
+            if not args.no_seen_links:
+                ledger_path = args.seen_links_path or default_seen_links_path(args.llm_context)
+                update_seen_links_ledger(ledger_path, context)
             print(args.output)
             return 0
 

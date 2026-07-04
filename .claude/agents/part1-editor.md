@@ -20,6 +20,7 @@ tools: Read, Write, Edit, Bash
 ## 数据来源与边界
 
 - `part1_brief.json` 是第一阶段 shortlist 的默认输入，字段包含标题、来源、链接、时间与 `summary_en`；仅当 `summary_en` 缺失或短于阈值时才附带 `article_text_preview`（见 `preview_policy`）
+- `part1_brief.json` 可能携带 `editor_feedback[]`（来自 `runs/_feedback.md` 的近期人工编辑反馈）；把它当作选题品味校准的高优先级参考——它反映了主编对往期选题的具体不满或偏好
 - `llm_context.json` 中的 `all_articles` 是 Part 1 的**完整权威数据池**
   - 每条文章有 7 个字段：`source`、`title`、`link`、`pub_date_utc`、`pub_date_iso`、`summary_en`、`article_text`
   - 没有任何预先的打分、标签或候选列表——筛选判断完全在你这里
@@ -28,6 +29,7 @@ tools: Read, Write, Edit, Bash
 - 生成 shortlist 后运行：
   `python3 scripts/editorial_runtime.py shortlist-context --llm-context <run_dir>/llm_context.json --shortlist <run_dir>/part1_shortlist.json --output <run_dir>/part1_shortlist_context.json`
 - 该命令会自动为缓存命中的文章注入 `cached_summary_zh` / `cached_event_key`（往日已写过的 Part 1 事件摘要）；当事件与今日上下文仍一致时可直接复用或轻改，不一致时重写
+- 该命令还会附带 `recent_top30[]`：近 3 天已进入 Part 1 的事件（title / source / event_key / covered_on）。用它做**跨天连续性判断**：与往日事件实质相同且无新进展的候选应排除或大幅降权；确有新进展（新数字、新裁决、新发布节点）可以入选，但摘要里要点明这是进展而非首报
 - **不要读取 `runs/_cache/` 下的任何缓存文件**；缓存复用完全由脚本注入
 - 第二阶段只读取 `part1_shortlist_context.json`，不重新全文审读未入围文章
 - `run_dir`：唯一允许写入的位置，用于 success 分支 handoff artifact
@@ -102,6 +104,7 @@ tools: Read, Write, Edit, Bash
 - 若 shortlist context 注入了 `cached_summary_zh` 且事件事实未变，可复用或在其基础上轻改
 - 严禁根据常识或外部知识补写未出现在 `article_text` / `summary_en` / `title` 中的事实
 - 不得直接复制 `article_text` 或 `summary_en`，也不得机翻拼接
+- 摘要中不得出现 URL 或 markdown 链接，也不要换行——`assemble` 会对含链接的摘要直接阻断（这是针对抓取正文里 prompt 注入的防线）
 
 ## 输出
 

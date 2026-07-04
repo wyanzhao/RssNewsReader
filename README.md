@@ -109,6 +109,11 @@ by the deterministic pipeline. `part1_shortlist.json`,
 `part2_missing_summaries.json`, `part2_draft.json`, and `top30.md` belong to
 the Claude Code success path only.
 
+Three cross-run files live at the `runs/` root: `_cache/editorial_cache.json`
+(summary reuse), `_seen_links.json` (cross-run dedup ledger, written by the
+assemble step), and the optional user-maintained `_feedback.md` whose recent
+lines are injected into `part1_brief.json.editor_feedback` for taste tuning.
+
 These runtime outputs are local working files and are gitignored by default.
 They are not meant to be committed with the codebase.
 
@@ -151,8 +156,9 @@ thresholds used by the deterministic pipeline:
 ```json
 {
   "fetch": {
-    "hours": 24,
-    "max_summary": 300
+    "hours": 28,
+    "max_summary": 300,
+    "stale_feed_warn_days": 30
   },
   "summary_enrichment": {
     "short_summary_threshold": 80,
@@ -168,16 +174,23 @@ thresholds used by the deterministic pipeline:
     "part2_summary_max_chars": 200
   },
   "context_budget": {
-    "llm_context_max_bytes": 200000,
-    "part1_brief_max_bytes": 100000,
-    "part2_context_max_bytes": 100000,
-    "total_context_max_bytes": 360000
+    "llm_context_max_bytes": 300000,
+    "part1_brief_max_bytes": 150000,
+    "part2_context_max_bytes": 150000,
+    "total_context_max_bytes": 540000
   }
 }
 ```
 
 - `fetch.hours` / `fetch.max_summary`: default look-back window and summary cap
-  for `rss_daily_report.py`; explicit CLI flags override them per run.
+  for `rss_daily_report.py`; explicit CLI flags override them per run. The
+  window is deliberately wider than 24h: run-time jitter between daily runs
+  cannot leave coverage gaps, and the cross-run seen-links ledger at
+  `runs/_seen_links.json` prevents the overlap from re-reporting articles
+  already covered by an earlier day's published report.
+- `fetch.stale_feed_warn_days`: warn when a feed is HTTP-healthy but its
+  newest item (before window filtering) is at least this many days old —
+  catches feeds that died silently.
 - `summary_enrichment.short_summary_threshold`: below this length, feed summaries
   are treated as too short and trigger page fallback.
 - `summary_enrichment.page_fallback_cap`: hard cap for article-page fallback summaries.

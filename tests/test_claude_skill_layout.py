@@ -86,7 +86,10 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         _frontmatter, body = parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
 
         self.assertIn("[AGENTS.md](../../../AGENTS.md)", body)
-        self.assertIn("[TASKS.md](../../../TASKS.md)", body)
+        # Runtime runs must not pay for maintainer docs: AGENTS.md is
+        # consult-on-demand only, and the tracker is never runtime reading.
+        self.assertIn("self-contained runtime procedure", body)
+        self.assertNotIn("TASKS.md", body)
         self.assertIn("agents/openai.yaml", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("single shared skill file for both Claude Code and Codex", body)

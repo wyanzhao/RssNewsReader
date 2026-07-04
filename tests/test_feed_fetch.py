@@ -64,7 +64,7 @@ class FetchRssFeedTests(unittest.TestCase):
                 {"title": "old", "link": "https://x/2", "pub_date": stale},
             ]
 
-        articles, error = fetch_rss_feed(
+        articles, error, newest = fetch_rss_feed(
             "Feed",
             "https://x/feed.xml",
             hours=24,
@@ -77,27 +77,56 @@ class FetchRssFeedTests(unittest.TestCase):
         self.assertEqual([a["title"] for a in articles], ["fresh"])
         # The source name is stamped onto every surviving article.
         self.assertEqual(articles[0]["source"], "Feed")
+        # newest_item_date reflects the whole feed, pre-window-filter.
+        self.assertEqual(newest, recent.isoformat())
+
+    def test_newest_item_date_survives_window_filter(self):
+        """A dormant feed yields zero in-window articles but still reports its
+        newest item — the signal the stale-feed warning depends on."""
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(days=45)
+        older = now - timedelta(days=60)
+
+        def fake_parse(content, max_summary=0):
+            return [
+                {"title": "a", "link": "https://x/1", "pub_date": older},
+                {"title": "b", "link": "https://x/2", "pub_date": old},
+            ]
+
+        articles, error, newest = fetch_rss_feed(
+            "Dormant",
+            "https://x/feed.xml",
+            hours=24,
+            fetch_url_fn=lambda url, **_: (b"<rss/>", "utf-8"),
+            decode_content_fn=lambda raw, charset: "<rss/>",
+            parse_feed_fn=fake_parse,
+        )
+        self.assertIsNone(error)
+        self.assertEqual(articles, [])
+        self.assertEqual(newest, old.isoformat())
 
     def test_http_error_reports_http_code(self):
         def boom(url, **_):
             raise _http_error(url, 404, "Not Found")
 
-        articles, error = fetch_rss_feed(
+        articles, error, newest = fetch_rss_feed(
             "Feed", "https://x/feed.xml", fetch_url_fn=boom,
         )
         self.assertEqual(articles, [])
         self.assertEqual(error, "HTTP 404")
+        self.assertIsNone(newest)
 
     def test_url_error_reports_connection_failure(self):
         def boom(url, **_):
             raise URLError("name resolution failed")
 
-        articles, error = fetch_rss_feed(
+        articles, error, newest = fetch_rss_feed(
             "Feed", "https://x/feed.xml", fetch_url_fn=boom,
         )
         self.assertEqual(articles, [])
         self.assertIn("Connection failed", error)
         self.assertIn("name resolution failed", error)
+        self.assertIsNone(newest)
 
 
 class FetchAllFeedsTests(unittest.TestCase):
@@ -110,17 +139,21 @@ class FetchAllFeedsTests(unittest.TestCase):
 
         def fake_fetch(name, url, hours, max_summary):
             if name == "Good":
-                return ([{"title": "t", "link": "https://x/a/1", "source": name}], None)
+                return ([{"title": "t", "link": "https://x/a/1", "source": name}], None, "2026-07-03T10:00:00+00:00")
             if name == "Empty":
+                # Legacy 2-tuple stubs stay accepted; newest defaults to None.
                 return ([], None)
-            return ([], "HTTP 500")
+            return ([], "HTTP 500", None)
 
-        all_articles, feed_status = fetch_all_feeds(
+        all_articles, feed_status, feed_newest = fetch_all_feeds(
             feeds, hours=24, max_workers=3, fetch_feed_fn=fake_fetch,
         )
 
         self.assertEqual(len(all_articles), 1)
         self.assertEqual(feed_status, {"Good": None, "Empty": None, "Broken": "HTTP 500"})
+        self.assertEqual(feed_newest["Good"], "2026-07-03T10:00:00+00:00")
+        self.assertIsNone(feed_newest["Empty"])
+        self.assertIsNone(feed_newest["Broken"])
 
     def test_worker_exception_is_captured_as_feed_status(self):
         feeds = [{"name": "Explodes", "url": "https://x/a"}]
@@ -128,11 +161,12 @@ class FetchAllFeedsTests(unittest.TestCase):
         def fake_fetch(name, url, hours, max_summary):
             raise RuntimeError("unexpected")
 
-        all_articles, feed_status = fetch_all_feeds(
+        all_articles, feed_status, feed_newest = fetch_all_feeds(
             feeds, fetch_feed_fn=fake_fetch,
         )
         self.assertEqual(all_articles, [])
         self.assertIn("unexpected", feed_status["Explodes"])
+        self.assertIsNone(feed_newest["Explodes"])
 
 
 class EnrichArticleTextTests(unittest.TestCase):

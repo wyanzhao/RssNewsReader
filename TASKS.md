@@ -41,6 +41,7 @@
 - [x] Epic N — token-footprint reduction for DailyNews runtime
 - [x] Epic O — direct assembly, context budget gate, and cache-first Part 2
 - [x] Epic P — agent runtime cost & robustness optimization (2026-07-03)
+- [x] Epic Q — 运维韧性与编辑质量优化 (2026-07-03)
 
 ## Review-Driven Refactor Plan
 
@@ -128,6 +129,14 @@
 - `P9` | `done` | 移除 `recommended_strategy` 死旋钮 | 工作流恒为 brief-first + cache-first，该字段无行为映射；`context_budget.json` 收敛为 `within_budget` + `violations`，文档同步
 - `P10` | `done` | assemble markdown 链接防注入 | 标题方括号转义、含括号/空格的 URL 用 `<...>` 包裹；`review` 用同一转义形式做包含校验
 - `P11` | `done` | success 分支最终回复改为确定性 Top 30 digest | 新增 `editorial_runtime.py top30`：复用 `assemble` 的 Part 1 条目渲染器（chat 输出与报告 Part 1 逐字一致），重校验 `part1_plan.json`，stdout 输出固定格式 digest 并落盘 `runs/<date>/top30.md`；SKILL.md Response Contract 改为原样转发该 stdout，禁止 LLM 改写/重排/追加评论；格式控制权从 LLM 移交给脚本
+- `Q1` | `done` | 信源腐坏检测 | `fetch_rss_feed` 在窗口过滤前记录全 feed 最新条目时间，`feed_results[].newest_item_date`（additive 可选字段）落入 raw.json；validator 对非 error 且最新条目超过 `fetch.stale_feed_warn_days`（默认 30）的源发 `stale feed(s)` warning（warning-only）；SemiAnalysis 静默停更 10 个月的事故模式从此可见
+- `Q2` | `done` | 运行时必读瘦身 | SKILL.md 不再要求每次运行读 AGENTS.md（30KB）+ TASKS.md（25KB）≈ 每天 ~14K token；AGENTS.md 改为契约疑问时按需查阅，tracker 永不作为运行时读物；布局测试锁定
+- `Q3` | `done` | 覆盖缝隙修复：加宽窗口 + 跨天去重账本 | 实测 06-29 10:05 与 06-30 13:03 两次运行相隔 26.9h，中间 ~3h 文章永久丢失；`fetch.hours` 28 + 新模块 `_common/seen_links.py`：`assemble` 把已发布报告的全部 link 记入 `runs/_seen_links.json`（仅成功报告写入，阻断日不污染），fetch 在页面 enrichment 前过滤早于当日的已报道 link，同日条目不过滤保证当日重跑幂等，14 天留存
+- `Q4` | `done` | context_budget 适配 31 源 | llm_context 300K / part1_brief 150K / part2_context 150K / total 540K，避免 ~90 篇/天贴线告警成为日常噪音
+- `Q5` | `done` | 摘要内容 lint（质量门 + 注入防线） | `validate_part1/2` 增加硬上限（Part 1 ≤400 字 / Part 2 ≤200 字,宽于编辑目标）与禁 URL/markdown 链接检查，assemble 前置阻断；`assemble` 渲染时对 summary_zh 做 `_clean_text` 防换行破坏格式；agent 提示词同步告知
+- `Q6` | `done` | 跨天事件连续性 | `shortlist-context` 注入 `recent_top30[]`（近 3 天入选 Part 1 的 title/source/event_key/covered_on,取自缓存 `part1_summary_zh` 槽位）；part1-editor 据此区分纯重复（排除/降权）与实质进展（可入选但摘要点明）；与 Q3 的 link 级去重互补（Q3 挡同链接,Q6 供同事件新文章的判断素材）
+- `Q7` | `done` | unexpected-error 单次有界重试 | SKILL.md：先原样重跑一次 pipeline（RSS 滚动窗口错过不可补,瞬时网络抖动不应废掉一天）,复现再进 network-debugger；AGENTS.md 固定分支顺序同步
+- `Q8` | `done` | 编辑反馈闭环 | 可选 `runs/_feedback.md`（用户随手记录选题反馈,支持 `#` 注释行）；`build_llm_context` 取最近 20 行注入 `part1_brief.json.editor_feedback`,品味微调不再需要改 agent 提示词
 
 ## Validation Checklist
 
@@ -164,6 +173,11 @@
 - [x] 缓存 part1/part2 双槽位与 compact 写盘已有回归测试
 - [x] `rss_daily_report.py` fetch 默认值来自 `pipeline_config.json.fetch`，CLI 显式传参可覆盖
 - [x] `editorial_runtime.py top30` digest 格式已有逐字符回归测试；skill 成功分支最终回复为其 stdout 原文
+- [x] `newest_item_date` 预过滤语义与 stale-feed warning 已有回归测试（`test_feed_fetch` / `test_stale_feeds`）
+- [x] seen-links 账本三条核心规则已锁：早于当日过滤、同日不过滤、仅 assemble 写入（`test_seen_links` + 全链路用例）
+- [x] 摘要 lint（禁链接 / 硬上限）在 assemble 前置阻断,已有回归测试
+- [x] `recent_top30` 连续性注入与 `editor_feedback` 注入已有回归测试
+- [x] SKILL.md 不再把 AGENTS.md / TASKS.md 列为运行时必读；unexpected-error 分支含单次重试
 
 ## 性能 / 成本优化 (2026-06-21)
 

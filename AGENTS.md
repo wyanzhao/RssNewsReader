@@ -84,6 +84,12 @@ not deterministic pipeline outputs. `top30.md` is the persisted copy of the
 fixed-format Top 30 digest that `scripts/editorial_runtime.py top30` prints
 for the chat-facing final reply.
 
+### Cross-Run Workspace Files
+
+- `runs/_cache/editorial_cache.json` — Chinese-summary cache, updated only by `scripts/editorial_runtime.py assemble`.
+- `runs/_seen_links.json` — cross-run seen-links ledger, written only by `assemble` (so only links that landed in a published success report are marked seen). The fetch step reads it to drop articles already covered by an earlier day's report; the fetch window is wider than 24h precisely so run-time jitter cannot leave coverage gaps, and the ledger prevents the resulting overlap from re-reporting. Same-date entries never filter, keeping same-day re-runs idempotent.
+- `runs/_feedback.md` — optional, user-maintained editorial feedback log. The most recent lines are injected into `part1_brief.json.editor_feedback` so Part 1 taste can be tuned without editing agent prompts.
+
 `raw.json` may additionally carry a top-level `runtime_config` snapshot with the
 effective summary-enrichment and render-threshold values used for that run.
 
@@ -121,7 +127,8 @@ source_groups       [{ source, url, status, article_count, article_refs: [<artic
 
 ```
 part1_brief.json    concise first-pass Part 1 article list; no full article_text;
-                    article_text_preview present only when summary_en is missing/short
+                    article_text_preview present only when summary_en is missing/short;
+                    editor_feedback[] present when runs/_feedback.md has recent lines
 part2_context.json  concise Part 2 source-group drafting context; summary_en first
 context_budget.json byte-size counts, per-source counts, within_budget flag, budget violations
 ```
@@ -197,11 +204,13 @@ shape and policy key names as the normal validator output.
 - `status == 'empty'` requires `article_count == 0` and no `error` text.
 - `error` is warning-only for workflow gating and must be surfaced in the final report for the affected source.
 - `status == 'error'` requires non-empty `error` text.
+- `feed_results[].newest_item_date` is an optional additive field carrying the feed's newest item timestamp before window filtering. When present on a non-error feed and older than `pipeline_config.json.fetch.stale_feed_warn_days` (default 30), the validator emits a `stale feed(s)` warning — warning-only, never blocking. Older artifacts without the field are unaffected.
 - `unique_source_count` is observational only. It is not a blocking integrity rule.
 - `part1_shortlist.json`, `part1_shortlist_context.json`, `part1_plan.json`, `part2_missing_summaries.json`, and `part2_draft.json` are success-path handoff artifacts only; they must be machine-readable and complete enough for deterministic merge/assembly without scraping long prose from chat output.
 - If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `article_text` / `summary_en` or partial manual reconstruction.
 - `article_text` and `summary_en` are source material only. They may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
 - The success-path chat deliverable is the verbatim stdout of `scripts/editorial_runtime.py top30` (persisted at `runs/<date>/top30.md`). Agents must not hand-compose, rephrase, or re-rank the Top 30 in chat output.
+- Final `summary_zh` values must not contain URLs or markdown links and are subject to hard length caps (400 chars Part 1 / 200 chars Part 2, enforced at assemble and review). This is the containment line against prompt injection smuggled through scraped `article_text`.
 - Titles must remain in English.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
@@ -223,7 +232,8 @@ shape and policy key names as the normal validator output.
 - Fixed branch order:
   - success: `run pipeline -> editorial_runtime audit -> part1-editor + part2-drafter (parallel) -> editorial_runtime merge-part2 -> editorial_runtime assemble -> editorial_runtime review -> editorial_runtime top30`
   - expected-block: `run pipeline -> keep failure report; return report_path`
-  - unexpected-error: `run pipeline -> network-debugger`
+  - unexpected-error: `run pipeline -> retry pipeline once -> network-debugger`
+- The unexpected-error retry is single and bounded: one re-run of the pipeline command, then diagnosis. A retry that classifies as `success` or `expected-block` continues on that branch normally.
 - `part1-editor` and `part2-drafter` may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`) and must complete before deterministic merge/assembly.
 - `scripts/editorial_runtime.py assemble` and `network-debugger` must never run in parallel.
 - `scripts/editorial_runtime.py review` must always run after the final success-path write.
