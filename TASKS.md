@@ -110,6 +110,7 @@
 - `L4` | `done` | 忽略本地 Claude worktrees | `.gitignore` 新增 `.claude/worktrees/`，避免误提交嵌套 worktree 与旧 contract 副本
 - `M1` | `done` | 让 DailyNews skill 同时服务 Claude Code 与 Codex | 保留 `.claude/skills/dailynews-report/SKILL.md` 为物理 canonical skill 文件；`.agents/skills/dailynews-report/SKILL.md` 作为 symlink 复用同一文件；frontmatter 收敛到 `name` / `description` 公共子集，手动写入型约束移入正文
 - `M2` | `done` | 补齐 Codex Skill metadata | 新增 `.claude/skills/dailynews-report/agents/openai.yaml`，设置 display / default prompt / manual-only policy；`.agents/skills/dailynews-report/agents` 作为 symlink 复用同一 metadata 目录
+- `M3` | `done` | 对齐 Codex 的 Skill 发现与显式调用约定 | 保留 repo-level `.agents/skills` 发现路径与 manual-only policy；在共享 skill、UI metadata、README、AGENTS.md 和布局测试中明确 Codex 使用 `$dailynews-report`、Claude Code 使用 `/dailynews-report`；creator validator、Codex 只读显式调用 smoke 与全量 179 个测试均通过
 - `N1` | `done` | 降低默认正文片段体积并让 Part 2 优先使用短摘要素材 | `article_text.max_words` 默认值与 repo 配置已从 300 收窄到 150；`part2_context.json` 先用 `summary_en`，仅当摘要短于阈值时使用 60 词 `article_text` fallback；agent/docs/tests 已同步
 - `N2` | `done` | 去除 `llm_context.json` 中 source-group article payload 重复 | `all_articles[]` 保留唯一完整文章表，`source_groups[]` 改为只携带 source roster、status、article_count 与轻量 `article_refs[]`；contract snapshot 与 golden 已更新
 - `N3` | `done` | 引入 Part 1 两段式上下文 | `build_llm_context.py` 生成短 `part1_brief.json`；`editorial_runtime.py shortlist-context` 可从 `part1_shortlist.json` 生成仅含入围文章的 `part1_shortlist_context.json`
@@ -145,6 +146,7 @@
 - [x] `.agents/skills/dailynews-report/SKILL.md` 是指向同一 `SKILL.md` 的 symlink
 - [x] `.claude/skills/dailynews-report/agents/openai.yaml` 存在并设置 Codex manual-only metadata
 - [x] `.agents/skills/dailynews-report/agents` 是指向同一 metadata 目录的 symlink
+- [x] Codex 的 repo-level skill 通过 creator validator，且文档与测试锁定 `$dailynews-report` 显式调用入口
 - [x] `.claude/agents/` 下 3 个 LLM agent 文件存在（`part1-editor` / `part2-drafter` / `network-debugger`）；pipeline 运行、分类、audit、merge、assembly、review 均为 direct script steps
 - [x] success 分支 handoff artifact（`part1_plan.json` / `part2_draft.json`）已写入 runtime docs
 - [x] 仓库根目录不再保留旧运行时文件

@@ -235,7 +235,8 @@ If you use Claude Code or Codex in this repo:
 - the shared project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
 - the Codex / agent skill path [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md) is a symlink to the same file
 - Codex Skill UI metadata lives at [`.claude/skills/dailynews-report/agents/openai.yaml`](.claude/skills/dailynews-report/agents/openai.yaml), with [`.agents/skills/dailynews-report/agents`](.agents/skills/dailynews-report/agents) symlinked to the same directory
-- the skill is exposed as `/dailynews-report`
+- invoke the shared skill as `$dailynews-report` in Codex or
+  `/dailynews-report` in Claude Code
 - the supported runtime architecture is `skill + subagents`
 - on the success path, subagents exchange machine-readable handoff artifacts
   (`part1_shortlist.json` / `part1_shortlist_context.json` /
@@ -264,7 +265,8 @@ lands directly in the conversation without opening the full report.
 This Claude Code / Codex workflow is intentionally manual-only because it is
 write-producing and can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
 The Codex metadata keeps `policy.allow_implicit_invocation: false` for the
-same reason.
+same reason, so Codex users must select or mention `$dailynews-report`
+explicitly.
 
 ## Repository Layout
 

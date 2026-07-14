@@ -139,6 +139,7 @@ class ClaudeAgentLayoutTests(unittest.TestCase):
             self.assertNotIn(name, readme_text)
 
         self.assertIn("TASKS.md", agents_text)
+        self.assertIn("Codex runtime entry: `$dailynews-report`", agents_text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".agents/skills/dailynews-report/SKILL.md", agents_text)
         self.assertIn(".claude/agents/*.md", agents_text)

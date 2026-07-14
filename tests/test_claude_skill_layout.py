@@ -60,6 +60,7 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertEqual(frontmatter.get("name"), "dailynews-report")
 
         description = frontmatter.get("description", "")
+        self.assertIn("$dailynews-report", description)
         self.assertIn("/dailynews-report", description)
         self.assertIn("DailyNews", description)
         self.assertIn("Codex", description)
@@ -78,7 +79,11 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertEqual(CODEX_SKILL_OPENAI_YAML.read_text(encoding="utf-8"), text)
         self.assertIn('display_name: "DailyNews Report"', text)
         self.assertIn('short_description: "Run the DailyNews RSS report workflow"', text)
-        self.assertIn('default_prompt: "Use $dailynews-report', text)
+        self.assertIn(
+            'default_prompt: "Use $dailynews-report to generate today\'s DailyNews RSS report '
+            'and return the fixed-format Top 30 digest."',
+            text,
+        )
         self.assertIn("policy:", text)
         self.assertIn("allow_implicit_invocation: false", text)
 
@@ -93,6 +98,8 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("agents/openai.yaml", body)
         self.assertIn("manual, write-producing orchestrator skill", body)
         self.assertIn("single shared skill file for both Claude Code and Codex", body)
+        self.assertIn("`$dailynews-report` in Codex", body)
+        self.assertIn("`/dailynews-report` in Claude Code", body)
         self.assertIn("python3 scripts/rss_daily_report.py --json-output", body)
         self.assertIn("editorial_runtime.py audit", body)
         self.assertIn("in parallel", body)
@@ -144,6 +151,7 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("Claude Code", text)
         self.assertIn("Codex", text)
         self.assertIn("CLAUDE.md", text)
+        self.assertIn("$dailynews-report", text)
         self.assertIn("/dailynews-report", text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)
         self.assertIn(".agents/skills/dailynews-report/SKILL.md", text)

@@ -38,6 +38,7 @@ This repository builds a daily RSS report in two stages:
 - Offline tests: `python3 -m unittest discover -s $REPO_ROOT/tests -p 'test_*.py'`
 - End-to-end smoke (real network, ~10s): `python3 scripts/rss_daily_report.py --json-output --no-cleanup`
 - Claude Code runtime entry: `/dailynews-report`
+- Codex runtime entry: `$dailynews-report`
 - Codex skill entry: `.agents/skills/dailynews-report/SKILL.md`
 - Codex skill metadata: `.agents/skills/dailynews-report/agents/openai.yaml`
 

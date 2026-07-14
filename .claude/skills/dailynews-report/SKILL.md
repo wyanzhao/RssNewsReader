@@ -1,6 +1,6 @@
 ---
 name: dailynews-report
-description: Run the DailyNews orchestrator skill for this repository. Use when the user explicitly invokes /dailynews-report, asks Codex or Claude Code to generate the DailyNews RSS report, inspect pipeline artifacts, or diagnose a blocked or unexpected run in the RssNewsReader/DailyNews workspace.
+description: Generate and validate the DailyNews RSS report for this repository. Use when the user explicitly invokes $dailynews-report in Codex or /dailynews-report in Claude Code to run the report workflow, inspect pipeline artifacts, or diagnose a blocked or unexpected run in the RssNewsReader/DailyNews workspace.
 ---
 
 # DailyNews Report
@@ -9,6 +9,9 @@ This is the single shared skill file for both Claude Code and Codex. The
 Claude Code path is `.claude/skills/dailynews-report/SKILL.md`; the Codex /
 agent path `.agents/skills/dailynews-report/SKILL.md` is a symlink to this
 same file.
+
+Invoke this shared workflow explicitly as `$dailynews-report` in Codex or
+`/dailynews-report` in Claude Code.
 
 Codex UI metadata lives at
 `.claude/skills/dailynews-report/agents/openai.yaml`; the Codex / agent path
@@ -26,7 +29,8 @@ daily run.
 
 ## Architecture Contract
 
-- `/dailynews-report` is the only runtime procedure entry in this repository.
+- `$dailynews-report` in Codex and `/dailynews-report` in Claude Code are the
+  product-specific invocations of this repository's single runtime procedure.
 - Keep the runtime split as `orchestrator skill + editorial subagents + deterministic helper scripts`; do not collapse it back into a single long instruction file.
 - Pipeline execution, branch classification, and the artifact audit are deterministic orchestrator steps, not subagents. Run the pipeline only through `python3 scripts/rss_daily_report.py --json-output`; never call the fetch / validate / llm_context / render subcommands directly.
 - `part1-editor` writes `part1_shortlist.json`, `part1_shortlist_context.json`, and `part1_plan.json`; `part2-drafter` writes only `part2_missing_summaries.json`. The orchestrator runs `scripts/editorial_runtime.py merge-part2` to produce `part2_draft.json`.
