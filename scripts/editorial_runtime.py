@@ -15,6 +15,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
+from _common.editorial import (  # noqa: E402
+    PART1_MAX_ITEMS,
+    PART1_SUMMARY_HARD_CAP,
+    PART2_SUMMARY_HARD_CAP,
+    summary_lint_errors as _summary_lint_errors,
+)
 from _common.editorial_cache import (  # noqa: E402
     clean_text,
     default_cache_path,
@@ -24,6 +30,7 @@ from _common.editorial_cache import (  # noqa: E402
     update_entries,
     write_cache,
 )
+from _common.fsio import atomic_write_text, file_lock  # noqa: E402
 from _common.seen_links import (  # noqa: E402
     default_seen_links_path,
     load_seen_links,
@@ -42,15 +49,11 @@ def load_json(path: str | Path) -> Dict[str, Any]:
 
 
 def write_json(path: str | Path, payload: Dict[str, Any]) -> None:
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def write_text(path: str | Path, text: str) -> None:
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
 
 
 def _as_list(value: Any) -> List[Any]:
@@ -71,24 +74,6 @@ def _md_link(title: Any, link: Any) -> str:
     if any(ch in target for ch in ("(", ")", " ")):
         target = f"<{target}>"
     return f"[{_md_link_text(title)}]({target})"
-
-
-# Hard safety caps for LLM-written summaries — deliberately looser than the
-# editorial targets (60-180字 / 40-60字) so borderline output never blocks,
-# while runaway text or prompt-injection payloads smuggled in via scraped
-# article_text do. Links in a summary are the classic injection artifact.
-PART1_SUMMARY_HARD_CAP = 400
-PART2_SUMMARY_HARD_CAP = 200
-
-
-def _summary_lint_errors(summary: Any, label: str, hard_cap: int) -> List[str]:
-    errors: List[str] = []
-    cleaned = _clean_text(summary)
-    if len(cleaned) > hard_cap:
-        errors.append(f"{label} summary_zh exceeds {hard_cap} chars ({len(cleaned)})")
-    if "http://" in cleaned.lower() or "https://" in cleaned.lower() or "](" in cleaned:
-        errors.append(f"{label} summary_zh must not contain links")
-    return errors
 
 
 def _article_map(context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -263,6 +248,15 @@ def build_shortlist_context(context: Dict[str, Any],
         article = dict(article_by_link[link])
         entry = lookup_entry(article, cache)
         cached_summary = _clean_text(entry.get("part1_summary_zh")) if isinstance(entry, dict) else ""
+        if cached_summary and _summary_lint_errors(cached_summary, "cached", PART1_SUMMARY_HARD_CAP):
+            # A cached summary that would fail the assemble lint (legacy or
+            # hand-edited entry) must not be offered for reuse — demote to a
+            # normal miss so the editor writes a fresh one.
+            print(
+                f"WARN: cached part1 summary fails lint, demoted to miss: {link}",
+                file=sys.stderr,
+            )
+            cached_summary = ""
         if cached_summary:
             article["cached_summary_zh"] = cached_summary
             cached_event = _clean_text(entry.get("event_key")) if isinstance(entry, dict) else ""
@@ -296,8 +290,28 @@ def validate_part1(context: Dict[str, Any], part1: Dict[str, Any]) -> List[str]:
     errors: List[str] = []
     article_by_link = _article_map(context)
     items = _as_list(part1.get("items"))
+    if len(items) > PART1_MAX_ITEMS:
+        errors.append(f"part1 items exceed {PART1_MAX_ITEMS} ({len(items)})")
     if "shortfall" not in part1:
         errors.append("part1_plan missing shortfall")
+    else:
+        shortfall = part1.get("shortfall")
+        expected_shortfall = max(0, PART1_MAX_ITEMS - len(items))
+        if not isinstance(shortfall, int) or isinstance(shortfall, bool):
+            errors.append(f"part1_plan shortfall must be an integer, got {shortfall!r}")
+        elif shortfall != expected_shortfall:
+            errors.append(
+                f"part1_plan shortfall {shortfall} != expected {expected_shortfall} "
+                f"({PART1_MAX_ITEMS} - {len(items)} items)"
+            )
+    # An article may appear in Part 1 exactly once — either as an item's main
+    # link or inside one item's also_links, never both, never twice.
+    main_links = {
+        _clean_text(item.get("link"))
+        for item in items
+        if isinstance(item, dict) and _clean_text(item.get("link"))
+    }
+    also_seen: Dict[str, int] = {}
     seen_links: set[str] = set()
     for idx, item in enumerate(items, 1):
         if not isinstance(item, dict):
@@ -325,9 +339,21 @@ def validate_part1(context: Dict[str, Any], part1: Dict[str, Any]) -> List[str]:
             cleaned = _clean_text(also_link)
             if not cleaned:
                 errors.append(f"part1 item {idx} has an empty also_link")
-            elif cleaned == link:
+                continue
+            if cleaned == link:
                 errors.append(f"part1 item {idx} also_links repeats its own link")
-            elif cleaned not in article_by_link:
+                continue
+            if cleaned in main_links:
+                errors.append(
+                    f"part1 item {idx} also_link duplicates another item's link: {cleaned}"
+                )
+            if cleaned in also_seen:
+                errors.append(
+                    f"part1 item {idx} also_link already used by item {also_seen[cleaned]}: {cleaned}"
+                )
+            else:
+                also_seen[cleaned] = idx
+            if cleaned not in article_by_link:
                 errors.append(f"part1 item {idx} also_link absent from all_articles: {cleaned}")
     return errors
 
@@ -369,6 +395,11 @@ def validate_part2(context: Dict[str, Any], validation: Dict[str, Any], part2: D
                 continue
             if article.get("title") != source_article.get("title"):
                 errors.append(f"{source} article {idx} title changed for {link}")
+            if _clean_text(source_article.get("source")) != source:
+                errors.append(
+                    f"{source} article {idx} link belongs to source "
+                    f"{source_article.get('source')}: {link}"
+                )
 
     expected_total = validation.get("counts", {}).get("articles") if isinstance(validation.get("counts"), dict) else None
     if expected_total is not None and total != expected_total:
@@ -588,7 +619,30 @@ def update_cache(cache_path: str | Path,
                  part1: Dict[str, Any],
                  part2: Dict[str, Any]) -> Dict[str, Any]:
     path = Path(cache_path)
-    cache = load_cache(path)
+    with file_lock(path):
+        cache = _load_or_rebuild_cache(path)
+        result = _update_cache_locked(path, cache, context, part1, part2)
+    return result
+
+
+def _load_or_rebuild_cache(path: Path) -> Dict[str, Any]:
+    """Load the editorial cache, rebuilding fresh when it is unreadable.
+
+    Mirrors the ``shortlist-context`` tolerance: a corrupt cache degrades
+    cross-run summary reuse but must never fail the run that hit it.
+    """
+    try:
+        return load_cache(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        print(f"WARN: rebuilding corrupt editorial cache: {path}", file=sys.stderr)
+        return {"version": 1, "entries": {}}
+
+
+def _update_cache_locked(path: Path,
+                         cache: Dict[str, Any],
+                         context: Dict[str, Any],
+                         part1: Dict[str, Any],
+                         part2: Dict[str, Any]) -> Dict[str, Any]:
     article_by_link = _article_map(context)
     # Part 1 and Part 2 summaries have different length/style targets, so both
     # are kept per link and update_entries merges them into separate fields.
@@ -632,14 +686,15 @@ def update_seen_links_ledger(ledger_path: str | Path,
     report_date = _clean_text(meta.get("date"))
     if not report_date:
         return {"path": str(ledger_path), "entries": 0, "skipped": "no report date"}
-    try:
-        entries = load_seen_links(ledger_path)
-    except (ValueError, json.JSONDecodeError):
-        print(f"WARN: rebuilding corrupt seen-links ledger: {ledger_path}", file=sys.stderr)
-        entries = {}
-    record_reported_links(entries, _article_map(context).keys(), report_date)
-    prune_seen_links(entries, report_date)
-    write_seen_links(ledger_path, entries)
+    with file_lock(ledger_path):
+        try:
+            entries = load_seen_links(ledger_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            print(f"WARN: rebuilding corrupt seen-links ledger: {ledger_path}", file=sys.stderr)
+            entries = {}
+        record_reported_links(entries, _article_map(context).keys(), report_date)
+        prune_seen_links(entries, report_date)
+        write_seen_links(ledger_path, entries)
     return {"path": str(ledger_path), "entries": len(entries)}
 
 
@@ -772,12 +827,22 @@ def main() -> int:
                 print(json.dumps({"passed": False, "errors": errors}, ensure_ascii=False, indent=2), file=sys.stderr)
                 return 20
             write_text(args.output, assemble_markdown(context, validation, part1, part2))
+            # Post-write bookkeeping is best-effort: the written report is the
+            # deliverable and `review` still validates it afterwards. A cache
+            # or ledger failure only degrades cross-run reuse/dedup and must
+            # not turn a successfully written report into a failed run.
             if not args.no_cache:
                 cache_path = args.cache_path or default_cache_path(args.llm_context)
-                update_cache(cache_path, context, part1, part2)
+                try:
+                    update_cache(cache_path, context, part1, part2)
+                except Exception as exc:
+                    print(f"WARN: editorial cache update failed: {exc}", file=sys.stderr)
             if not args.no_seen_links:
                 ledger_path = args.seen_links_path or default_seen_links_path(args.llm_context)
-                update_seen_links_ledger(ledger_path, context)
+                try:
+                    update_seen_links_ledger(ledger_path, context)
+                except Exception as exc:
+                    print(f"WARN: seen-links ledger update failed: {exc}", file=sys.stderr)
             print(args.output)
             return 0
 

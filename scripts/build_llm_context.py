@@ -16,6 +16,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from _common.editorial import (  # noqa: E402
     Article,
+    PART2_SUMMARY_HARD_CAP,
     as_dict,
     format_utc,
     group_articles,
@@ -23,6 +24,7 @@ from _common.editorial import (  # noqa: E402
     normalize_source_groups,
     normalized_article_payload,
     report_date,
+    summary_lint_errors,
 )
 from _common.editorial_cache import (  # noqa: E402
     default_cache_path,
@@ -128,14 +130,27 @@ def part2_summary_material(article: Article,
     article_payload = normalized_article_payload(article)
     cache_entry = lookup_entry(article_payload, cache)
     if cache_entry and str(cache_entry.get("summary_zh", "")).strip():
-        return {
-            "summary_zh": str(cache_entry.get("summary_zh", "")),
-            "cache_status": "hit",
-            "needs_summary": False,
-            "summary_source": "cache",
-            "event_key": str(cache_entry.get("event_key", "")),
-            "noise_bucket": str(cache_entry.get("noise_bucket", "covered")),
-        }
+        cached_summary = str(cache_entry.get("summary_zh", ""))
+        # Injection guard: a cached summary that would fail the assemble lint
+        # (over the Part 2 hard cap or carrying links — e.g. a legacy or
+        # hand-edited entry) must not ride in with needs_summary=False. The
+        # drafter only rewrites needs_summary=True articles, so an unguarded
+        # bad hit would deterministically block assemble with no agent allowed
+        # to fix it. Demote to a normal miss instead.
+        lint = summary_lint_errors(cached_summary, article.link, PART2_SUMMARY_HARD_CAP)
+        if not lint:
+            return {
+                "summary_zh": cached_summary,
+                "cache_status": "hit",
+                "needs_summary": False,
+                "summary_source": "cache",
+                "event_key": str(cache_entry.get("event_key", "")),
+                "noise_bucket": str(cache_entry.get("noise_bucket", "covered")),
+            }
+        print(
+            f"WARN: cached part2 summary fails lint, demoted to miss: {'; '.join(lint)}",
+            file=sys.stderr,
+        )
 
     summary = " ".join((article.summary or "").split())
     if summary and len(summary) >= short_summary_threshold:

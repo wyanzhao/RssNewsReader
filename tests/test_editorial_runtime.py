@@ -18,6 +18,9 @@ from tests.test_qc_offline import (
 ROOT = Path(__file__).resolve().parents[1]
 EDITORIAL_RUNTIME_SCRIPT = ROOT / "scripts" / "editorial_runtime.py"
 
+sys.path.insert(0, str(ROOT / "scripts"))
+import editorial_runtime  # noqa: E402
+
 
 def _write_json(path: Path, payload) -> Path:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -599,6 +602,157 @@ class EditorialRuntimeTests(unittest.TestCase):
             self.assertIn("exceeds 200 chars", assemble.stderr)
             self.assertFalse(report_path.exists())
 
+    def test_part2_context_demotes_lint_failing_cached_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            run_dir = tmp / "runs" / "2026-04-10"
+            run_dir.mkdir(parents=True)
+            raw = materialize_raw("golden_success.json")
+            code, validation = run_validator(raw)
+            self.assertEqual(code, 0)
+            cached_article = raw["articles"][0]
+            from _common.editorial_cache import cache_key as _cache_key
+            cache_path = tmp / "runs" / "_cache" / "editorial_cache.json"
+            cache_path.parent.mkdir(parents=True)
+            # Legacy/hand-edited style entry: over the Part 2 hard cap. It must
+            # be demoted to a normal miss instead of riding in with
+            # needs_summary=False (which no agent would be allowed to fix).
+            cache_path.write_text(
+                json.dumps({
+                    "version": 1,
+                    "entries": {
+                        _cache_key(cached_article): {
+                            "link": cached_article["link"],
+                            "summary_zh": "长" * 250,
+                        }
+                    },
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            raw_path = _write_json(run_dir / "raw.json", raw)
+            validation_path = _write_json(run_dir / "validation.json", validation)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(LLM_CONTEXT_SCRIPT),
+                    "--input", str(raw_path),
+                    "--validation", str(validation_path),
+                    "--output", str(run_dir / "llm_context.json"),
+                    "--date", "2026-04-10",
+                    "--report-path", str(tmp / "rss-report-2026-04-10.md"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("demoted to miss", proc.stderr)
+            part2_context = json.loads(
+                (run_dir / "part2_context.json").read_text(encoding="utf-8")
+            )
+            entries = [
+                article
+                for group in part2_context["groups"]
+                for article in group["articles"]
+                if article["link"] == cached_article["link"]
+            ]
+            self.assertEqual(len(entries), 1)
+            self.assertTrue(entries[0]["needs_summary"])
+            self.assertEqual(entries[0]["cache_status"], "miss")
+            self.assertNotIn("summary_zh", entries[0])
+
+    def test_shortlist_context_demotes_lint_failing_cached_part1_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _raw, _validation, context_path, _validation_path = self._build_artifacts(tmp)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            from _common.editorial_cache import cache_key as _cache_key
+
+            cached = context["all_articles"][0]
+            cache_path = _write_json(tmp / "editorial_cache.json", {
+                "version": 1,
+                "entries": {
+                    _cache_key(cached): {
+                        "link": cached["link"],
+                        "title": cached["title"],
+                        "source": cached["source"],
+                        # Over the Part 1 hard cap: must not be injected.
+                        "part1_summary_zh": "长" * 450,
+                        "event_key": "oversized-event",
+                        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
+            })
+            shortlist_path = _write_json(
+                tmp / "part1_shortlist.json", {"links": [cached["link"]]}
+            )
+            output_path = tmp / "part1_shortlist_context.json"
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITORIAL_RUNTIME_SCRIPT),
+                    "shortlist-context",
+                    "--llm-context", str(context_path),
+                    "--shortlist", str(shortlist_path),
+                    "--output", str(output_path),
+                    "--cache-path", str(cache_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("demoted to miss", proc.stderr)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["cache_hits"], 0)
+            self.assertNotIn("cached_summary_zh", payload["articles"][0])
+
+    def test_assemble_bookkeeping_is_best_effort_after_report_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            _raw, _validation, context_path, validation_path = self._build_artifacts(tmp)
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            part1, part2 = self._handoffs(context)
+            part1_path = _write_json(tmp / "part1_plan.json", part1)
+            part2_path = _write_json(tmp / "part2_draft.json", part2)
+
+            # Corrupt cache file: must be rebuilt fresh, not fail the run.
+            cache_path = tmp / "editorial_cache.json"
+            cache_path.write_text("{not json", encoding="utf-8")
+            # Ledger path pointing at a directory: the write itself fails, but
+            # the already-written report must still count as success.
+            seen_links_path = tmp / "seen_links_dir"
+            seen_links_path.mkdir()
+
+            report_path = tmp / "rss-report-2026-04-10.md"
+            assemble = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITORIAL_RUNTIME_SCRIPT),
+                    "assemble",
+                    "--llm-context", str(context_path),
+                    "--validation", str(validation_path),
+                    "--part1", str(part1_path),
+                    "--part2", str(part2_path),
+                    "--output", str(report_path),
+                    "--cache-path", str(cache_path),
+                    "--seen-links-path", str(seen_links_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(assemble.returncode, 0, assemble.stderr)
+            self.assertTrue(report_path.exists())
+            self.assertIn("rebuilding corrupt editorial cache", assemble.stderr)
+            self.assertIn("seen-links ledger update failed", assemble.stderr)
+            # The corrupt cache was rebuilt into a valid ledger with entries.
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(
+                len(cache["entries"]), len(context["all_articles"])
+            )
+
     def test_part1_brief_injects_recent_feedback_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -634,6 +788,129 @@ class EditorialRuntimeTests(unittest.TestCase):
                 brief["editor_feedback"],
                 ["少选纯传言类条目", "Apple 供应链传闻权重太高"],
             )
+
+
+def _synthetic_context(article_count: int) -> dict:
+    return {
+        "all_articles": [
+            {
+                "source": "S",
+                "title": f"T{idx}",
+                "link": f"https://example.com/a{idx}",
+                "pub_date_utc": "2026-04-10 00:00 UTC",
+                "pub_date_iso": "2026-04-10T00:00:00+00:00",
+                "summary_en": "",
+                "article_text": "",
+            }
+            for idx in range(article_count)
+        ],
+        "source_groups": [],
+    }
+
+
+def _plan_item(idx: int, also: list | None = None) -> dict:
+    return {
+        "link": f"https://example.com/a{idx}",
+        "summary_zh": "中文摘要",
+        "also_links": also or [],
+    }
+
+
+class ValidatePlanTighteningTests(unittest.TestCase):
+    def test_validate_part1_rejects_more_than_30_items(self):
+        context = _synthetic_context(40)
+        plan = {"items": [_plan_item(idx) for idx in range(31)], "shortfall": 0}
+        errors = editorial_runtime.validate_part1(context, plan)
+        self.assertTrue(any("items exceed 30 (31)" in error for error in errors))
+
+    def test_validate_part1_requires_consistent_shortfall(self):
+        context = _synthetic_context(5)
+        plan = {"items": [_plan_item(0), _plan_item(1)], "shortfall": 0}
+        errors = editorial_runtime.validate_part1(context, plan)
+        self.assertTrue(
+            any("shortfall 0 != expected 28" in error for error in errors)
+        )
+
+        plan["shortfall"] = "28"
+        errors = editorial_runtime.validate_part1(context, plan)
+        self.assertTrue(any("must be an integer" in error for error in errors))
+
+        plan["shortfall"] = 28
+        self.assertEqual(editorial_runtime.validate_part1(context, plan), [])
+
+    def test_validate_part1_flags_cross_item_also_link_duplicates(self):
+        context = _synthetic_context(6)
+        # Item 1 merges a2; item 2 claims a2 again, and item 2 also references
+        # item 1's own main link.
+        plan = {
+            "items": [
+                _plan_item(0, also=["https://example.com/a2"]),
+                _plan_item(
+                    1,
+                    also=["https://example.com/a2", "https://example.com/a0"],
+                ),
+            ],
+            "shortfall": 28,
+        }
+        errors = editorial_runtime.validate_part1(context, plan)
+        self.assertTrue(
+            any("also_link already used by item 1" in error for error in errors)
+        )
+        self.assertTrue(
+            any("also_link duplicates another item's link" in error for error in errors)
+        )
+
+    def test_validate_part2_flags_wrong_group_membership(self):
+        context = {
+            "all_articles": [
+                {
+                    "source": "A",
+                    "title": "TA",
+                    "link": "https://example.com/a",
+                    "pub_date_iso": "2026-04-10T00:00:00+00:00",
+                },
+                {
+                    "source": "B",
+                    "title": "TB",
+                    "link": "https://example.com/b",
+                    "pub_date_iso": "2026-04-10T00:00:00+00:00",
+                },
+            ],
+            "source_groups": [{"source": "A"}, {"source": "B"}],
+        }
+        validation = {"counts": {"articles": 2}}
+        swapped = {
+            "groups": [
+                {
+                    "source": "A",
+                    "article_count": 1,
+                    "articles": [{
+                        "title": "TB",
+                        "link": "https://example.com/b",
+                        "pub_date_iso": "2026-04-10T00:00:00+00:00",
+                        "summary_zh": "摘要",
+                    }],
+                },
+                {
+                    "source": "B",
+                    "article_count": 1,
+                    "articles": [{
+                        "title": "TA",
+                        "link": "https://example.com/a",
+                        "pub_date_iso": "2026-04-10T00:00:00+00:00",
+                        "summary_zh": "摘要",
+                    }],
+                },
+            ],
+            "total_articles": 2,
+        }
+        errors = editorial_runtime.validate_part2(context, validation, swapped)
+        self.assertTrue(
+            any("link belongs to source B" in error for error in errors)
+        )
+        self.assertTrue(
+            any("link belongs to source A" in error for error in errors)
+        )
 
 
 if __name__ == "__main__":

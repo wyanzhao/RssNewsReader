@@ -204,6 +204,22 @@ def main() -> int:
     render_stderr_path = runs_dir / "render.stderr.txt"
     report_path = build_report_path(ROOT_DIR, report_date)
 
+    # A same-date run dir that already holds success-path handoff artifacts
+    # means another invocation already processed this date (duplicate scheduler
+    # trigger, or a concurrent Codex / Claude Code run — observed 2026-07-16).
+    # Same-day re-runs are idempotent by design, so continue — but leave a
+    # paper trail so the operator can deduplicate the schedulers.
+    prior_artifacts = [
+        name for name in ("part1_plan.json", "part2_draft.json", "top30.md")
+        if (runs_dir / name).exists()
+    ]
+    if prior_artifacts:
+        print(
+            "WARN: run dir already contains success-path artifacts from an "
+            f"earlier same-date run ({', '.join(prior_artifacts)}): {runs_dir}",
+            file=sys.stderr,
+        )
+
     fetch_step = Step(
         name="fetch",
         script=FETCH_SCRIPT,

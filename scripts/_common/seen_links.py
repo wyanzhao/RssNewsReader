@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+from .fsio import atomic_write_text
 from .text import dedup_link_key
 
 DEFAULT_SEEN_LINKS_MAX_AGE_DAYS = 14
@@ -56,12 +57,12 @@ def load_seen_links(path: str | Path) -> Dict[str, str]:
 
 
 def write_seen_links(path: str | Path, entries: Dict[str, str]) -> None:
-    ledger_path = Path(path)
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    ledger_path.write_text(
+    # Written atomically: the fetch step reads this ledger lock-free, so it
+    # must always observe a complete previous or complete new file.
+    atomic_write_text(
+        path,
         json.dumps({"version": 1, "entries": entries},
                    ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
     )
 
 

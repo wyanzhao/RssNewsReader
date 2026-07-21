@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from .fsio import atomic_write_text
+
 
 # How long a cached Chinese summary stays usable before ``update_entries``
 # prunes it. Matches the runs/ retention default so the cache cannot grow
@@ -80,13 +82,12 @@ def load_cache(path: str | Path) -> Dict[str, Any]:
 
 
 def write_cache(path: str | Path, cache: Dict[str, Any]) -> None:
-    cache_path = Path(path)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
     # Machine-only artifact rewritten on every assemble; compact separators
-    # keep the on-disk size roughly half of the pretty-printed form.
-    cache_path.write_text(
+    # keep the on-disk size roughly half of the pretty-printed form. Written
+    # atomically so concurrent readers never observe a torn file.
+    atomic_write_text(
+        path,
         json.dumps(cache, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
     )
 
 

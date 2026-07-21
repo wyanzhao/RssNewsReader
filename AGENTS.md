@@ -91,6 +91,13 @@ for the chat-facing final reply.
 - `runs/_seen_links.json` — cross-run seen-links ledger, written only by `assemble` (so only links that landed in a published success report are marked seen). The fetch step reads it to drop articles already covered by an earlier day's report; the fetch window is wider than 24h precisely so run-time jitter cannot leave coverage gaps, and the ledger prevents the resulting overlap from re-reporting. Same-date entries never filter, keeping same-day re-runs idempotent.
 - `runs/_feedback.md` — optional, user-maintained editorial feedback log. The most recent lines are injected into `part1_brief.json.editor_feedback` so Part 1 taste can be tuned without editing agent prompts.
 
+Both ledgers are written via atomic temp-file replace, and their
+read-modify-write cycles are serialized with `<file>.lock` sidecar files
+(`_common/fsio.py`), so concurrent same-date runs can neither tear a ledger
+nor silently drop each other's updates. `rss_daily_report.py` additionally
+logs a `WARN` when a same-date run dir already contains success-path handoff
+artifacts — the signature of a duplicate scheduler trigger.
+
 `raw.json` may additionally carry a top-level `runtime_config` snapshot with the
 effective summary-enrichment and render-threshold values used for that run.
 
@@ -190,7 +197,8 @@ shape and policy key names as the normal validator output.
 - `part2_context.json` is the Part 2 drafting input. It uses `summary_en` first and only falls back to short `article_text` material when the feed summary is too short.
 - `context_budget.json` is advisory but must be inspected by the orchestrator. If `within_budget` is false, the orchestrator must surface the violations and keep every LLM read strictly scoped to the shortlist and missing-summary sets.
 - `part1_plan.json` is link-keyed: items reference articles by `link` (with `also_links[]` for merged same-event coverage) and carry only editorial fields such as `summary_zh`; rank is implicit in array order, and titles, sources, and timestamps are joined from `llm_context.json` at assemble time. Plans must not echo those authoritative fields.
-- Editorial agents must never read `runs/_cache/` files directly. Cache reuse is injected deterministically: `part2_context.json` marks hits with `needs_summary == false`, and `shortlist-context` attaches `cached_summary_zh` / `cached_event_key` to shortlisted articles.
+- `part1_plan.json` carries at most 30 items, `shortfall` must equal `max(0, 30 - len(items))`, and an article may appear only once across all `items[].link` and `also_links[]`. All three are enforced by `validate_part1` at assemble / review / top30.
+- Editorial agents must never read `runs/_cache/` files directly. Cache reuse is injected deterministically: `part2_context.json` marks hits with `needs_summary == false`, and `shortlist-context` attaches `cached_summary_zh` / `cached_event_key` to shortlisted articles. Cached summaries are lint-checked at injection time (per-part hard caps, no links); an entry that fails is demoted to a normal cache miss so a poisoned or oversized cache entry can never hard-block `assemble` later.
 - `validation.json` may be read only for workflow gating metadata and per-feed status/error details that are not duplicated in `llm_context.json`.
 - `validation.passed == true` is required before any formal report can be produced.
 - `validation.passed` may still be `true` when `counts.error > 0`, as long as there are articles to report and no other blocking contract or data-quality checks fail.
@@ -211,7 +219,7 @@ shape and policy key names as the normal validator output.
 - If a success-path handoff artifact is missing, truncated, or schema-invalid, agents must stop the success branch and return a blocking issue. They must not silently fall back to raw `article_text` / `summary_en` or partial manual reconstruction.
 - `article_text` and `summary_en` are source material only. They may inform editorial work, but the final formal report must use the success-path Chinese summaries from `part1_plan.json` / `part2_draft.json`.
 - The success-path chat deliverable is the verbatim stdout of `scripts/editorial_runtime.py top30` (persisted at `runs/<date>/top30.md`). Agents must not hand-compose, rephrase, or re-rank the Top 30 in chat output.
-- Final `summary_zh` values must not contain URLs or markdown links and are subject to hard length caps (400 chars Part 1 / 200 chars Part 2, enforced at assemble and review). This is the containment line against prompt injection smuggled through scraped `article_text`.
+- Final `summary_zh` values must not contain URLs or markdown links and are subject to hard length caps (400 chars Part 1 / 200 chars Part 2, enforced at assemble and review, and applied again when cached summaries are injected). This is the containment line against prompt injection smuggled through scraped `article_text`. The shared lint lives in `_common/editorial.py` (`summary_lint_errors`).
 - Titles must remain in English.
 - Links must remain complete and unchanged.
 - Articles must come only from the script output. No fabrication is allowed.
@@ -227,7 +235,7 @@ shape and policy key names as the normal validator output.
 - `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` (which injects deterministic cache hits) to generate `part1_shortlist_context.json` and write the link-keyed `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
 - `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json` and writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true. The orchestrator then runs `scripts/editorial_runtime.py merge-part2` to build the full `part2_draft.json`.
 - `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly.
-- `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`.
+- `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`. Post-write cache and seen-links bookkeeping is best-effort: a corrupt or unwritable ledger logs a `WARN` to stderr and never fails a run whose report was already written.
 - `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
 - `scripts/editorial_runtime.py top30` runs after review. It re-validates `part1_plan.json`, renders the fixed-format Top 30 digest (shared item renderer with `assemble`, so chat output and the report's Part 1 can never diverge), writes `runs/<date>/top30.md`, and prints the digest to stdout. The orchestrator's final success reply is that stdout verbatim — the LLM never composes or reformats the digest.
 - Fixed branch order:
@@ -279,6 +287,9 @@ import-safe and has dedicated unit tests.
   summary output formatters.
 - `_common/runtime_config.py` — repo-level `pipeline_config.json` loader plus
   raw-artifact config snapshot helpers for fetch and render settings.
+- `_common/fsio.py` — `atomic_write_text` (same-directory temp file +
+  `os.replace`) and `file_lock` (advisory `<path>.lock` sidecar locking) used
+  by runtime artifact writes and the cross-run ledgers.
 - `_common/article_extract.py` — stdlib-only main-text extractor that
   prefers `<article>` / `<main>` / `role='main'` containers, drops
   script / style / nav / aside / footer / header / form regions, and

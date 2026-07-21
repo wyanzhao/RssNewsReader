@@ -14,6 +14,33 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 
+# Hard safety caps for LLM-written Chinese summaries — deliberately looser
+# than the editorial targets (60-180字 Part 1 / 40-60字 Part 2) so borderline
+# output never blocks, while runaway text or prompt-injection payloads
+# smuggled in via scraped article_text do. Links in a summary are the classic
+# injection artifact. Enforced at assemble/review, and also applied when
+# cached summaries are deterministically injected (shortlist-context /
+# part2_context) so a poisoned or oversized cache entry demotes to a normal
+# cache miss instead of hard-blocking assemble later.
+PART1_SUMMARY_HARD_CAP = 400
+PART2_SUMMARY_HARD_CAP = 200
+
+# Part 1 is a Top 30: plans may carry at most this many items, and
+# ``shortfall`` must equal ``max(0, PART1_MAX_ITEMS - len(items))``.
+PART1_MAX_ITEMS = 30
+
+
+def summary_lint_errors(summary: Any, label: str, hard_cap: int) -> List[str]:
+    errors: List[str] = []
+    cleaned = " ".join(str(summary or "").split())
+    if len(cleaned) > hard_cap:
+        errors.append(f"{label} summary_zh exceeds {hard_cap} chars ({len(cleaned)})")
+    lowered = cleaned.lower()
+    if "http://" in lowered or "https://" in lowered or "](" in cleaned:
+        errors.append(f"{label} summary_zh must not contain links")
+    return errors
+
+
 @dataclass(frozen=True)
 class Article:
     source: str

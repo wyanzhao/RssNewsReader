@@ -25,7 +25,8 @@ tools: Read, Write, Edit, Bash
   - 每条文章有 7 个字段：`source`、`title`、`link`、`pub_date_utc`、`pub_date_iso`、`summary_en`、`article_text`
   - 没有任何预先的打分、标签或候选列表——筛选判断完全在你这里
   - **中文摘要素材优先级**：shortlist 后的 `article_text`（正文片段，最多约 150 词）> `summary_en`（feed 提供的简短英文摘要）> 基于 `title` + `source` 的极简描述；三者都缺失时不要编造事实
-- `<run_dir>/part1_shortlist.json` 是你第一阶段写出的轻量 handoff，建议保留 40 到 45 条链接；若可用文章不足 45 条，保留所有非噪音候选
+- `<run_dir>/part1_shortlist.json` 是你第一阶段写出的轻量 handoff，固定写成 `{"links": ["<link>", ...]}`（脚本兼容旧的 `shortlist` / `items` / `articles` 容器名，但你的输出一律用 `links`）；每个 link 必须逐字节复制自 brief——任何不在 `all_articles` 里的 link 会让 `shortlist-context` 直接报错退出
+- shortlist 建议保留 40 到 45 条链接；若可用文章不足 45 条，保留所有非噪音候选
 - 生成 shortlist 后运行：
   `python3 scripts/editorial_runtime.py shortlist-context --llm-context <run_dir>/llm_context.json --shortlist <run_dir>/part1_shortlist.json --output <run_dir>/part1_shortlist_context.json`
 - 该命令会自动为缓存命中的文章注入 `cached_summary_zh` / `cached_event_key`（往日已写过的 Part 1 事件摘要）；当事件与今日上下文仍一致时可直接复用或轻改，不一致时重写
@@ -93,7 +94,7 @@ tools: Read, Write, Edit, Bash
 
 ### 第五步：总量控制
 
-- 目标是 30 条
+- 目标是 30 条，**上限也是 30 条**——`assemble` 会硬校验条数 ≤ 30 且 `shortfall == max(0, 30 - 条数)`
 - 若去噪后全量文章不足 30 条，填满可用条目并在 `shortfall` 中给出差额（`30 - 实际条数`）
 - **绝不**为了凑数而纳入第一步已经判定为噪音的条目
 

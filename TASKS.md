@@ -195,6 +195,29 @@
 - [x] `python3 -m unittest discover -s tests -p 'test_*.py'` 全绿（159 项）
 - [x] 真实网络 smoke：`rss_news_monitor.py --json` 29/29 文章 `summary_en`+`article_text` 均填充
 
+## 加固与契约收紧 (2026-07-20)
+
+- [x] 缓存注入护栏：`part2_summary_material` / `shortlist-context` 注入缓存摘要前先跑共享 lint
+      （分区硬上限 + 禁链接，`_common/editorial.py:summary_lint_errors`），不合格条目降级为
+      normal miss 并输出 WARN——封掉 legacy / 手改缓存条目在 assemble 阶段死锁、且无 agent
+      有权限修复的路径（2026-07-03 PyTorch Blog 案例）
+- [x] assemble 收尾簿记 best-effort：报告写成功后 cache / seen-links 更新失败只 WARN 不再退 40；
+      `update_cache` 对损坏缓存改为重建（与 `shortlist-context` 的容忍策略对齐）
+- [x] 并发加固：新增 `_common/fsio.py`（`atomic_write_text` 原子替换 + `file_lock` advisory 锁）；
+      editorial_runtime 全部产物写入、editorial cache、seen-links 账本改为原子写，两个共享账本的
+      read-modify-write 加 `<file>.lock` 互斥（呼应 2026-07-16 同日并发运行异常）
+- [x] `rss_daily_report.py` 启动时检测同日 run_dir 已有 success-path 产物（`part1_plan.json` /
+      `part2_draft.json` / `top30.md`）并输出 WARN，为重复调度留取证线索
+- [x] `validate_part1` 收紧：条数 ≤ 30、`shortfall == max(0, 30 - 条数)`、also_links 跨条目查重
+      （不得与其他条目主 link 或其他条目的 also_link 重复）
+- [x] `validate_part2` 增加 link 归属校验：文章必须属于其所在 source 组
+- [x] agent 文档对齐：`part1-editor.md` 钉死 `part1_shortlist.json` canonical schema
+      （`{"links": [...]}`）并写明 30 条硬上限；`part2-drafter.md` 移除 error 来源误导指令
+      （error_text 由 assemble 确定性渲染）；`network-debugger.md` 写明 run_dir 由 orchestrator 提供
+- [x] 新增 `tests/test_fsio.py`；`tests/test_editorial_runtime.py` 补注入护栏降级、best-effort
+      簿记、validate 收紧用例；全量 unittest 189 项全绿
+- [x] scratch runs-dir 真实网络冒烟通过（不触碰 `runs/` 归档）
+
 ## Backlog
 
 - [ ] 将 orchestrator skill 的可配置参数进一步显式化，例如时间窗口、摘要长度、保留天数
