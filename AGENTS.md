@@ -392,8 +392,9 @@ When `validation.passed` is true, the LLM should:
 - Cluster duplicate or near-duplicate coverage of the same event
 - Prioritize major industry events such as financing `>=100M`, acquisitions, and major regulation.
 - Then prioritize major product launches from Apple, Google, NVIDIA, OpenAI, and similar companies.
-- Then prioritize significant security or compliance events.
+- Then prioritize security or compliance events that reach platform or institutional scale — actively exploited 0days, platform-wide vulnerabilities, government / major-enterprise breaches, poisoned public distribution channels, and substantive regulatory rulings.
 - Then prioritize important technical breakthroughs.
+- Treat routine security advisories as lowest-tier filler: ordinary CVE / patch notices with no in-the-wild evidence and no platform-wide blast radius, single-target intrusions, region-scoped incidents, and routine threat-intel or APT activity updates rank at the bottom of the catch-all tier and are dropped first when slots are short.
 - Preserve source diversity when priorities tie
 - Filter or sharply down-rank PR, promotions, giveaways, `how to watch`, pure rumor, and recap content
 - Write Part 1 and Part 2 in the required Markdown format
