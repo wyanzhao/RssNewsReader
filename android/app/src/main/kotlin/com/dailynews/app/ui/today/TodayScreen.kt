@@ -56,7 +56,7 @@ fun TodayScreen(
     viewModel: TodayViewModel,
     onRunNow: () -> Unit,
     onSweep: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
+    onOpenDiagnostics: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenReport: (String) -> Unit,
     reportViewModel: @Composable (String) -> ReportViewModel,
@@ -152,12 +152,12 @@ fun TodayScreen(
                 } else if (latest.status != "SUCCESS") {
                     item(key = "failed-report") {
                         Card(
-                            Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth).clickable { onOpenDiagnostics() },
+                            Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth).clickable { onOpenDiagnostics(state.currentRun?.runId) },
                         ) {
                             Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
                                 Text("${latest.reportDate} 生成失败", style = MaterialTheme.typography.titleLarge)
                                 Text(latest.failureReason ?: "打开诊断查看失败阶段与重试入口。")
-                                TextButton(onClick = onOpenDiagnostics) { Text("查看诊断") }
+                                TextButton(onClick = { onOpenDiagnostics(state.currentRun?.runId) }) { Text("查看诊断") }
                             }
                         }
                     }
@@ -200,7 +200,7 @@ internal fun SweepProgressCard(label: String) {
 @Composable
 private fun TodayStatusCard(
     state: TodayUiState,
-    onOpenDiagnostics: () -> Unit,
+    onOpenDiagnostics: (String?) -> Unit,
     onOpenReport: (String) -> Unit,
 ) {
     val run = state.currentRun
@@ -209,7 +209,7 @@ private fun TodayStatusCard(
         Modifier
             .fillMaxWidth()
             .widthIn(max = DailyNewsSpacing.readingMaxWidth)
-            .then(if (failed) Modifier.clickable(onClick = onOpenDiagnostics) else Modifier),
+            .then(if (failed) Modifier.clickable { onOpenDiagnostics(run?.runId) } else Modifier),
     ) {
         Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
             Text("今日生成状态", style = MaterialTheme.typography.titleLarge)
@@ -222,7 +222,7 @@ private fun TodayStatusCard(
                 }
                 failed -> {
                     Text("${run.classification} · validator ${run.validatorExitCode}", color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onOpenDiagnostics) { Text("打开诊断与重试") }
+                    TextButton(onClick = { onOpenDiagnostics(run?.runId) }) { Text("打开诊断与重试") }
                 }
                 state.latest != null -> {
                     Text("最近报告：${state.latest.reportDate}")

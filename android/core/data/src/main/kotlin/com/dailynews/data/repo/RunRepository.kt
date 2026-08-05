@@ -12,6 +12,7 @@ import kotlinx.serialization.encodeToString
 
 class RunRepository(private val database: DailyNewsDatabase) {
     fun observeRecent(limit: Int = 50) = database.runs().observeRecent(limit.coerceIn(1, 200))
+    fun observeDetail(runId: String) = database.runs().observeDetail(runId)
     suspend fun started(raw: RawRun, reportDate: String, attempt: Int, trigger: String = "unknown") {
         database.runs().upsert(
             RunEntity(

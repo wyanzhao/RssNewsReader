@@ -65,5 +65,16 @@ class RouteAndShareContractTest {
         assertTrue(matches.any { it.activityInfo.name.endsWith("BootReceiver") })
     }
 
+    @Test
+    fun failureNotificationDeepLinksStraightToTheFailedRun() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val result = RunExecutionResult.Failed(LocalDate.parse("2026-08-04"), "run-42", "fetch", "boom")
+
+        val notification = NotificationHelper.resultNotification(context, result)
+        assertEquals("runDiagnostics/run-42", shadowOf(notification.contentIntent).savedIntent.getStringExtra("route"))
+        // The trailing action is the "诊断" deep link; retry sits before it.
+        assertEquals("runDiagnostics/run-42", shadowOf(notification.actions.last().actionIntent).savedIntent.getStringExtra("route"))
+    }
+
     companion object { private const val ANDROID_NS = "http://schemas.android.com/apk/res/android" }
 }

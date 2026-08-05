@@ -137,7 +137,7 @@ private fun AppNavHost(
                 vm,
                 onRunNow = { DailyReportWorker.enqueue(context, scheduled = false) },
                 onSweep = { SweepWorker.enqueueRefresh(context) },
-                onOpenDiagnostics = { nav.navigate("diagnostics") },
+                onOpenDiagnostics = { runId -> nav.navigate(runId?.let { "runDiagnostics/$it" } ?: "diagnostics") },
                 onOpenSettings = { nav.navigateTopLevel("settings") },
                 onOpenReport = { nav.navigate("report/$it") },
                 reportViewModel = { date -> reportViewModel(container, date) },
@@ -177,10 +177,24 @@ private fun AppNavHost(
             })
             SettingsScreen(vm, onOpenDiagnostics = { nav.navigate("diagnostics") })
         }
-        composable("diagnostics") { DiagnosticsScreen(diagnosticsViewModel(container, null), startupFailure(context)) }
+        composable("diagnostics") {
+            DiagnosticsScreen(
+                diagnosticsViewModel(container, null),
+                startupFailure(context),
+                onRunNow = { DailyReportWorker.enqueue(context, scheduled = false) },
+                onOpenFeeds = { nav.navigateTopLevel("feeds") },
+                onOpenSettings = { nav.navigateTopLevel("settings") },
+            )
+        }
         composable("runDiagnostics/{runId}") { entry ->
             val runId = entry.arguments?.getString("runId")
-            DiagnosticsScreen(diagnosticsViewModel(container, runId), startupFailure(context))
+            DiagnosticsScreen(
+                diagnosticsViewModel(container, runId),
+                startupFailure(context),
+                onRunNow = { DailyReportWorker.enqueue(context, scheduled = false) },
+                onOpenFeeds = { nav.navigateTopLevel("feeds") },
+                onOpenSettings = { nav.navigateTopLevel("settings") },
+            )
         }
     }
 }

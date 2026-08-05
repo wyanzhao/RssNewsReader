@@ -131,6 +131,7 @@ interface RunDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun replaceAll(entities: List<RunEntity>)
     @Query("SELECT * FROM runs ORDER BY startedAtUtc") suspend fun allNow(): List<RunEntity>
     @Query("SELECT * FROM runs WHERE runId = :runId") suspend fun get(runId: String): RunEntity?
+    @Query("SELECT * FROM runs WHERE runId = :runId") fun observeDetail(runId: String): Flow<RunEntity?>
     @Query("SELECT runId, reportDate, status, classification, validatorExitCode, attempt, startedAtUtc, finishedAtUtc FROM runs ORDER BY startedAtUtc DESC LIMIT :limit") fun observeRecent(limit: Int): Flow<List<RunSummary>>
     @Query("SELECT * FROM runs WHERE reportDate = :reportDate AND status = 'RUNNING' ORDER BY startedAtUtc DESC LIMIT 1") suspend fun latestRunning(reportDate: String): RunEntity?
     @Query("SELECT * FROM runs WHERE reportDate = :reportDate ORDER BY startedAtUtc DESC LIMIT 1") suspend fun latestForDate(reportDate: String): RunEntity?
