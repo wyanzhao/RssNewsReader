@@ -50,9 +50,6 @@ data class LlmExecutionConfig(
     @SerialName("connect_timeout_seconds") val connectTimeoutSeconds: Int = 1_200,
     @SerialName("read_timeout_seconds") val readTimeoutSeconds: Int = 1_200,
     @SerialName("call_timeout_seconds") val callTimeoutSeconds: Int = 1_200,
-    @SerialName("part1_shortlist_max_tokens") val part1ShortlistMaxTokens: Int = 65_536,
-    @SerialName("part1_plan_max_tokens") val part1PlanMaxTokens: Int = 65_536,
-    @SerialName("part2_batch_max_tokens") val part2BatchMaxTokens: Int = 65_536,
 ) {
     fun normalized(): LlmExecutionConfig {
         val connect = connectTimeoutSeconds.coerceIn(5, 1_200)
@@ -62,9 +59,6 @@ data class LlmExecutionConfig(
             connectTimeoutSeconds = connect,
             readTimeoutSeconds = read,
             callTimeoutSeconds = call,
-            part1ShortlistMaxTokens = part1ShortlistMaxTokens.coerceIn(512, 65_536),
-            part1PlanMaxTokens = part1PlanMaxTokens.coerceIn(1_024, 65_536),
-            part2BatchMaxTokens = part2BatchMaxTokens.coerceIn(512, 65_536),
         )
     }
 }

@@ -190,7 +190,7 @@ class LlmEditorialEngine(
                 codec.encodeToString(brief) + shortlistFeedback,
                 retryIndex,
                 counter,
-                minOf(binding.roleModel.maxTokens, llmExecution.part1ShortlistMaxTokens),
+                binding.roleModel.maxTokens,
                 operation = "part1_shortlist",
             )
             val decodedShortlist = runCatching { codec.decodeFromJsonElement<Part1ShortlistPayload>(shortlistObject) }
@@ -224,7 +224,7 @@ class LlmEditorialEngine(
                 codec.encodeToString(shortlistContext) + feedback,
                 retryIndex,
                 counter,
-                minOf(binding.roleModel.maxTokens, llmExecution.part1PlanMaxTokens),
+                binding.roleModel.maxTokens,
                 operation = "part1_plan",
             )
             val decoded = runCatching { codec.decodeFromJsonElement<Part1Plan>(output) }.getOrElse { error ->
@@ -277,7 +277,7 @@ class LlmEditorialEngine(
         val completed = mutableListOf<MissingPart2Summary>()
         articles.chunked(25).forEachIndexed { batchIndex, batch ->
             val batchPayload = Part2BatchInput(batch.map(Part2SummaryRequest::toBatchArticle))
-            completed += callPart2Batch(runId, binding, batchPayload, batchIndex, counter, llmExecution.part2BatchMaxTokens)
+            completed += callPart2Batch(runId, binding, batchPayload, batchIndex, counter)
         }
         return completed
     }
@@ -288,7 +288,6 @@ class LlmEditorialEngine(
         input: Part2BatchInput,
         batchIndex: Int,
         counter: CallCounter,
-        operationMaxTokens: Int,
     ): List<MissingPart2Summary> {
         var feedback = ""
         repeat(3) { retryIndex ->
@@ -301,7 +300,7 @@ class LlmEditorialEngine(
                 codec.encodeToString(input) + feedback,
                 retryIndex,
                 counter,
-                minOf(binding.roleModel.maxTokens, operationMaxTokens),
+                binding.roleModel.maxTokens,
                 operation = "part2_batch",
                 batch = (batchIndex + 1).toString(),
                 auditIndexBase = batchIndex * 100,

@@ -53,9 +53,6 @@ data class SettingsFormState(
     val llmConnectTimeoutSeconds: String = "1200",
     val llmReadTimeoutSeconds: String = "1200",
     val llmCallTimeoutSeconds: String = "1200",
-    val part1ShortlistMaxTokens: String = "65536",
-    val part1PlanMaxTokens: String = "65536",
-    val part2BatchMaxTokens: String = "65536",
     val feedbackText: String = "",
 ) : java.io.Serializable
 
@@ -145,9 +142,6 @@ class SettingsViewModel(
                         llmConnectTimeoutSeconds = config.llmExecution.connectTimeoutSeconds.toString(),
                         llmReadTimeoutSeconds = config.llmExecution.readTimeoutSeconds.toString(),
                         llmCallTimeoutSeconds = config.llmExecution.callTimeoutSeconds.toString(),
-                        part1ShortlistMaxTokens = config.llmExecution.part1ShortlistMaxTokens.toString(),
-                        part1PlanMaxTokens = config.llmExecution.part1PlanMaxTokens.toString(),
-                        part2BatchMaxTokens = config.llmExecution.part2BatchMaxTokens.toString(),
                         feedbackText = config.editorFeedback.joinToString("\n"),
                     ))
                     initialized = true
@@ -187,8 +181,8 @@ class SettingsViewModel(
 
     fun saveRoleMapping() = launchOperation {
         val value = form.value
-        require(value.editorMaxTokens.toIntOrNull()?.let { it > 0 } == true) { "Part 1 maxTokens 必须是正整数" }
-        require(value.drafterMaxTokens.toIntOrNull()?.let { it > 0 } == true) { "Part 2 maxTokens 必须是正整数" }
+        require(value.editorMaxTokens.toIntOrNull() in 512..65_536) { "EDITOR maxTokens 必须在 512–65536 之间" }
+        require(value.drafterMaxTokens.toIntOrNull() in 512..65_536) { "DRAFTER maxTokens 必须在 512–65536 之间" }
         providerSettings.updateRoleMapping(
             value.editorProviderId,
             value.editorModel,
@@ -285,11 +279,8 @@ internal fun settingsValidationErrors(value: SettingsFormState): Map<String, Str
     if (callTimeout !in 60..1_200 || (readTimeout != null && callTimeout != null && callTimeout < readTimeout)) {
         put("llmCallTimeoutSeconds", "请输入 60–1200 秒，且不得小于 read timeout")
     }
-    if (value.part1ShortlistMaxTokens.toIntOrNull() !in 512..65_536) put("part1ShortlistMaxTokens", "请输入 512–65536")
-    if (value.part1PlanMaxTokens.toIntOrNull() !in 1_024..65_536) put("part1PlanMaxTokens", "请输入 1024–65536")
-    if (value.part2BatchMaxTokens.toIntOrNull() !in 512..65_536) put("part2BatchMaxTokens", "请输入 512–65536")
-    if (value.editorMaxTokens.toIntOrNull()?.let { it > 0 } != true) put("editorMaxTokens", "请输入正整数")
-    if (value.drafterMaxTokens.toIntOrNull()?.let { it > 0 } != true) put("drafterMaxTokens", "请输入正整数")
+    if (value.editorMaxTokens.toIntOrNull() !in 512..65_536) put("editorMaxTokens", "请输入 512–65536")
+    if (value.drafterMaxTokens.toIntOrNull() !in 512..65_536) put("drafterMaxTokens", "请输入 512–65536")
 }
 
 internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
@@ -309,9 +300,6 @@ internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
             connectTimeoutSeconds = llmConnectTimeoutSeconds.toIntOrNull() ?: 1_200,
             readTimeoutSeconds = llmReadTimeoutSeconds.toIntOrNull() ?: 1_200,
             callTimeoutSeconds = llmCallTimeoutSeconds.toIntOrNull() ?: 1_200,
-            part1ShortlistMaxTokens = part1ShortlistMaxTokens.toIntOrNull() ?: 65_536,
-            part1PlanMaxTokens = part1PlanMaxTokens.toIntOrNull() ?: 65_536,
-            part2BatchMaxTokens = part2BatchMaxTokens.toIntOrNull() ?: 65_536,
         ),
         editorFeedback = feedbackText.lines(),
     ).normalized()

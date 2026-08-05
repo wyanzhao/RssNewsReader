@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 
 class SettingsViewModelTest {
     @Test
-    fun formalGenerationDefaultsUseTwentyMinutesAndFullTokenCaps() {
+    fun formalGenerationDefaultsUseTwentyMinutesAndRoleTokenCaps() {
         val form = SettingsFormState()
         val execution = LlmExecutionConfig()
 
@@ -27,11 +27,6 @@ class SettingsViewModelTest {
             execution.connectTimeoutSeconds,
             execution.readTimeoutSeconds,
             execution.callTimeoutSeconds,
-        ))
-        assertEquals(listOf(65_536, 65_536, 65_536), listOf(
-            execution.part1ShortlistMaxTokens,
-            execution.part1PlanMaxTokens,
-            execution.part2BatchMaxTokens,
         ))
     }
 
@@ -46,7 +41,7 @@ class SettingsViewModelTest {
                 totalContextMaxBytes = 456_000,
                 hardBlock = true,
             ),
-            llmExecution = LlmExecutionConfig(20, 240, 480, 2_048, 12_288, 6_144),
+            llmExecution = LlmExecutionConfig(20, 240, 480),
         )
 
         val updated = SettingsFormState(
@@ -92,17 +87,14 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun llmExecutionSettingsPersistIndependentTimeoutsAndOperationCaps() {
+    fun llmExecutionSettingsPersistIndependentTimeouts() {
         val updated = SettingsFormState(
             llmConnectTimeoutSeconds = "25",
             llmReadTimeoutSeconds = "240",
             llmCallTimeoutSeconds = "480",
-            part1ShortlistMaxTokens = "2048",
-            part1PlanMaxTokens = "12288",
-            part2BatchMaxTokens = "6144",
         ).applyTo(PipelineConfig())
 
-        assertEquals(LlmExecutionConfig(25, 240, 480, 2_048, 12_288, 6_144), updated.llmExecution)
+        assertEquals(LlmExecutionConfig(25, 240, 480), updated.llmExecution)
     }
 
     @Test

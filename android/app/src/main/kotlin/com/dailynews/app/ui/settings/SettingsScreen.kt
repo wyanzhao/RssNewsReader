@@ -167,10 +167,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
     item { Text("角色映射", style = MaterialTheme.typography.titleLarge) }
     item { EnumDropdown("Part 1 Provider", form.editorProviderId, providerIds) { value -> viewModel.update { it.copy(editorProviderId = value) } } }
     item { OutlinedTextField(form.editorModel, { value -> viewModel.update { it.copy(editorModel = value) } }, label = { Text("Part 1 强模型") }, modifier = Modifier.fillMaxWidth()) }
-    item { NumberField("Part 1 maxTokens", form.editorMaxTokens, state.validationErrors["editorMaxTokens"]) { value -> viewModel.update { it.copy(editorMaxTokens = value) } } }
+    item { NumberField("EDITOR maxTokens", form.editorMaxTokens, state.validationErrors["editorMaxTokens"]) { value -> viewModel.update { it.copy(editorMaxTokens = value) } } }
     item { EnumDropdown("Part 2 Provider", form.drafterProviderId, providerIds) { value -> viewModel.update { it.copy(drafterProviderId = value) } } }
     item { OutlinedTextField(form.drafterModel, { value -> viewModel.update { it.copy(drafterModel = value) } }, label = { Text("Part 2 经济模型") }, modifier = Modifier.fillMaxWidth()) }
-    item { NumberField("Part 2 maxTokens", form.drafterMaxTokens, state.validationErrors["drafterMaxTokens"]) { value -> viewModel.update { it.copy(drafterMaxTokens = value) } } }
+    item { NumberField("DRAFTER maxTokens", form.drafterMaxTokens, state.validationErrors["drafterMaxTokens"]) { value -> viewModel.update { it.copy(drafterMaxTokens = value) } } }
     item { Button(onClick = viewModel::saveRoleMapping, enabled = !state.busy && state.validationErrors.keys.none { it.endsWith("MaxTokens") }) { Text("保存角色映射") } }
     state.providerMessage?.let { item { Text(it) } }
 }
@@ -227,9 +227,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pipelineItems(state: 
     item { NumberField("连接超时（秒）", form.llmConnectTimeoutSeconds, state.validationErrors["llmConnectTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmConnectTimeoutSeconds = value) } } }
     item { NumberField("读取超时（秒）", form.llmReadTimeoutSeconds, state.validationErrors["llmReadTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmReadTimeoutSeconds = value) } } }
     item { NumberField("单次调用总超时（秒）", form.llmCallTimeoutSeconds, state.validationErrors["llmCallTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmCallTimeoutSeconds = value) } } }
-    item { NumberField("Part 1 shortlist maxTokens", form.part1ShortlistMaxTokens, state.validationErrors["part1ShortlistMaxTokens"]) { value -> viewModel.update { it.copy(part1ShortlistMaxTokens = value) } } }
-    item { NumberField("Part 1 plan maxTokens", form.part1PlanMaxTokens, state.validationErrors["part1PlanMaxTokens"]) { value -> viewModel.update { it.copy(part1PlanMaxTokens = value) } } }
-    item { NumberField("Part 2 batch maxTokens", form.part2BatchMaxTokens, state.validationErrors["part2BatchMaxTokens"]) { value -> viewModel.update { it.copy(part2BatchMaxTokens = value) } } }
     item { Row { Checkbox(form.part2Mode == Part2Mode.LAZY, { lazy -> viewModel.update { it.copy(part2Mode = if (lazy) Part2Mode.LAZY else Part2Mode.FULL) } }); Text("Part 2 展开来源时生成（LAZY）", Modifier.padding(top = 12.dp)) } }
     item { OutlinedTextField(form.feedbackText, { value -> viewModel.update { it.copy(feedbackText = value) } }, label = { Text("编辑反馈（每行一条，最多 20 条）") }, modifier = Modifier.fillMaxWidth()) }
     item { Button(onClick = viewModel::savePipeline, enabled = !state.busy && state.validationErrors.isEmpty()) { Text("保存 Pipeline") } }

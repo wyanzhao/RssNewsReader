@@ -191,15 +191,15 @@ class LlmEditorialEngineTest {
             "lazy-run",
             requests,
             maxCalls = 1,
-            LlmExecutionConfig(part2BatchMaxTokens = 6_144),
+            LlmExecutionConfig(),
         )
 
         assertEquals(requests.map { it.link }, generated.map { it.link })
-        assertEquals(6_144, observedMaxTokens)
+        assertEquals(8_192, observedMaxTokens)
     }
 
     @Test
-    fun `Part 1 shortlist and plan use independent operation token caps`() = runBlocking {
+    fun `Part 1 shortlist and plan both use EDITOR token cap`() = runBlocking {
         val artifacts = lowVolumeArtifacts(cachedPart2 = false)
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
         val responses = ArrayDeque(
@@ -224,7 +224,7 @@ class LlmEditorialEngineTest {
                             return responses.removeFirst()
                         }
                     },
-                    RoleModel("test", "model", 65_536),
+                    RoleModel("test", "model", 12_288),
                 )
             },
             TestPrompts,
@@ -239,10 +239,10 @@ class LlmEditorialEngineTest {
             30,
             20,
             Part2Mode.LAZY,
-            LlmExecutionConfig(part1ShortlistMaxTokens = 2_048, part1PlanMaxTokens = 12_288),
+            LlmExecutionConfig(),
         )
 
-        assertEquals(listOf(2_048, 12_288), observed)
+        assertEquals(listOf(12_288, 12_288), observed)
     }
 
     @Test
