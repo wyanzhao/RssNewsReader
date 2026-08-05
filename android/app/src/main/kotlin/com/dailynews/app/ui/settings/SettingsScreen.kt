@@ -88,9 +88,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
         ) {
             when (state.section) {
                 SettingsSection.OVERVIEW -> {
-                    item { SettingsEntry("Providers", providerSummary(state), { viewModel.selectSection(SettingsSection.PROVIDERS) }) }
+                    item { SettingsEntry("模型服务", providerSummary(state), { viewModel.selectSection(SettingsSection.PROVIDERS) }) }
                     item { SettingsEntry("计划与后台", "每日 ${state.form.schedule} · ${state.form.sweepInterval} 分钟增量抓取", { viewModel.selectSection(SettingsSection.SCHEDULE) }) }
-                    item { SettingsEntry("Pipeline", "Top ${state.form.topN} · Part 2 ${state.form.part2Mode}", { viewModel.selectSection(SettingsSection.PIPELINE) }) }
+                    item { SettingsEntry("生成流程", "Top ${state.form.topN} · Part 2 ${state.form.part2Mode}", { viewModel.selectSection(SettingsSection.PIPELINE) }) }
                     item { SettingsEntry("数据与迁移", "导入、导出与设备状态恢复", { viewModel.selectSection(SettingsSection.DATA) }) }
                     item { SettingsEntry("运行诊断", "最近运行、步骤日志、LLM 调用与网络探测", onOpenDiagnostics) }
                 }
@@ -111,9 +111,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
 
 private fun sectionTitle(section: SettingsSection): String = when (section) {
     SettingsSection.OVERVIEW -> "设置"
-    SettingsSection.PROVIDERS -> "Providers"
+    SettingsSection.PROVIDERS -> "模型服务"
     SettingsSection.SCHEDULE -> "计划与后台"
-    SettingsSection.PIPELINE -> "Pipeline"
+    SettingsSection.PIPELINE -> "生成流程"
     SettingsSection.DATA -> "数据与迁移"
 }
 
@@ -229,7 +229,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pipelineItems(state: 
     item { NumberField("单次调用总超时（秒）", form.llmCallTimeoutSeconds, state.validationErrors["llmCallTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmCallTimeoutSeconds = value) } } }
     item { Row { Checkbox(form.part2Mode == Part2Mode.LAZY, { lazy -> viewModel.update { it.copy(part2Mode = if (lazy) Part2Mode.LAZY else Part2Mode.FULL) } }); Text("Part 2 展开来源时生成（LAZY）", Modifier.padding(top = 12.dp)) } }
     item { OutlinedTextField(form.feedbackText, { value -> viewModel.update { it.copy(feedbackText = value) } }, label = { Text("编辑反馈（每行一条，最多 20 条）") }, modifier = Modifier.fillMaxWidth()) }
-    item { Button(onClick = viewModel::savePipeline, enabled = !state.busy && state.validationErrors.isEmpty()) { Text("保存 Pipeline") } }
+    item { Button(onClick = viewModel::savePipeline, enabled = !state.busy && state.validationErrors.isEmpty()) { Text("保存生成流程") } }
     state.providerMessage?.let { item { Text(it) } }
 }
 

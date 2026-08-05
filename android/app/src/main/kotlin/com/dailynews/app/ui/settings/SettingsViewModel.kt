@@ -200,7 +200,7 @@ class SettingsViewModel(
         val config = value.applyTo(configRepository.config.first())
         configRepository.save(config)
         scheduleReports(config)
-        providerMessage.value = "Pipeline 配置已保存"
+        providerMessage.value = "生成流程配置已保存"
     }
 
     fun importSeenLinks(readBytes: suspend () -> ByteArray?) = launchImport {

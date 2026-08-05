@@ -13,3 +13,9 @@ __pycache__/
 # Editor / local tooling
 .codex/
 .claude/worktrees/
+/.obsidian/
+
+# Local planning and review notes
+/TASKS.md
+/ANDROID_PLAN.md
+/android/REVIEW-2026-08-04.md
