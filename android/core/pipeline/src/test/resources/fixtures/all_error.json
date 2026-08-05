@@ -1,0 +1,9 @@
+{
+  "article_indices": [],
+  "default_feed_status": {
+    "status": "error",
+    "article_count": 0,
+    "error": "Connection failed - timeout"
+  },
+  "feed_overrides": {}
+}

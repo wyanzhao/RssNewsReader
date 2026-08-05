@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <!-- provider_settings travels with provider_keys or not at all: restoring the
+         settings alone leaves the app looking configured while every run fails
+         on a missing key, with no way back into onboarding. -->
+    <cloud-backup>
+        <exclude domain="sharedpref" path="provider_keys.xml" />
+        <exclude domain="sharedpref" path="provider_settings.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="provider_keys.xml" />
+        <exclude domain="sharedpref" path="provider_settings.xml" />
+    </device-transfer>
+</data-extraction-rules>

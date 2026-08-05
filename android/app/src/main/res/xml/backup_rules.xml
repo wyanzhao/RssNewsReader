@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="provider_keys.xml" />
+    <!-- Keeping settings without their keys would restore an unusable configuration. -->
+    <exclude domain="sharedpref" path="provider_settings.xml" />
+</full-backup-content>

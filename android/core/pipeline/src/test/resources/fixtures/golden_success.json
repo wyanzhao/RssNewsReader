@@ -1,0 +1,21 @@
+{
+  "article_indices": [0, 1, 2],
+  "default_feed_status": {
+    "status": "empty",
+    "article_count": 0
+  },
+  "feed_overrides": {
+    "MacRumors": {
+      "status": "ok",
+      "article_count": 1
+    },
+    "Ars Technica": {
+      "status": "ok",
+      "article_count": 1
+    },
+    "TechCrunch": {
+      "status": "ok",
+      "article_count": 1
+    }
+  }
+}

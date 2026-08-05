@@ -1,0 +1,17 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="today" android:enabled="true" android:icon="@drawable/ic_today" android:shortcutShortLabel="@string/nav_today">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.dailynews.app" android:targetClass="com.dailynews.app.MainActivity">
+            <extra android:name="route" android:value="today" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="history" android:enabled="true" android:icon="@drawable/ic_history" android:shortcutShortLabel="@string/nav_history">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.dailynews.app" android:targetClass="com.dailynews.app.MainActivity">
+            <extra android:name="route" android:value="history" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="favorites" android:enabled="true" android:icon="@drawable/ic_favorite" android:shortcutShortLabel="@string/nav_favorites">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.dailynews.app" android:targetClass="com.dailynews.app.MainActivity">
+            <extra android:name="route" android:value="favorites" />
+        </intent>
+    </shortcut>
+</shortcuts>

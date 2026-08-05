@@ -13,6 +13,11 @@ You can use it in two ways:
    assemble the final report through a project-local `skill + subagents`
    runtime.
 
+A native Android port lives in [`android/`](android/README.md).
+It preserves the Python artifact and editorial contracts while moving fetch,
+validation, LLM calls, report assembly, scheduling, and reading entirely onto
+the device.
+
 The default Python command is the control-plane and artifact builder. The
 formal success report is written by the Claude Code success path so it can use
 the structured editorial handoff artifacts.

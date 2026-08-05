@@ -1,0 +1,32 @@
+{
+  "articles": [
+    {
+      "source": "MacRumors",
+      "title": "The Latest Foldable iPhone Rumors: What's Changed and What We Know Now",
+      "link": "https://www.macrumors.com/2026/04/10/iphone-fold-rumor-recap/",
+      "pub_date": "2026-04-10T14:57:17-07:00",
+      "summary_en": "Rumors about Apple's first foldable iPhone are picking up now that the device has entered a new testing stage."
+    },
+    {
+      "source": "Ars Technica",
+      "title": "Californians sue over AI tool that records doctor visits",
+      "link": "https://arstechnica.com/tech-policy/2026/04/californians-sue-over-ai-tool-that-records-doctor-visits/",
+      "pub_date": "2026-04-10T21:43:33+00:00",
+      "summary_en": "Plaintiffs say transcription tool processed confidential chats offsite."
+    },
+    {
+      "source": "TechCrunch",
+      "title": "How to watch NASA’s Artemis II splash back down to Earth",
+      "link": "https://techcrunch.com/2026/04/10/how-to-watch-nasa-artemis-ii-landing/",
+      "pub_date": "2026-04-10T21:18:09+00:00",
+      "summary_en": "NASA's Artemis II mission has traveled farther from Earth than any mission before."
+    },
+    {
+      "source": "The Verge",
+      "title": "Now the FAA says gamers are the answer to its air traffic controller shortage",
+      "link": "https://www.theverge.com/games/910434/now-the-faa-says-gamers-are-the-answer-to-its-air-traffic-controller-shortage",
+      "pub_date": "2026-04-10T16:50:51-04:00",
+      "summary_en": "The FAA has struggled for years to have enough air traffic controllers to address shortages."
+    }
+  ]
+}

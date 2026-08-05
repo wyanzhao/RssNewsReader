@@ -1,0 +1,22 @@
+{
+  "article_indices": [0, 2, 3],
+  "default_feed_status": {
+    "status": "empty",
+    "article_count": 0
+  },
+  "feed_overrides": {
+    "MacRumors": {
+      "status": "ok",
+      "article_count": 1
+    },
+    "TechCrunch": {
+      "status": "ok",
+      "article_count": 1
+    },
+    "The Verge": {
+      "status": "error",
+      "article_count": 1,
+      "error": "HTTP 503"
+    }
+  }
+}

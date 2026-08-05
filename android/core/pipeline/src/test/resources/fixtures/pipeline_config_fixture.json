@@ -1,0 +1,26 @@
+{
+  "fetch": {
+    "hours": 24,
+    "max_summary": 300,
+    "stale_feed_warn_days": 30
+  },
+  "summary_enrichment": {
+    "short_summary_threshold": 25,
+    "page_fallback_cap": 111
+  },
+  "article_text": {
+    "enabled": true,
+    "max_words": 150,
+    "max_workers": 4
+  },
+  "render": {
+    "part1_summary_max_chars": 200,
+    "part2_summary_max_chars": 200
+  },
+  "context_budget": {
+    "llm_context_max_bytes": 12000,
+    "part1_brief_max_bytes": 8000,
+    "part2_context_max_bytes": 8000,
+    "total_context_max_bytes": 24000
+  }
+}
