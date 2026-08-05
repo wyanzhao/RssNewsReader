@@ -1,7 +1,7 @@
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
-    <shortcut android:shortcutId="today" android:enabled="true" android:icon="@drawable/ic_today" android:shortcutShortLabel="@string/nav_today">
+    <shortcut android:shortcutId="brief" android:enabled="true" android:icon="@drawable/ic_today" android:shortcutShortLabel="@string/nav_brief">
         <intent android:action="android.intent.action.VIEW" android:targetPackage="com.dailynews.app" android:targetClass="com.dailynews.app.MainActivity">
-            <extra android:name="route" android:value="today" />
+            <extra android:name="route" android:value="brief" />
         </intent>
     </shortcut>
     <shortcut android:shortcutId="history" android:enabled="true" android:icon="@drawable/ic_history" android:shortcutShortLabel="@string/nav_history">

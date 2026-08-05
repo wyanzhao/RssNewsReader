@@ -30,7 +30,8 @@ class V3ScreenMatrixScreenshotTest {
     fun recordsCompactExpandedLightDarkAndTwoHundredPercent() {
         val application = ApplicationProvider.getApplicationContext<DailyNewsApplication>()
         val routes = linkedMapOf(
-            "today" to "today",
+            "brief" to "brief",
+            "reader" to "reader",
             "history" to "history",
             "feeds" to "feeds",
             "favorites" to "favorites",

@@ -14,6 +14,14 @@ This repository builds a daily RSS report in two stages:
 
 `AGENTS.md` is the source of truth for contract boundaries and maintainer-facing behavior in this workspace. The step-by-step runtime procedure lives in the orchestrator skill and the subagent files.
 
+Since Epic U the Android app and the Python pipeline deliberately diverge in
+report shape: the Android app produces Part 1 only (Top N digest plus a native
+RSS reader consumes the full article pool), while `/dailynews-report` and
+`scripts/` keep producing Part 1 + Part 2. The contract rules in this document
+(link integrity, summary lint, no silent fallbacks, single writer per artifact)
+still bind both sides. Do not "fix" either side's report shape to re-align
+them; the divergence is a product decision, not a bug.
+
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.

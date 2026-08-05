@@ -47,7 +47,6 @@ import com.dailynews.app.ui.common.InfoCard
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.llm.ProviderType
 import com.dailynews.llm.StructuredMode
-import com.dailynews.model.Part2Mode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -227,7 +226,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pipelineItems(state: 
     item { NumberField("连接超时（秒）", form.llmConnectTimeoutSeconds, state.validationErrors["llmConnectTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmConnectTimeoutSeconds = value) } } }
     item { NumberField("读取超时（秒）", form.llmReadTimeoutSeconds, state.validationErrors["llmReadTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmReadTimeoutSeconds = value) } } }
     item { NumberField("单次调用总超时（秒）", form.llmCallTimeoutSeconds, state.validationErrors["llmCallTimeoutSeconds"]) { value -> viewModel.update { it.copy(llmCallTimeoutSeconds = value) } } }
-    item { Row { Checkbox(form.part2Mode == Part2Mode.LAZY, { lazy -> viewModel.update { it.copy(part2Mode = if (lazy) Part2Mode.LAZY else Part2Mode.FULL) } }); Text("Part 2 展开来源时生成（LAZY）", Modifier.padding(top = 12.dp)) } }
+    item { Text("Part 2（按来源全量中文摘要）已停用：报告仅产出 Top N 精选，DRAFTER 调用成本归零。恢复方式见 ui/report/ReportSections.kt。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     item { OutlinedTextField(form.feedbackText, { value -> viewModel.update { it.copy(feedbackText = value) } }, label = { Text("编辑反馈（每行一条，最多 20 条）") }, modifier = Modifier.fillMaxWidth()) }
     item { Button(onClick = viewModel::savePipeline, enabled = !state.busy && state.validationErrors.isEmpty()) { Text("保存生成流程") } }
     state.providerMessage?.let { item { Text(it) } }

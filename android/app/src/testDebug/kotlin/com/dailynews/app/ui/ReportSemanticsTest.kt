@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.dailynews.app.ui.common.ArticleCard
 import com.dailynews.app.ui.common.ArticleCardModel
 import com.dailynews.app.ui.report.ReportUiState
+import com.dailynews.app.ui.report.part2Section
 import com.dailynews.app.ui.report.reportContent
 import com.dailynews.app.ui.theme.DailyNewsTheme
 import com.dailynews.data.db.ReportEntity
@@ -54,8 +55,33 @@ class ReportSemanticsTest {
     }
 
     @Test
-    fun sourceFoldAndTopNShareKeepExplicitSemanticsAndExactPayload() {
+    fun part2SectionKeepsSourceFoldSemanticsWhenInvokedDirectly() {
         var toggled = ""
+        val state = ReportUiState(
+            report = ReportEntity("2026-08-04", "SUCCESS", "full", "# report", createdAtUtc = "2026-08-04T00:00:00Z"),
+            groups = listOf(ReportGroup("Example", "ok", 1)),
+        )
+        compose.setContent {
+            DailyNewsTheme(dynamicColor = false) {
+                LazyColumn {
+                    part2Section(
+                        state = state,
+                        onToggleGroup = { toggled = it },
+                        onMarkRead = {},
+                        onToggleFavorite = {},
+                        onOpen = {},
+                        onShare = {},
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithText("▶ Example · 1 篇").performClick()
+        assertEquals("Example", toggled)
+    }
+
+    @Test
+    fun reportContentHidesPart2GroupHeadersWhileKeepingTopNSharePayloadExact() {
         var shared = ""
         val exact = "# Top 1\n\n1. Exact\n"
         val state = ReportUiState(
@@ -68,7 +94,7 @@ class ReportSemanticsTest {
                     reportContent(
                         state = state,
                         onToggleRaw = {},
-                        onToggleGroup = { toggled = it },
+                        onToggleGroup = {},
                         onMarkRead = {},
                         onToggleFavorite = {},
                         onOpen = {},
@@ -78,8 +104,8 @@ class ReportSemanticsTest {
             }
         }
 
-        compose.onNodeWithText("▶ Example · 1 篇").performClick()
-        assertEquals("Example", toggled)
+        // Epic U：PART2_SECTION_ENABLED = false 后组头不再出现，且 Top N 分享 payload 逐字节不变。
+        compose.onNodeWithText("▶ Example · 1 篇").assertDoesNotExist()
         compose.onNodeWithText("分享 Top N").performClick()
         assertEquals(exact, shared)
     }

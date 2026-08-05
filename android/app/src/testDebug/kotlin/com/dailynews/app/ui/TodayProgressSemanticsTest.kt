@@ -7,7 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import com.dailynews.app.ui.theme.DailyNewsTheme
-import com.dailynews.app.ui.today.SweepProgressCard
+import com.dailynews.app.ui.common.SweepProgressCard
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith

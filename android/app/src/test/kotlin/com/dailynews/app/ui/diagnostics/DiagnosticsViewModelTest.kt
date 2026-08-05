@@ -104,7 +104,7 @@ class DiagnosticsViewModelTest {
         }
         val viewModel = newViewModel(initialRunId = null)
 
-        val state = awaitState(viewModel) { it.detail?.runId == "run-new" && !it.artifactsLoading }
+        val state = awaitState(viewModel) { it.detail?.runId == "run-new" && !it.artifactsLoading && it.stage != null }
         assertEquals("run-new", state.selectedRunId)
         assertEquals("run-new", state.detail?.runId)
         // Stage recovered from the entity's blocking reason drives the advisor.

@@ -135,6 +135,7 @@ fun LazyListScope.reportContent(
     onOpen: (String) -> Unit,
     onShare: (String) -> Unit,
     embedded: Boolean = false,
+    onOpenDiagnostics: (() -> Unit)? = null,
 ) {
     val entries = state.items
     val groups = state.groups
@@ -144,7 +145,11 @@ fun LazyListScope.reportContent(
             verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact),
         ) {
             StatusBadge(state.report?.status ?: "UNKNOWN")
-            Text("${entries.count { it.part == 2 }} 篇 · ${groups.size} 个来源", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (PART2_SECTION_ENABLED) "${entries.count { it.part == 2 }} 篇 · ${groups.size} 个来源"
+                else "Top ${entries.count { it.part == 1 }} · ${groups.size} 个来源",
+                style = MaterialTheme.typography.titleMedium,
+            )
             state.report?.failureReason?.takeIf(String::isNotBlank)?.let {
                 Text("审校未通过：$it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
@@ -180,6 +185,49 @@ fun LazyListScope.reportContent(
             onOpenRelated = onOpen,
         )
     }
+    if (PART2_SECTION_ENABLED) {
+        part2Section(
+            state = state,
+            onToggleGroup = onToggleGroup,
+            onMarkRead = onMarkRead,
+            onToggleFavorite = onToggleFavorite,
+            onOpen = onOpen,
+            onShare = onShare,
+            embedded = embedded,
+        )
+    } else {
+        sourceHealthItem(state.groups, embedded, onOpenDiagnostics)
+    }
+    item(key = if (embedded) "embedded-stats" else "report-stats") {
+        val statsText = if (PART2_SECTION_ENABLED) {
+            val rosterSize = groups.ifEmpty { entries.filter { it.part == 2 }.groupBy { it.source }.map { (source, sourceItems) -> ReportGroup(source, "ok", sourceItems.size) } }.size
+            "统计检查：Part 2 ${entries.count { it.part == 2 }} 篇；来源组 $rosterSize。"
+        } else {
+            "统计检查：Top ${part1.size} 篇；来源 ${groups.size} 个。"
+        }
+        Text(
+            statsText,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),
+        )
+    }
+}
+
+/**
+ * Part 2（按来源分组）展示段。Epic U 起由 [PART2_SECTION_ENABLED] 门控停用，
+ * 函数本体保留并由 ReportSemanticsTest 直接调用，保证折叠语义随时可恢复。
+ */
+internal fun LazyListScope.part2Section(
+    state: ReportUiState,
+    onToggleGroup: (String) -> Unit,
+    onMarkRead: (String) -> Unit,
+    onToggleFavorite: (ReportItemEntity) -> Unit,
+    onOpen: (String) -> Unit,
+    onShare: (String) -> Unit,
+    embedded: Boolean = false,
+) {
+    val entries = state.items
+    val groups = state.groups
     item(key = if (embedded) "embedded-part2-title" else "part2-title") {
         Text("Part 2 · 按来源", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth))
     }
@@ -225,12 +273,36 @@ fun LazyListScope.reportContent(
             }
         }
     }
-    item(key = if (embedded) "embedded-stats" else "report-stats") {
-        Text(
-            "统计检查：Part 2 ${entries.count { it.part == 2 }} 篇；来源组 ${roster.size}。",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),
-        )
+}
+
+/**
+ * 简报页「来源健康」卡。数据源是 reports.groupsJson（[ReportUiState.groups]），
+ * 语义为「本次报告抓取时」的快照；与阅读页 chip 上「最近抓取」的
+ * feedDisplayStatus 语义不同，文案必须显式区分。
+ */
+internal fun LazyListScope.sourceHealthItem(
+    groups: List<ReportGroup>,
+    embedded: Boolean,
+    onOpenDiagnostics: (() -> Unit)? = null,
+) {
+    if (groups.isEmpty()) return
+    val errors = groups.filter { it.status == "error" }
+    item(key = if (embedded) "embedded-source-health" else "source-health") {
+        Card(Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth)) {
+            Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                Text("来源健康（本次报告抓取时）", style = MaterialTheme.typography.titleLarge)
+                if (errors.isEmpty()) {
+                    Text("全部 ${groups.size} 个来源抓取正常。", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    errors.forEach { group ->
+                        Text("${group.source}：${group.errorText ?: "抓取失败"}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    onOpenDiagnostics?.let { open ->
+                        TextButton(onClick = open) { Text("打开诊断") }
+                    }
+                }
+            }
+        }
     }
 }
 

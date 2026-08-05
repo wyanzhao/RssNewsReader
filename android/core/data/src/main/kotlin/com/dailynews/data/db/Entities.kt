@@ -24,7 +24,15 @@ data class FeedEntity(
 @Serializable
 @Entity(
     tableName = "articles",
-    indices = [Index("pubDateIso"), Index("reportedDate"), Index("favoritedAtUtc")],
+    indices = [
+        Index("pubDateIso"),
+        Index("reportedDate"),
+        Index("favoritedAtUtc"),
+        // Epic U 阅读器：按源时间线纯索引范围扫描。
+        Index(value = ["feedName", "pubDateIso"]),
+        // Epic U 阅读器：未读计数覆盖索引，不回表。
+        Index(value = ["readAtUtc", "feedName", "pubDateIso"]),
+    ],
 )
 data class ArticleEntity(
     @PrimaryKey val linkKey: String,
@@ -195,6 +203,27 @@ data class FavoriteArticle(
     val pubDateUtc: String,
     val pubDateIso: String,
     val readAtUtc: String?,
+)
+
+/**
+ * 阅读器窄投影：不含 articleText 与完整 summaryEn，单项载荷比
+ * [ArticleEntity] 砍掉 >90%，避免全池 SELECT * 的十几 MB 扫描。
+ */
+data class ReaderArticle(
+    val linkKey: String,
+    val link: String,
+    val title: String,
+    val source: String,
+    val summaryZh: String,
+    val pubDateUtc: String,
+    val pubDateIso: String,
+    val readAtUtc: String?,
+    val favoritedAtUtc: String?,
+)
+
+data class FeedUnreadCount(
+    val feedName: String,
+    val unread: Int,
 )
 
 data class ReportedDateRow(val reportedDate: String)

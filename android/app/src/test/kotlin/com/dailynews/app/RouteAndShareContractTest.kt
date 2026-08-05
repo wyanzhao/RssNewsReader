@@ -32,7 +32,19 @@ class RouteAndShareContractTest {
             }
             parser.next()
         }
-        assertEquals(setOf("today", "history", "favorites"), routes)
+        assertEquals(setOf("brief", "history", "favorites"), routes)
+    }
+
+    @Test
+    fun canonicalRouteMapsLegacyTodayAliasAndIgnoresUnknownRoutes() {
+        assertEquals("brief", com.dailynews.app.ui.canonicalRoute("today"))
+        assertEquals("brief", com.dailynews.app.ui.canonicalRoute("brief"))
+        assertEquals("reader", com.dailynews.app.ui.canonicalRoute("reader"))
+        assertEquals("report/2026-08-04", com.dailynews.app.ui.canonicalRoute("report/2026-08-04"))
+        assertEquals("runDiagnostics/run-1", com.dailynews.app.ui.canonicalRoute("runDiagnostics/run-1"))
+        assertEquals(null, com.dailynews.app.ui.canonicalRoute(null))
+        assertEquals(null, com.dailynews.app.ui.canonicalRoute("  "))
+        assertEquals(null, com.dailynews.app.ui.canonicalRoute("not-a-route"))
     }
 
     @Test

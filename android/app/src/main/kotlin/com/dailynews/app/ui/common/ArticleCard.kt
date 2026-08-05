@@ -63,6 +63,8 @@ fun ArticleCard(
     onShare: () -> Unit,
     onOpenRelated: (String) -> Unit,
     generatingSummary: Boolean = false,
+    blankSummaryText: String = "暂无中文摘要",
+    extraMenuItem: @Composable (() -> Unit)? = null,
     now: Instant = Instant.now(),
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -117,7 +119,7 @@ fun ArticleCard(
                 }
                 Text(
                     article.summaryZh.ifBlank {
-                        if (generatingSummary) "正在生成中文摘要…" else "尚未生成中文摘要；展开来源组可重试。"
+                        if (generatingSummary) "正在生成中文摘要…" else blankSummaryText
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -130,6 +132,7 @@ fun ArticleCard(
                 }
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                extraMenuItem?.invoke()
                 DropdownMenuItem(
                     text = { Text("分享文章") },
                     onClick = { menuExpanded = false; onShare() },

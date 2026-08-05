@@ -37,13 +37,15 @@ import com.dailynews.app.ui.feeds.FeedsScreen
 import com.dailynews.app.ui.feeds.FeedsViewModel
 import com.dailynews.app.ui.history.HistoryScreen
 import com.dailynews.app.ui.history.HistoryViewModel
+import com.dailynews.app.ui.reader.ReaderScreen
+import com.dailynews.app.ui.reader.ReaderViewModel
 import com.dailynews.app.ui.report.ReportPane
 import com.dailynews.app.ui.report.ReportScreen
 import com.dailynews.app.ui.report.ReportViewModel
 import com.dailynews.app.ui.settings.SettingsScreen
 import com.dailynews.app.ui.settings.SettingsViewModel
-import com.dailynews.app.ui.today.TodayScreen
-import com.dailynews.app.ui.today.TodayViewModel
+import com.dailynews.app.ui.brief.TodayScreen
+import com.dailynews.app.ui.brief.TodayViewModel
 import com.dailynews.app.work.DailyReportWorker
 import com.dailynews.app.work.ReportScheduler
 import com.dailynews.app.work.SweepWorker
@@ -51,12 +53,26 @@ import kotlinx.coroutines.flow.Flow
 
 private data class Destination(val route: String, val label: Int, val icon: Int)
 private val destinations = listOf(
-    Destination("today", R.string.nav_today, R.drawable.ic_today),
-    Destination("history", R.string.nav_history, R.drawable.ic_history),
+    Destination("brief", R.string.nav_brief, R.drawable.ic_today),
+    Destination("reader", R.string.nav_reader, R.drawable.ic_reader),
     Destination("feeds", R.string.nav_feeds, R.drawable.ic_rss_feed),
     Destination("favorites", R.string.nav_favorites, R.drawable.ic_favorite),
     Destination("settings", R.string.nav_settings, R.drawable.ic_settings),
 )
+
+/**
+ * 路由归一化守卫：用户 pin 过的快捷方式会保留旧 extras（today→brief），
+ * nav.navigate(未注册路由) 会抛 IllegalArgumentException，脏 route 在此静默归零。
+ */
+internal fun canonicalRoute(raw: String?): String? {
+    val route = raw?.trim().orEmpty()
+    if (route.isEmpty()) return null
+    if (route == "today") return "brief"
+    if (route in topLevelRoutes || route.startsWith("report/") || route.startsWith("runDiagnostics/")) return route
+    return null
+}
+
+private val topLevelRoutes = setOf("brief", "reader", "history", "feeds", "favorites", "settings", "diagnostics")
 
 @Composable
 fun DailyNewsApp(
@@ -72,7 +88,7 @@ fun DailyNewsApp(
     val currentRoute = currentEntry?.destination?.route.orEmpty()
     LaunchedEffect(initialRoute, routeRequestVersion) {
         if (!initialRoute.isNullOrBlank()) {
-            nav.navigate(initialRoute) { launchSingleTop = true }
+            canonicalRoute(initialRoute)?.let { route -> nav.navigate(route) { launchSingleTop = true } }
             onRouteConsumed(routeRequestVersion)
         }
     }
@@ -114,14 +130,14 @@ private fun AppNavHost(
     val appContext = context.applicationContext
     NavHost(
         navController = nav,
-        startDestination = "today",
+        startDestination = "brief",
         modifier = modifier,
         enterTransition = { forwardEnter() },
         exitTransition = { forwardExit() },
         popEnterTransition = { backwardEnter() },
         popExitTransition = { backwardExit() },
     ) {
-        composable("today") {
+        composable("brief") {
             val vm: TodayViewModel = viewModel(factory = viewModelFactory {
                 TodayViewModel(
                     container.reportRepository,
@@ -141,6 +157,7 @@ private fun AppNavHost(
                 onOpenSettings = { nav.navigateTopLevel("settings") },
                 onOpenReport = { nav.navigate("report/$it") },
                 reportViewModel = { date -> reportViewModel(container, date) },
+                onOpenHistory = { nav.navigate("history") },
             )
         }
         composable("history") {
@@ -160,6 +177,12 @@ private fun AppNavHost(
         composable("favorites") {
             val vm: FavoritesViewModel = viewModel(factory = viewModelFactory { FavoritesViewModel(container.favoriteRepository) })
             FavoritesScreen(vm)
+        }
+        composable("reader") {
+            val vm: ReaderViewModel = viewModel(factory = viewModelFactory {
+                ReaderViewModel(container.articleRepository, container.feedRepository, container.favoriteRepository, sweepWorkInfos)
+            })
+            ReaderScreen(vm, onSweep = { SweepWorker.enqueueRefresh(context) })
         }
         composable("settings") {
             val vm: SettingsViewModel = viewModel(factory = savedStateViewModelFactory { savedState ->

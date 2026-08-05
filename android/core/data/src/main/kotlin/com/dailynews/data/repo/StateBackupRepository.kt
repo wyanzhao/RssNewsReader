@@ -32,7 +32,7 @@ import kotlinx.serialization.encodeToString
 @Serializable
 data class DeviceStateBackup(
     val schemaVersion: Int = 2,
-    val databaseVersion: Int = 6,
+    val databaseVersion: Int = 7,
     val exportedAtUtc: String,
     val pipelineConfig: PipelineConfig,
     val feeds: List<FeedEntity>,

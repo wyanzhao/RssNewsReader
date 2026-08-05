@@ -95,6 +95,11 @@ data class PipelineConfig(
         ),
         llmExecution = llmExecution.normalized(),
         part1MaxItems = part1MaxItems.coerceIn(10, 50),
+        // Epic U：Part 2（按来源逐条中文摘要）已退出产品面，强制 LAZY 使 DRAFTER 成本归零。
+        // normalized() 同时覆盖 DataStore 读/写、RunOrchestrator 与状态恢复四条路径，
+        // 并自愈老设备已落盘的 "part2_mode":"FULL"。
+        // 恢复步骤：删掉本行，并把 ui/report/ReportSections.kt 的 PART2_SECTION_ENABLED 改回 true。
+        part2Mode = Part2Mode.LAZY,
         artifactRetentionDays = artifactRetentionDays.coerceIn(1, 365),
         articleRetentionDays = articleRetentionDays.coerceIn(1, 365),
         sweepIntervalMinutes = sweepIntervalMinutes.coerceIn(15, 360),

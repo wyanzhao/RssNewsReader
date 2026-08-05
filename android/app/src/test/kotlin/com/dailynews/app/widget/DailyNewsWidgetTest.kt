@@ -14,8 +14,8 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class DailyNewsWidgetTest {
     @Test
-    fun widgetRoutesToLatestReportOrToday() {
-        assertEquals("today", widgetRoute(null))
+    fun widgetRoutesToLatestReportOrBrief() {
+        assertEquals("brief", widgetRoute(null))
         assertEquals("report/2026-08-04", widgetRoute(WidgetReportSnapshot("2026-08-04", "SUCCESS", emptyList())))
     }
 

@@ -12,6 +12,7 @@ __pycache__/
 
 # Editor / local tooling
 .codex/
+.qoder/
 .claude/worktrees/
 /.obsidian/
 

@@ -27,7 +27,7 @@ import java.nio.file.StandardCopyOption
         EditorialCacheEntity::class,
         SeenLinkEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class DailyNewsDatabase : RoomDatabase() {
@@ -157,6 +157,14 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Epic U 阅读器索引：索引名必须逐字匹配 Room 生成名，否则 validateMigration 失败。
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_articles_feedName_pubDateIso` ON `articles` (`feedName`, `pubDateIso`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_articles_readAtUtc_feedName_pubDateIso` ON `articles` (`readAtUtc`, `feedName`, `pubDateIso`)")
+            }
+        }
+
         fun create(context: Context): DailyNewsDatabase {
             val appContext = context.applicationContext
             backupDatabaseVersionIfNeeded(appContext, 3, "dailynews-v3.db")
@@ -165,7 +173,7 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
         }
 

@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.dailynews.data.config.ApiKeyVault
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.ArticleEntity
+import com.dailynews.data.db.ReportItemEntity
 import com.dailynews.data.files.ArtifactStore
 import com.dailynews.data.db.RunEntity
 import com.dailynews.data.db.RunLogEntity
@@ -493,6 +494,117 @@ class DatabaseAndImporterInstrumentedTest {
         }
 
         assertEquals(mapOf("raw.json" to "raw", "validation.json" to "validation"), entries)
+    }
+
+    @Test
+    fun readerTimelineCoversFourFilterCombinationsAndBlocksSyntheticRows() = runBlocking {
+        val articles = ArticleRepository(database)
+        fun entity(key: String, feed: String, iso: String, readAtUtc: String? = null) = ArticleEntity(
+            linkKey = key,
+            link = key,
+            feedName = feed,
+            title = "title $key",
+            summaryEn = "summary $key",
+            articleText = "",
+            pubDateUtc = "2026-08-04 10:00 UTC",
+            pubDateIso = iso,
+            fetchedAtUtc = "2026-08-04T10:01:00Z",
+            readAtUtc = readAtUtc,
+        )
+        database.articles().insert(entity("https://example/a1", "Alpha", "2026-08-04T10:00+00:00"))
+        database.articles().insert(entity("https://example/a2", "Alpha", "2026-08-04T09:00+00:00", readAtUtc = "2026-08-04T11:00:00Z"))
+        database.articles().insert(entity("https://example/b1", "Beta", "2026-08-04T10:00:30+00:00"))
+        // FavoriteRepository.save 造的合成行：无日期，必须被阅读器挡在门外。
+        com.dailynews.data.repo.FavoriteRepository(database).save("https://example/favorite", "Favorite only", "Gamma", "中文摘要")
+
+        val all = articles.observeTimeline(null, false, 100).first()
+        assertEquals(listOf("https://example/b1", "https://example/a1", "https://example/a2"), all.map { it.linkKey })
+
+        val allUnread = articles.observeTimeline(null, true, 100).first()
+        assertEquals(listOf("https://example/b1", "https://example/a1"), allUnread.map { it.linkKey })
+
+        val alpha = articles.observeTimeline("Alpha", false, 100).first()
+        assertEquals(listOf("https://example/a1", "https://example/a2"), alpha.map { it.linkKey })
+
+        val alphaUnread = articles.observeTimeline("Alpha", true, 100).first()
+        assertEquals(listOf("https://example/a1"), alphaUnread.map { it.linkKey })
+
+        assertEquals(3, articles.observePoolCount().first())
+        assertEquals(
+            mapOf("Alpha" to 1, "Beta" to 1, "Gamma" to 1),
+            articles.observeUnreadCounts().first().associate { it.feedName to it.unread },
+        )
+    }
+
+    @Test
+    fun markAllReadBatchRollsBackOnlyItsOwnStamp() = runBlocking {
+        val articles = ArticleRepository(database)
+        fun entity(key: String, feed: String) = ArticleEntity(
+            linkKey = key,
+            link = key,
+            feedName = feed,
+            title = "title $key",
+            summaryEn = "summary",
+            articleText = "",
+            pubDateUtc = "2026-08-04 10:00 UTC",
+            pubDateIso = "2026-08-04T10:00+00:00",
+            fetchedAtUtc = "2026-08-04T10:01:00Z",
+        )
+        database.articles().insert(entity("https://example/batch1", "Alpha"))
+        database.articles().insert(entity("https://example/batch2", "Alpha"))
+        database.articles().insert(entity("https://example/other", "Beta"))
+
+        assertEquals(2, articles.markAllRead("Alpha", "2026-08-04T12:00:00Z"))
+        // 批次之后用户真正读过的文章用不同时间戳，不应被撤销误伤。
+        articles.markRead("https://example/other", Instant.parse("2026-08-04T12:05:00Z"))
+
+        assertTrue(articles.observeTimeline("Beta", true, 100).first().isEmpty())
+        assertEquals(1, articles.undoMarkAllRead("2026-08-04T12:00:00Z"))
+        assertEquals(
+            listOf("https://example/batch1", "https://example/batch2"),
+            articles.observeTimeline("Alpha", true, 100).first().map { it.linkKey },
+        )
+        assertTrue(articles.observeTimeline("Beta", true, 100).first().isEmpty())
+        // 单条标未读反向可用。
+        articles.markUnread("https://example/other")
+        assertEquals(listOf("https://example/other"), articles.observeTimeline("Beta", true, 100).first().map { it.linkKey })
+    }
+
+    @Test
+    fun favoritesAndReaderStillFallBackToEnglishSummaryWhenPart2RowsAreBlank() = runBlocking {
+        // U1 回归锁：LAZY 下 part=2 行写入空串 summaryZh，COALESCE 只跳过 NULL
+        // 不跳过 ''；同日 part=1/part=2 之间 ORDER BY reportDate DESC LIMIT 1 未定序。
+        val link = "https://example/fallback"
+        database.articles().insert(
+            ArticleEntity(
+                linkKey = link,
+                link = link,
+                feedName = "Source",
+                title = "Fallback title",
+                summaryEn = "English fallback summary",
+                articleText = "",
+                pubDateUtc = "2026-08-04 10:00 UTC",
+                pubDateIso = "2026-08-04T10:00+00:00",
+                fetchedAtUtc = "2026-08-04T10:01:00Z",
+            ),
+        )
+        database.reports().insertItems(
+            listOf(
+                ReportItemEntity("2026-08-04", 2, 1, link, "Fallback title", "Source", "", "", summaryZh = ""),
+                ReportItemEntity("2026-08-04", 1, 1, link, "Fallback title", "Source", "", "", summaryZh = "精选中文摘要"),
+            ),
+        )
+        com.dailynews.data.repo.FavoriteRepository(database).restore(link)
+
+        assertEquals("精选中文摘要", database.articles().observeFavorites().first().single().summaryZh)
+        assertEquals("精选中文摘要", ArticleRepository(database).observeTimeline(null, false, 100).first().single().summaryZh)
+
+        // 两行摘要都是空串时回落 summaryEn。
+        database.reports().deleteItems("2026-08-04")
+        database.reports().insertItems(
+            listOf(ReportItemEntity("2026-08-04", 2, 1, link, "Fallback title", "Source", "", "", summaryZh = "")),
+        )
+        assertEquals("English fallback summary", database.articles().observeFavorites().first().single().summaryZh)
     }
 
     @Test

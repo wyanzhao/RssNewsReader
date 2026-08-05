@@ -42,7 +42,7 @@ class DailyNewsWidgetReceiver : GlanceAppWidgetReceiver() {
 
 private val routeKey = ActionParameters.Key<String>("route")
 
-internal fun widgetRoute(snapshot: WidgetReportSnapshot?): String = snapshot?.reportDate?.let { "report/$it" } ?: "today"
+internal fun widgetRoute(snapshot: WidgetReportSnapshot?): String = snapshot?.reportDate?.let { "report/$it" } ?: "brief"
 
 @Composable
 internal fun WidgetContent(snapshot: WidgetReportSnapshot?) {

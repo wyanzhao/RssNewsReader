@@ -78,12 +78,14 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun part2ModeDefaultsToFullAndExplicitLazySelectionIsPersisted() {
-        assertEquals(Part2Mode.FULL, SettingsFormState().applyTo(PipelineConfig()).part2Mode)
+    fun part2ModeIsForcedLazyByNormalizationRegardlessOfFormSelection() {
+        // Epic U：normalized() 强制 LAZY，无论表单选什么、落盘值是什么。
+        assertEquals(Part2Mode.LAZY, SettingsFormState().applyTo(PipelineConfig()).part2Mode)
         assertEquals(
             Part2Mode.LAZY,
-            SettingsFormState(part2Mode = Part2Mode.LAZY).applyTo(PipelineConfig()).part2Mode,
+            SettingsFormState(part2Mode = Part2Mode.FULL).applyTo(PipelineConfig(part2Mode = Part2Mode.FULL)).part2Mode,
         )
+        assertEquals(Part2Mode.LAZY, PipelineConfig(part2Mode = Part2Mode.FULL).normalized().part2Mode)
     }
 
     @Test

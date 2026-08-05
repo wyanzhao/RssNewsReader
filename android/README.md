@@ -4,6 +4,22 @@ Native Kotlin/Jetpack Compose port of DailyNews. It keeps deterministic
 validation, artifact schemas, link integrity, summary lint, seen-links, and
 editorial cache semantics aligned with the Python reference implementation.
 
+## Product surfaces
+
+- **简报 (brief)** — the AI-edited Top N digest with Chinese summaries.
+  Consumes `reports` / `report_items` only. The history entry sits in this
+  screen's top bar.
+- **阅读 (reader)** — a native RSS reader over the article pool: timeline,
+  per-feed filter chips with unread counts and health dots, unread-only
+  filter, read/unread and favorites. Consumes `articles` / `feeds` only.
+- **订阅 / 收藏 / 设置 (feeds / favorites / settings)** — unchanged surfaces.
+
+Part 2 (per-source groups with per-article Chinese summaries) was retired in
+Epic U — see `ui/report/ReportSections.kt` for the two-line restore procedure.
+Since Epic U the Android report shape intentionally diverges from the Python
+`/dailynews-report` pipeline, which still produces Part 1 + Part 2; do not
+re-align them.
+
 ## Modules
 
 - `core:model` — serializable artifact and configuration contracts (pure JVM)

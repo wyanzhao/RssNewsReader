@@ -5,6 +5,8 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import com.dailynews.data.db.ArticleEntity
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.FetchLogEntity
+import com.dailynews.data.db.FeedUnreadCount
+import com.dailynews.data.db.ReaderArticle
 import com.dailynews.model.Article
 import com.dailynews.model.PipelineConfig
 import com.dailynews.model.RawRun
@@ -133,6 +135,26 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     suspend fun markRead(link: String, now: Instant = Instant.now()) {
         database.articles().markRead(TextUtils.dedupLinkKey(link), now.toString())
     }
+
+    // Epic U 阅读器数据层：窄投影时间线、未读计数、已读/未读写入。
+    fun observeTimeline(feedName: String?, unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>> {
+        val capped = limit.coerceIn(1, 1_000)
+        return if (feedName == null) database.articles().observeTimeline(unreadOnly, capped)
+        else database.articles().observeTimelineForFeed(feedName, unreadOnly, capped)
+    }
+
+    fun observeUnreadCounts(): Flow<List<FeedUnreadCount>> = database.articles().observeUnreadCounts()
+
+    fun observePoolCount(): Flow<Int> = database.articles().observePoolCount()
+
+    suspend fun markUnread(linkKey: String) = database.articles().markUnread(linkKey)
+
+    /** 批次时间戳标记全部已读；撤销时用同一时间戳精确回滚。 */
+    suspend fun markAllRead(feedName: String?, batchStamp: String): Int =
+        if (feedName == null) database.articles().markAllRead(null, batchStamp)
+        else database.articles().markAllReadForFeed(feedName, batchStamp)
+
+    suspend fun undoMarkAllRead(batchStamp: String): Int = database.articles().undoMarkAllRead(batchStamp)
 
     suspend fun prune(retainDays: Int, now: Instant = Instant.now()): Pair<Int, Int> = database.withTransaction {
         val before = now.minus(retainDays.coerceIn(1, 365).toLong(), ChronoUnit.DAYS).toString()

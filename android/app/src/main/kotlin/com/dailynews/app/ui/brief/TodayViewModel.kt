@@ -1,8 +1,10 @@
-package com.dailynews.app.ui.today
+package com.dailynews.app.ui.brief
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
+import com.dailynews.app.ui.common.SweepUiProgress
+import com.dailynews.app.ui.common.sweepProgressFor
 import com.dailynews.data.config.PipelineConfigRepository
 import com.dailynews.data.config.ProviderSettingsRepository
 import com.dailynews.data.db.ReportSummary
@@ -38,11 +40,6 @@ data class TodayUiState(
     val nextScheduledAt: String = "",
     val sweepRefreshing: Boolean = false,
     val sweepProgressLabel: String = "",
-)
-
-internal data class SweepUiProgress(
-    val active: Boolean = false,
-    val label: String = "",
 )
 
 private data class TodayOperationalState(
@@ -98,13 +95,6 @@ class TodayViewModel(
             sweepProgressLabel = ops.sweep.label,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayUiState())
-}
-
-internal fun sweepProgressFor(states: List<WorkInfo.State>): SweepUiProgress = when {
-    WorkInfo.State.RUNNING in states -> SweepUiProgress(true, "正在抓取 RSS 并更新文章池…")
-    states.any { it == WorkInfo.State.ENQUEUED || it == WorkInfo.State.BLOCKED } ->
-        SweepUiProgress(true, "抓取任务已排队，正在等待网络或系统调度…")
-    else -> SweepUiProgress()
 }
 
 internal fun nextScheduledLabel(scheduleTime: String, now: ZonedDateTime): String {

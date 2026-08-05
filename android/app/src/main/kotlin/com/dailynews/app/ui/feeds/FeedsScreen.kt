@@ -49,11 +49,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dailynews.app.R
 import com.dailynews.app.ui.common.ConfirmDialog
 import com.dailynews.app.ui.common.StatusBadge
+import com.dailynews.app.ui.common.feedDisplayStatus
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.data.repo.FeedRecord
-import java.time.Duration
-import java.time.Instant
-import java.time.OffsetDateTime
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
@@ -212,15 +210,4 @@ private fun FeedRow(feed: FeedRecord, onEdit: () -> Unit, onDelete: () -> Unit, 
             }
         }
     }
-}
-
-internal fun feedDisplayStatus(feed: FeedRecord, now: Instant = Instant.now()): String {
-    if (feed.lastStatus == "error") return "ERROR"
-    val newest = feed.newestItemDateIso?.let { value ->
-        runCatching { Instant.parse(value) }.getOrElse {
-            runCatching { OffsetDateTime.parse(value).toInstant() }.getOrNull()
-        }
-    }
-    if (newest != null && Duration.between(newest, now).toDays() > 30) return "STALE"
-    return feed.lastStatus ?: "UNKNOWN"
 }

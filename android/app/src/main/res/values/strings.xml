@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">DailyNews</string>
-    <string name="nav_today">今日</string>
+    <string name="nav_brief">简报</string>
+    <string name="nav_reader">阅读</string>
     <string name="nav_history">历史</string>
     <string name="nav_feeds">订阅</string>
     <string name="nav_favorites">收藏</string>

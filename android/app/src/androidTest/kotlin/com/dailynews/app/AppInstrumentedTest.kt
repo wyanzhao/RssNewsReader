@@ -18,7 +18,7 @@ import com.dailynews.app.work.DailyReportWorker
 import com.dailynews.app.work.ReportScheduler
 import com.dailynews.app.work.SweepWorker
 import com.dailynews.app.ui.common.relativeArticleTime
-import com.dailynews.app.ui.feeds.feedDisplayStatus
+import com.dailynews.app.ui.common.feedDisplayStatus
 import com.dailynews.data.repo.FeedRecord
 import androidx.work.NetworkType
 import androidx.work.Configuration

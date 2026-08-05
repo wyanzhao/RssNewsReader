@@ -1,4 +1,4 @@
-package com.dailynews.app.ui.today
+package com.dailynews.app.ui.brief
 
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -31,10 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +43,7 @@ import com.dailynews.app.ui.common.ConfirmDialog
 import com.dailynews.app.ui.common.EmptyState
 import com.dailynews.app.ui.common.InfoCard
 import com.dailynews.app.ui.common.StatusBadge
+import com.dailynews.app.ui.common.SweepProgressCard
 import com.dailynews.app.ui.common.shareText
 import com.dailynews.app.ui.report.ReportViewModel
 import com.dailynews.app.ui.report.reportContent
@@ -60,6 +61,7 @@ fun TodayScreen(
     onOpenSettings: () -> Unit,
     onOpenReport: (String) -> Unit,
     reportViewModel: @Composable (String) -> ReportViewModel,
+    onOpenHistory: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmRun by remember { mutableStateOf(false) }
@@ -90,7 +92,12 @@ fun TodayScreen(
                         Text("文章池 ${state.poolCount} 篇 · 下次 ${state.nextScheduledAt}", style = MaterialTheme.typography.labelMedium)
                     }
                 },
-                actions = { TextButton(onClick = { confirmRun = true }) { Text(stringResource(R.string.run_now)) } },
+                actions = {
+                    TextButton(onClick = { confirmRun = true }) { Text(stringResource(R.string.run_now)) }
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(painterResource(R.drawable.ic_history), contentDescription = "历史报告")
+                    }
+                },
                 scrollBehavior = scrollBehavior,
             )
         },
@@ -172,27 +179,10 @@ fun TodayScreen(
                         onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
                         onShare = { text -> shareText(context, text) },
                         embedded = true,
+                        onOpenDiagnostics = { onOpenDiagnostics(state.currentRun?.runId) },
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-internal fun SweepProgressCard(label: String) {
-    Card(
-        Modifier
-            .fillMaxWidth()
-            .widthIn(max = DailyNewsSpacing.readingMaxWidth)
-            .semantics { liveRegion = LiveRegionMode.Polite },
-    ) {
-        Column(
-            Modifier.padding(DailyNewsSpacing.regular),
-            verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact),
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            LinearProgressIndicator(Modifier.fillMaxWidth())
         }
     }
 }

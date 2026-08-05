@@ -83,7 +83,9 @@ interface ArticleDao {
     @Query("SELECT COUNT(*) FROM articles WHERE julianday(pubDateIso) >= julianday(:fromIso)") fun observeCountSince(fromIso: String): Flow<Int>
     @Query("""
         SELECT a.linkKey, a.link, a.title, a.feedName AS source,
-               COALESCE((SELECT ri.summaryZh FROM report_items ri WHERE ri.link = a.link ORDER BY ri.reportDate DESC LIMIT 1), a.summaryEn) AS summaryZh,
+               COALESCE((SELECT ri.summaryZh FROM report_items ri
+                         WHERE ri.link = a.link AND ri.summaryZh <> ''
+                         ORDER BY ri.reportDate DESC, ri.part LIMIT 1), a.summaryEn) AS summaryZh,
                a.favoritedAtUtc AS favoritedAtUtc,
                a.pubDateUtc AS pubDateUtc,
                a.pubDateIso AS pubDateIso,
@@ -93,6 +95,50 @@ interface ArticleDao {
         ORDER BY a.favoritedAtUtc DESC
     """)
     fun observeFavorites(): Flow<List<FavoriteArticle>>
+    // Epic U 阅读器：两条 SQL 分别覆盖「全部/按源」×「全部/只看未读」四种组合。
+    // 不写成 (:feedName IS NULL OR …) 的单条形式——OR 会让优化器放弃复合索引；
+    // 拆开后可由 Kotlin 选择命中 index_articles_pubDateIso 或 index_articles_feedName_pubDateIso。
+    // pubDateIso <> '' 顺带挡住 FavoriteRepository.save 造的合成行（无日期）；
+    // ORDER BY pubDateIso DESC 直接走索引（字典序 = 时间序，见 FeedFetcher.toOffsetIso）。
+    @Query("""
+        SELECT a.linkKey, a.link, a.title, a.feedName AS source,
+               COALESCE((SELECT ri.summaryZh FROM report_items ri
+                         WHERE ri.link = a.link AND ri.summaryZh <> ''
+                         ORDER BY ri.reportDate DESC, ri.part LIMIT 1), a.summaryEn) AS summaryZh,
+               a.pubDateUtc, a.pubDateIso, a.readAtUtc, a.favoritedAtUtc
+        FROM articles a
+        WHERE a.pubDateIso <> ''
+          AND (:unreadOnly = 0 OR a.readAtUtc IS NULL)
+        ORDER BY a.pubDateIso DESC, a.linkKey
+        LIMIT :limit
+    """)
+    fun observeTimeline(unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>>
+    @Query("""
+        SELECT a.linkKey, a.link, a.title, a.feedName AS source,
+               COALESCE((SELECT ri.summaryZh FROM report_items ri
+                         WHERE ri.link = a.link AND ri.summaryZh <> ''
+                         ORDER BY ri.reportDate DESC, ri.part LIMIT 1), a.summaryEn) AS summaryZh,
+               a.pubDateUtc, a.pubDateIso, a.readAtUtc, a.favoritedAtUtc
+        FROM articles a
+        WHERE a.pubDateIso <> ''
+          AND a.feedName = :feedName
+          AND (:unreadOnly = 0 OR a.readAtUtc IS NULL)
+        ORDER BY a.pubDateIso DESC, a.linkKey
+        LIMIT :limit
+    """)
+    fun observeTimelineForFeed(feedName: String, unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>>
+    @Query("SELECT feedName, COUNT(*) AS unread FROM articles WHERE readAtUtc IS NULL AND pubDateIso <> '' GROUP BY feedName")
+    fun observeUnreadCounts(): Flow<List<FeedUnreadCount>>
+    @Query("SELECT COUNT(*) FROM articles WHERE pubDateIso <> ''") fun observePoolCount(): Flow<Int>
+    @Query("UPDATE articles SET readAtUtc = NULL WHERE linkKey = :linkKey") suspend fun markUnread(linkKey: String)
+    @Query("""
+        UPDATE articles SET readAtUtc = :batchStamp
+        WHERE readAtUtc IS NULL AND pubDateIso <> '' AND (:feedName IS NULL OR feedName = :feedName)
+    """)
+    suspend fun markAllRead(feedName: String?, batchStamp: String): Int
+    @Query("UPDATE articles SET readAtUtc = :batchStamp WHERE readAtUtc IS NULL AND pubDateIso <> '' AND feedName = :feedName")
+    suspend fun markAllReadForFeed(feedName: String, batchStamp: String): Int
+    @Query("UPDATE articles SET readAtUtc = NULL WHERE readAtUtc = :batchStamp") suspend fun undoMarkAllRead(batchStamp: String): Int
     @RawQuery(observedEntities = [ArticleEntity::class]) fun search(query: SupportSQLiteQuery): Flow<List<ArticleEntity>>
     @RawQuery(observedEntities = [ArticleEntity::class]) fun searchReportedDates(query: SupportSQLiteQuery): Flow<List<ReportedDateRow>>
     @Query("DELETE FROM articles WHERE favoritedAtUtc IS NULL AND fetchedAtUtc < :beforeUtc") suspend fun prune(beforeUtc: String): Int
