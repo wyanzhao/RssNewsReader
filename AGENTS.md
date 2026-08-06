@@ -25,7 +25,7 @@ them; the divergence is a product decision, not a bug.
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
-- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md` and points task-style work to the shared project skill.
+- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md`, points task-style work to the shared project skill, and owns the version bump rule (see `Versioning` below).
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
 - `pipeline_config.json` is the repo-level deterministic pipeline config for fetch defaults (time window, summary cap), summary-enrichment, and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
@@ -34,6 +34,22 @@ them; the divergence is a product decision, not a bug.
 - `.claude/skills/dailynews-report/agents/openai.yaml` is the Codex Skill UI metadata and must keep the workflow manual-only with `policy.allow_implicit_invocation: false`.
 - `.agents/skills/dailynews-report/agents` is the Codex / agent metadata path and must remain a symlink to `.claude/skills/dailynews-report/agents`.
 - `.claude/agents/*.md` defines the specialized LLM subagents used by the orchestrator skill.
+
+## Versioning
+
+The app version lives in exactly one place — `versionCode` / `versionName` in
+`android/app/build.gradle.kts`. There is no second version string in this repo,
+and `scripts/` (the Python pipeline) is deliberately versionless.
+
+**The bump rule itself is defined in `CLAUDE.md` under `Version Bump Rule`, and
+that file is the single source of truth for it.** It binds every agent working
+in this repo, Codex included — read it before changing anything under
+`android/`. It is stated there rather than restated here on purpose: two copies
+of a numeric policy drift, and the drift is silent.
+
+Note the direction of the reference. `CLAUDE.md` imports `AGENTS.md` with
+`@AGENTS.md`; this section is a plain pointer back, never an `@`-import, so the
+two files do not form an import cycle.
 
 ## Entry Points
 
