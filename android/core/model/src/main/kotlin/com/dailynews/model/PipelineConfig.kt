@@ -38,10 +38,10 @@ data class RenderConfig(
 
 @Serializable
 data class ContextBudgetConfig(
-    @SerialName("llm_context_max_bytes") val llmContextMaxBytes: Int = 300_000,
+    @SerialName("llm_context_max_bytes") val llmContextMaxBytes: Int = 500_000,
     @SerialName("part1_brief_max_bytes") val part1BriefMaxBytes: Int = 150_000,
     @SerialName("part2_context_max_bytes") val part2ContextMaxBytes: Int = 150_000,
-    @SerialName("total_context_max_bytes") val totalContextMaxBytes: Int = 540_000,
+    @SerialName("total_context_max_bytes") val totalContextMaxBytes: Int = 800_000,
     @SerialName("hard_block") val hardBlock: Boolean = true,
 )
 

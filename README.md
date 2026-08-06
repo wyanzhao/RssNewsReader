@@ -179,10 +179,10 @@ thresholds used by the deterministic pipeline:
     "part2_summary_max_chars": 200
   },
   "context_budget": {
-    "llm_context_max_bytes": 300000,
+    "llm_context_max_bytes": 500000,
     "part1_brief_max_bytes": 150000,
     "part2_context_max_bytes": 150000,
-    "total_context_max_bytes": 540000
+    "total_context_max_bytes": 800000
   }
 }
 ```
