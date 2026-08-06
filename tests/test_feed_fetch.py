@@ -17,14 +17,21 @@ import io
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
+from http.client import IncompleteRead
 from pathlib import Path
+from unittest import mock
 from urllib.error import HTTPError, URLError
 
 
 def _http_error(url: str, code: int, msg: str) -> HTTPError:
-    # Pass a real (empty) fp so CPython does not allocate a tempfile-backed one
-    # that emits a ResourceWarning when the exception is later garbage-collected.
-    return HTTPError(url, code, msg, hdrs={}, fp=io.BytesIO(b""))
+    # Pass a real (empty) fp and close it up front. CPython still allocates a
+    # tempfile-backed body behind HTTPError, and an unclosed one emits a
+    # ResourceWarning whenever the exception is garbage-collected. Closing at
+    # construction releases it while leaving .code / .msg readable, which is all
+    # the fetch path ever touches.
+    error = HTTPError(url, code, msg, hdrs={}, fp=io.BytesIO(b""))
+    error.close()
+    return error
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -50,6 +57,130 @@ def _article(link: str, *, pub_date: datetime, summary_en: str = "",
         "pub_date": pub_date,
         "summary_en": summary_en,
     }
+
+
+class _Headers:
+    def __init__(self, charset: str | None) -> None:
+        self._charset = charset
+
+    def get_content_charset(self):
+        return self._charset
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes = b"<rss/>", charset: str | None = "utf-8") -> None:
+        self._body = body
+        self.headers = _Headers(charset)
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+class FetchUrlRetryTests(unittest.TestCase):
+    """The retry predicate: what counts as transient and what does not.
+
+    ``fetch_url`` is the one place in the pipeline that decides whether a failed
+    request is worth repeating. Both directions of that decision are load-bearing
+    and neither shows up in the end-to-end smoke, so they are pinned here.
+    """
+
+    def _run(self, urlopen_fn, **kwargs):
+        attempts: list = []
+
+        def counting(req, timeout=None):
+            attempts.append(req)
+            return urlopen_fn(len(attempts), req)
+
+        with mock.patch.object(feed_fetch, "urlopen", counting), \
+                mock.patch.object(feed_fetch.time, "sleep"):
+            try:
+                result = feed_fetch.fetch_url("https://x/feed.xml", **kwargs)
+                return attempts, result, None
+            except Exception as exc:  # noqa: BLE001 - the error is the assertion target
+                return attempts, None, exc
+
+    def test_incomplete_read_is_retried_and_can_succeed(self):
+        # The regression this guards: IncompleteRead descends from HTTPException,
+        # not OSError, so the original retry tuple never caught it and a
+        # mid-transfer truncation became a permanent feed error on the first try.
+        def flaky(attempt, _req):
+            if attempt == 1:
+                raise IncompleteRead(b"half a doc")
+            return _FakeResponse(b"<rss/>")
+
+        attempts, result, error = self._run(flaky)
+        self.assertIsNone(error)
+        self.assertEqual(result, (b"<rss/>", "utf-8"))
+        self.assertEqual(len(attempts), 2)
+
+    def test_incomplete_read_still_propagates_after_exhausting_retries(self):
+        def always(_attempt, _req):
+            raise IncompleteRead(b"half a doc")
+
+        attempts, _result, error = self._run(always)
+        self.assertIsInstance(error, IncompleteRead)
+        self.assertEqual(len(attempts), 3)
+
+    def test_client_error_fails_fast_without_retrying(self):
+        def blocked(_attempt, _req):
+            raise _http_error("https://x/feed.xml", 403, "Forbidden")
+
+        attempts, _result, error = self._run(blocked)
+        self.assertIsInstance(error, HTTPError)
+        self.assertEqual(error.code, 403)
+        self.assertEqual(len(attempts), 1, "a 403 cannot change on an identical retry")
+
+    def test_rate_limit_is_still_retried(self):
+        def throttled(_attempt, _req):
+            raise _http_error("https://x/feed.xml", 429, "Too Many Requests")
+
+        attempts, _result, error = self._run(throttled)
+        self.assertEqual(error.code, 429)
+        self.assertEqual(len(attempts), 3, "429 is the one 4xx where waiting helps")
+
+    def test_server_error_is_still_retried(self):
+        def flaky(_attempt, _req):
+            raise _http_error("https://x/feed.xml", 503, "Service Unavailable")
+
+        attempts, _result, error = self._run(flaky)
+        self.assertEqual(error.code, 503)
+        self.assertEqual(len(attempts), 3)
+
+    def test_connection_error_is_still_retried(self):
+        def offline(_attempt, _req):
+            raise URLError("name resolution failed")
+
+        attempts, _result, error = self._run(offline)
+        self.assertIsInstance(error, URLError)
+        self.assertEqual(len(attempts), 3)
+
+    def test_default_user_agent_is_sent_when_no_override(self):
+        attempts, _result, error = self._run(lambda _a, _r: _FakeResponse())
+        self.assertIsNone(error)
+        self.assertEqual(
+            attempts[0].get_header("User-agent"), feed_fetch.DEFAULT_USER_AGENT,
+        )
+
+    def test_user_agent_override_replaces_the_default(self):
+        attempts, _result, error = self._run(
+            lambda _a, _r: _FakeResponse(), user_agent="CustomReader/1.0",
+        )
+        self.assertIsNone(error)
+        self.assertEqual(attempts[0].get_header("User-agent"), "CustomReader/1.0")
+
+    def test_blank_user_agent_falls_back_to_the_default(self):
+        attempts, _result, _error = self._run(
+            lambda _a, _r: _FakeResponse(), user_agent="",
+        )
+        self.assertEqual(
+            attempts[0].get_header("User-agent"), feed_fetch.DEFAULT_USER_AGENT,
+        )
 
 
 class FetchRssFeedTests(unittest.TestCase):
@@ -129,7 +260,49 @@ class FetchRssFeedTests(unittest.TestCase):
         self.assertIsNone(newest)
 
 
+    def test_user_agent_is_forwarded_to_the_fetcher(self):
+        seen = {}
+
+        def capture(url, **kwargs):
+            seen.update(kwargs)
+            return b"<rss/>", "utf-8"
+
+        fetch_rss_feed(
+            "Feed", "https://x/feed.xml", user_agent="CustomReader/1.0",
+            fetch_url_fn=capture,
+            decode_content_fn=lambda raw, charset: "",
+            parse_feed_fn=lambda content, max_summary=0: [],
+        )
+        self.assertEqual(seen.get("user_agent"), "CustomReader/1.0")
+
+
 class FetchAllFeedsTests(unittest.TestCase):
+    def test_user_agent_override_is_passed_only_when_the_feed_declares_one(self):
+        # The two tests below this one call fetch_feed_fn stubs that take exactly
+        # four positional args and no **kwargs. That is the compatibility this
+        # conditional protects: feeds without an override must keep the old call
+        # shape, or every injected stub in the suite breaks at once.
+        calls: list = []
+
+        def fake_fetch(name, url, hours, max_summary, **kwargs):
+            calls.append((name, kwargs))
+            return [], None, None
+
+        fetch_all_feeds(
+            [
+                {"name": "Plain", "url": "https://x/a"},
+                {"name": "Override", "url": "https://x/b", "user_agent": "CustomReader/1.0"},
+                {"name": "Blank", "url": "https://x/c", "user_agent": "   "},
+            ],
+            max_workers=1,
+            fetch_feed_fn=fake_fetch,
+        )
+
+        by_name = dict(calls)
+        self.assertEqual(by_name["Plain"], {})
+        self.assertEqual(by_name["Override"], {"user_agent": "CustomReader/1.0"})
+        self.assertEqual(by_name["Blank"], {}, "whitespace is not an override")
+
     def test_aggregates_articles_and_status_across_feeds(self):
         feeds = [
             {"name": "Good", "url": "https://x/a"},

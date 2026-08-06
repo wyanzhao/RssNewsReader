@@ -913,5 +913,66 @@ class ValidatePlanTighteningTests(unittest.TestCase):
         )
 
 
+def _part2_context_needing(link: str) -> dict:
+    return {
+        "groups": [{
+            "source": "A",
+            "status": "ok",
+            "error_text": None,
+            "articles": [{
+                "title": "T",
+                "link": link,
+                "pub_date_iso": "2026-08-05T00:00:00+00:00",
+                "needs_summary": True,
+            }],
+        }],
+    }
+
+
+class MergePart2ContainerKeyTests(unittest.TestCase):
+    """The container name the drafter emits must not look like data loss."""
+
+    LINK = "https://example.com/a"
+
+    def test_missing_container_key_is_accepted(self):
+        # The artifact is called part2_missing_summaries.json, so "missing" is
+        # the name integrations reach for first. It used to be the one spelling
+        # that silently matched nothing.
+        merged = editorial_runtime.merge_part2_context(
+            _part2_context_needing(self.LINK),
+            {"missing": [{"link": self.LINK, "summary_zh": "中文摘要"}]},
+        )
+        self.assertEqual(merged["total_articles"], 1)
+        self.assertEqual(merged["groups"][0]["articles"][0]["summary_zh"], "中文摘要")
+
+    def test_documented_container_keys_all_still_work(self):
+        for key in ("items", "articles", "summaries"):
+            with self.subTest(key=key):
+                merged = editorial_runtime.merge_part2_context(
+                    _part2_context_needing(self.LINK),
+                    {key: [{"link": self.LINK, "summary_zh": "中文摘要"}]},
+                )
+                self.assertEqual(merged["total_articles"], 1)
+
+    def test_unknown_container_key_is_named_in_the_error(self):
+        with self.assertRaises(ValueError) as caught:
+            editorial_runtime.merge_part2_context(
+                _part2_context_needing(self.LINK),
+                {"results": [{"link": self.LINK, "summary_zh": "中文摘要"}]},
+            )
+        message = str(caught.exception)
+        self.assertIn("'results'", message)
+        self.assertIn("missing", message)
+
+    def test_genuinely_absent_summary_does_not_claim_a_key_mismatch(self):
+        # A real shortfall must not be relabelled as a container-name problem.
+        with self.assertRaises(ValueError) as caught:
+            editorial_runtime.merge_part2_context(
+                _part2_context_needing(self.LINK),
+                {"items": [{"link": "https://example.com/other", "summary_zh": "别的"}]},
+            )
+        self.assertNotIn("hint:", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

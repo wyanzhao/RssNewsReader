@@ -409,11 +409,24 @@ def validate_part2(context: Dict[str, Any], validation: Dict[str, Any], part2: D
     return errors
 
 
+MISSING_SUMMARY_CONTAINER_KEYS = ("missing", "items", "articles", "summaries")
+
+
+def _sole_list_key(payload: Dict[str, Any]) -> str:
+    """The payload's only list-valued top-level key, or ``""`` if not exactly one.
+
+    Used purely to turn an unrecognized container name into a diagnosable
+    error instead of a link dump that reads like data loss.
+    """
+    list_keys = [key for key, value in payload.items() if isinstance(value, list)]
+    return list_keys[0] if len(list_keys) == 1 else ""
+
+
 def _missing_summary_map(payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    containers: Sequence[Any] = (
-        payload.get("items"),
-        payload.get("articles"),
-        payload.get("summaries"),
+    # "missing" leads because the artifact is named part2_missing_summaries.json
+    # and both agents and third-party integrations reach for the filename first.
+    containers: Sequence[Any] = tuple(
+        payload.get(key) for key in MISSING_SUMMARY_CONTAINER_KEYS
     )
     result: Dict[str, Dict[str, Any]] = {}
     for container in containers:
@@ -435,6 +448,25 @@ def _missing_summary_map(payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             if link:
                 result[link] = item
     return result
+
+
+def _missing_summary_error(links: List[str],
+                           matched: Dict[str, Dict[str, Any]],
+                           payload: Dict[str, Any]) -> str:
+    detail = f"missing Part 2 summaries for links: {links}"
+    if matched or not payload:
+        return detail
+    found = _sole_list_key(payload)
+    if not found or found in MISSING_SUMMARY_CONTAINER_KEYS:
+        return detail
+    # Nothing matched at all and the payload holds exactly one list: this is a
+    # container-name mismatch. Saying so beats dumping every link, which reads
+    # like the drafter lost the data it in fact produced.
+    return (
+        f"{detail}\n"
+        f"hint: no summary matched any link; the payload's only list-valued key is "
+        f"'{found}', expected one of {list(MISSING_SUMMARY_CONTAINER_KEYS)} or groups[].articles"
+    )
 
 
 def merge_part2_context(part2_context: Dict[str, Any],
@@ -480,7 +512,9 @@ def merge_part2_context(part2_context: Dict[str, Any],
             "articles": article_entries,
         })
     if missing_errors:
-        raise ValueError(f"missing Part 2 summaries for links: {missing_errors}")
+        raise ValueError(
+            _missing_summary_error(missing_errors, missing_by_link, missing_payload or {})
+        )
     return {
         "groups": groups,
         "total_articles": total,

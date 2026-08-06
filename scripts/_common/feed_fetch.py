@@ -6,6 +6,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPException
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,18 +24,35 @@ from .runtime_config import (
 SHORT_SUMMARY_THRESHOLD = DEFAULT_SHORT_SUMMARY_THRESHOLD
 FALLBACK_SUMMARY_CAP = DEFAULT_PAGE_FALLBACK_CAP
 
+DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; RSS Monitor/3.0)"
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Whether re-issuing the same request could plausibly succeed.
+
+    A 4xx is the server telling us *this request* is wrong — repeating it byte
+    for byte cannot change the answer, so a UA-blocked feed used to burn the
+    full retry budget on every run for nothing. ``429`` is deliberately
+    excluded: it is a rate-limit signal, and waiting before retrying is exactly
+    the right response to it.
+    """
+    if isinstance(exc, HTTPError) and 400 <= exc.code < 500 and exc.code != 429:
+        return False
+    return True
+
 
 def fetch_url(url: str, timeout: int = 30, retries: int = 2,
-              headers: Optional[Dict[str, str]] = None) -> Tuple[bytes, Optional[str]]:
+              headers: Optional[Dict[str, str]] = None,
+              user_agent: str = "") -> Tuple[bytes, Optional[str]]:
     """Fetch URL content with retry on transient errors."""
     request_headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; RSS Monitor/3.0)",
+        "User-Agent": user_agent or DEFAULT_USER_AGENT,
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
     }
     if headers:
         request_headers.update(headers)
 
-    last_error: HTTPError | URLError | OSError | None = None
+    last_error: Optional[BaseException] = None
     for attempt in range(retries + 1):
         try:
             req = Request(url, headers=request_headers)
@@ -42,10 +60,15 @@ def fetch_url(url: str, timeout: int = 30, retries: int = 2,
                 raw = response.read()
                 charset = response.headers.get_content_charset()
                 return raw, charset
-        except (HTTPError, URLError, OSError) as exc:
+        # HTTPException covers http.client.IncompleteRead — a mid-transfer
+        # truncation, i.e. the most transient failure there is. It descends from
+        # Exception, *not* OSError, so the original three-branch tuple silently
+        # excluded the one error this retry loop most needed to catch.
+        except (HTTPError, URLError, OSError, HTTPException) as exc:
             last_error = exc
-            if attempt < retries:
-                time.sleep(1)
+            if attempt >= retries or not _is_retryable(exc):
+                break
+            time.sleep(1)
 
     if last_error is None:
         raise RuntimeError(f"fetch_url failed without a recorded error: {url}")
@@ -333,6 +356,7 @@ def fetch_rss_feed(
     hours: int = 24,
     max_summary: int = 0,
     *,
+    user_agent: str = "",
     fetch_url_fn: Callable[..., Tuple[bytes, Optional[str]]] = fetch_url,
     decode_content_fn: Callable[[bytes, Optional[str]], str] = decode_content,
     parse_feed_fn: Callable[[str, int], List[Dict]] = parse_feed,
@@ -349,7 +373,7 @@ def fetch_rss_feed(
     cutoff = now - timedelta(hours=hours)
 
     try:
-        raw, charset = fetch_url_fn(url)
+        raw, charset = fetch_url_fn(url, user_agent=user_agent)
         content = decode_content_fn(raw, charset)
         articles = parse_feed_fn(content, max_summary=max_summary)
         newest = max(
@@ -396,10 +420,19 @@ def fetch_all_feeds(
     feed_newest: Dict[str, Optional[str]] = {}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(fetch_feed_fn, feed["name"], feed["url"], hours, max_summary): feed["name"]
-            for feed in feed_list
-        }
+        futures = {}
+        for feed in feed_list:
+            # Passed only when the feed actually opts in, so the legacy
+            # four-positional call shape that injected stubs rely on stays
+            # exactly as it was for the feeds that do not override the UA.
+            overrides = {}
+            user_agent = str(feed.get("user_agent") or "").strip()
+            if user_agent:
+                overrides["user_agent"] = user_agent
+            future = executor.submit(
+                fetch_feed_fn, feed["name"], feed["url"], hours, max_summary, **overrides,
+            )
+            futures[future] = feed["name"]
         for future in as_completed(futures):
             name = futures[future]
             try:

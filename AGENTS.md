@@ -258,6 +258,7 @@ shape and policy key names as the normal validator output.
 - `network-debugger` is unexpected-error only. It inspects `runs/<date>/` sidecar stderr first and may run `python3 scripts/network_debug.py --limit 5` only when the evidence points to a network or fetch problem.
 - `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` (which injects deterministic cache hits) to generate `part1_shortlist_context.json` and write the link-keyed `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
 - `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json` and writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true. The orchestrator then runs `scripts/editorial_runtime.py merge-part2` to build the full `part2_draft.json`.
+- `items[]` stays the one container name `part2-drafter` is told to emit, but `merge-part2` also accepts `missing[]`, `articles[]`, `summaries[]`, and `groups[].articles[]`. `missing[]` is listed first because the file is named `part2_missing_summaries.json` and that is the name agents and third-party integrations reach for. When nothing matches and the payload holds exactly one unrecognized list, the error names that key — a container-name mismatch must not present as a wall of lost links.
 - `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly.
 - `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`. Post-write cache and seen-links bookkeeping is best-effort: a corrupt or unwritable ledger logs a `WARN` to stderr and never fails a run whose report was already written.
 - `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
@@ -439,6 +440,21 @@ When `validation.passed` is true, the LLM should:
 - `error_policy: "warn"` now affects warning classification and operator expectations, not publishability by itself.
 - Marked `warn` feeds should appear under `warn-only error feed(s)` warnings; unmarked fetch errors should appear under the general failed-feed warnings. Neither kind of fetch error should by itself block a publishable run when the workflow still has reportable articles.
 - Do not silently change a feed from `block` to `warn` without documenting the reason in the commit or change note.
+- A feed may carry an optional `"user_agent"` string. When present and
+  non-blank it replaces the default `User-Agent` for that feed's own fetch;
+  blank or absent means the shared default. It exists for servers that reject
+  the default UA — it is a per-feed escape hatch, not a knob to set casually,
+  and each use should say in the commit which server needed it and why.
+- **`user_agent` is honored by the Python pipeline only.** The Android app
+  reads its feed list from Room, so carrying the field to the device needs a
+  schema migration; until that lands, `FeedFetcher` uses its fixed UA and the
+  field is dropped at seed time. This is a known, deliberate divergence in a
+  shared config file: setting `user_agent` changes Python behavior and does
+  nothing on Android. Do not treat the Android side as broken; treat the field
+  as unavailable there.
+- `user_agent` applies to the feed request only. Article-page enrichment
+  (`article_text` and the meta-summary fallback) always uses the default UA,
+  because that pass is keyed by article link rather than by feed.
 
 ## Tests
 
