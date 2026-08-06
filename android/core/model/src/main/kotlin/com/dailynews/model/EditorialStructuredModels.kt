@@ -36,6 +36,28 @@ data class MissingPart2Summary(
 @Serializable
 data class MissingPart2Payload(val items: List<MissingPart2Summary>)
 
+/**
+ * 周期简报的一个主题段落。
+ *
+ * 只承载编辑字段：`links` 是引用，标题/来源/时间在渲染时由 Kotlin 从 `report_items`
+ * 按 link 连接权威值。与 Part 1 plan 同一条契约——模型不回显它无权改写的字段。
+ */
+@Serializable
+data class PeriodicDigestSection(
+    val heading: String,
+    @SerialName("summary_zh") val summaryZh: String,
+    val links: List<String>,
+    @SerialName("event_keys") val eventKeys: List<String> = emptyList(),
+)
+
+@Serializable
+data class PeriodicDigest(
+    /** 必须逐字等于请求的 periodKey：这是抓「模型答错了周」的唯一手段。 */
+    val period: String,
+    val sections: List<PeriodicDigestSection>,
+    val notes: List<String> = emptyList(),
+)
+
 /** Strict provider schemas live beside the serializable response models they constrain. */
 object EditorialJsonSchemas {
     val part1Shortlist: JsonObject = schema(
@@ -46,6 +68,10 @@ object EditorialJsonSchemas {
     )
     val missingPart2: JsonObject = schema(
         """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"link":{"type":"string"},"summary_zh":{"type":"string"},"noise_bucket":{"type":"string"},"event_key":{"type":"string"}},"required":["link","summary_zh","noise_bucket","event_key"]}}},"required":["items"]}""",
+    )
+
+    val periodicDigest: JsonObject = schema(
+        """{"type":"object","additionalProperties":false,"properties":{"period":{"type":"string"},"sections":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"heading":{"type":"string"},"summary_zh":{"type":"string"},"links":{"type":"array","items":{"type":"string"}},"event_keys":{"type":"array","items":{"type":"string"}}},"required":["heading","summary_zh","links","event_keys"]}},"notes":{"type":"array","items":{"type":"string"}}},"required":["period","sections","notes"]}""",
     )
 
     private fun schema(value: String): JsonObject = Json.parseToJsonElement(value).jsonObject

@@ -396,12 +396,29 @@ class DatabaseAndImporterInstrumentedTest {
         )
         ArtifactStore(database) { Instant.parse("2026-08-04T12:00:00Z") }
             .write("backup-run", "validation.json", "{\"passed\":true}".toByteArray())
+        // Epic V：周期简报是独立表，必须显式进备份信封。漏接不会编译错，
+        // 只会在用户恢复设备后发现周报凭空消失。
+        database.periodicReports().upsert(
+            com.dailynews.data.db.PeriodicReportEntity(
+                periodKey = "2026-W32",
+                kind = "WEEKLY",
+                periodStartDate = "2026-08-03",
+                periodEndDate = "2026-08-09",
+                status = "SUCCESS",
+                markdown = "# DailyNews 周报 · 2026-W32",
+                sourceReportDatesJson = "[\"2026-08-04\"]",
+                itemCount = 7,
+                createdAtUtc = "2026-08-10T00:00:00Z",
+                publishedAtUtc = "2026-08-10T00:00:00Z",
+            ),
+        )
         val output = ByteArrayOutputStream()
 
         val exported = backups.exportZip(output)
         database.articles().clear()
         database.feeds().clear()
         database.runArtifacts().clear()
+        database.periodicReports().clear()
         configs.save(com.dailynews.model.PipelineConfig(articleRetentionDays = 7))
         val restored = backups.importZip(output.toByteArray())
 
@@ -411,6 +428,9 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals("Backup feed", database.feeds().allNow().single().name)
         assertEquals(61, configs.config.first().articleRetentionDays)
         assertEquals("{\"passed\":true}", ArtifactStore(database).readText("backup-run", "validation.json"))
+        val digest = database.periodicReports().find("2026-W32")
+        assertEquals("# DailyNews 周报 · 2026-W32", digest?.markdown)
+        assertEquals(7, digest?.itemCount)
     }
 
     @Test
@@ -530,8 +550,11 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals(listOf("https://example/a1"), alphaUnread.map { it.linkKey })
 
         assertEquals(3, articles.observePoolCount().first())
+        // Gamma 是上面那条无日期的收藏合成行。observeUnreadCounts 与 observePoolCount
+        // 一样带 `pubDateIso <> ''` 守卫，所以它不该出现在源 chip 的未读计数里——
+        // 否则用户会看到一个永远点不开、也永远清不掉的未读数。
         assertEquals(
-            mapOf("Alpha" to 1, "Beta" to 1, "Gamma" to 1),
+            mapOf("Alpha" to 1, "Beta" to 1),
             articles.observeUnreadCounts().first().associate { it.feedName to it.unread },
         )
     }
@@ -559,7 +582,9 @@ class DatabaseAndImporterInstrumentedTest {
         articles.markRead("https://example/other", Instant.parse("2026-08-04T12:05:00Z"))
 
         assertTrue(articles.observeTimeline("Beta", true, 100).first().isEmpty())
-        assertEquals(1, articles.undoMarkAllRead("2026-08-04T12:00:00Z"))
+        // 该批次标了 2 行（batch1 + batch2），撤销就该退回 2 行——下面两条断言
+        // 期望的正是「两条都回到未读」，原来的 1 与它们自相矛盾。
+        assertEquals(2, articles.undoMarkAllRead("2026-08-04T12:00:00Z"))
         assertEquals(
             listOf("https://example/batch1", "https://example/batch2"),
             articles.observeTimeline("Alpha", true, 100).first().map { it.linkKey },

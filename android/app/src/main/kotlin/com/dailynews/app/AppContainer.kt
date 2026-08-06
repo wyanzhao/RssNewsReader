@@ -14,6 +14,7 @@ import com.dailynews.data.repo.FeedRepository
 import com.dailynews.data.repo.FavoriteRepository
 import com.dailynews.data.repo.FetchLifecycleRepository
 import com.dailynews.data.repo.LlmCallRepository
+import com.dailynews.data.repo.PeriodicReportRepository
 import com.dailynews.data.repo.ReportRepository
 import com.dailynews.data.repo.RecordingFetchPort
 import com.dailynews.data.repo.RunLogRepository
@@ -60,6 +61,7 @@ class AppContainer(context: Context) {
     val feedRepository = FeedRepository(database, appContext)
     val articleRepository = ArticleRepository(database)
     val reportRepository = ReportRepository(database, appContext)
+    val periodicReportRepository = PeriodicReportRepository(database)
     val favoriteRepository = FavoriteRepository(database)
     val seenLinksRepository = SeenLinksRepository(database)
     val cacheRepository = EditorialCacheRepository(database)
@@ -204,7 +206,7 @@ class AppContainer(context: Context) {
         ) = llmCallRepository.record(runId, role.name, providerId, model, response?.inputTokens, response?.outputTokens, retryIndex, outcome)
     }
 
-    private val editorialEngine = LlmEditorialEngine(
+    val editorialEngine = LlmEditorialEngine(
         providerResolver,
         AssetPromptSource(appContext),
         auditSink,

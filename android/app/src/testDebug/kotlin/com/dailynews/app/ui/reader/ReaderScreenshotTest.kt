@@ -9,6 +9,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.fontScale
 import com.github.takahirom.roborazzi.size
 import com.github.takahirom.roborazzi.uiMode
+import java.time.Instant
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -23,6 +24,15 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35])
 @OptIn(ExperimentalRoborazziApi::class)
 class ReaderScreenshotTest {
+    private companion object {
+        /**
+         * 卡片副标题是「N 小时前 / N 天前」这样的相对时间。fixture 的 pubDate 是固定的，
+         * 所以不钉住 now，这三张基线会随日历每天漂一格。
+         * 与 ReaderFixture 的最新一篇（2026-08-05T06:30Z）保持同日。
+         */
+        val FIXED_NOW: Instant = Instant.parse("2026-08-05T12:00:00Z")
+    }
+
     private data class Variant(
         val name: String,
         val width: Int,
@@ -51,7 +61,7 @@ class ReaderScreenshotTest {
                 DailyNewsTheme(darkTheme = variant.dark, dynamicColor = false) {
                     Column {
                         ReaderFilterChips(state = variant.state(), onSelectFeed = {}, onToggleUnread = {})
-                        ReaderContent(state = variant.state())
+                        ReaderContent(state = variant.state(), now = FIXED_NOW)
                     }
                 }
             }

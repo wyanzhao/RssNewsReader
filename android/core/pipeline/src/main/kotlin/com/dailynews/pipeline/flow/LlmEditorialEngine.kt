@@ -11,6 +11,7 @@ import com.dailynews.model.ArtifactJson
 import com.dailynews.model.ContextBudget
 import com.dailynews.model.LlmContext
 import com.dailynews.model.Part1Brief
+import com.dailynews.model.PeriodicDigest
 import com.dailynews.model.Part1Plan
 import com.dailynews.model.Part2Context
 import com.dailynews.model.Part2Draft
@@ -20,6 +21,7 @@ import com.dailynews.model.EditorialJsonSchemas
 import com.dailynews.model.MissingPart2Payload
 import com.dailynews.model.MissingPart2Summary
 import com.dailynews.model.Part1ShortlistPayload
+import com.dailynews.pipeline.editorial.PeriodicDigestContracts
 import com.dailynews.pipeline.editorial.EditorialContracts
 import com.dailynews.pipeline.editorial.Part2Merger
 import com.dailynews.pipeline.context.Part1ShortlistContext
@@ -48,6 +50,7 @@ interface PromptSource {
     fun part1Shortlist(topN: Int): String
     fun part1Plan(topN: Int): String
     fun part2Drafter(): String
+    fun periodicDigest(): String
 }
 
 interface LlmCallAuditSink {
@@ -254,6 +257,48 @@ class LlmEditorialEngine(
         }
         val completed = generatePart2(runId, requests, counter, llmExecution)
         return Part2Result(Part2Merger.merge(context, completed), completed)
+    }
+
+    /**
+     * 周期简报（周报 / 月报）。素材是**已发布**的每日 Top N 条目，所以这里没有抓取、
+     * 没有 shortlist，只有一次二次编辑调用。
+     *
+     * 复用 EDITOR 角色：工作性质（中文编辑判断）与 Part 1 同类，而新增一个
+     * EditorialRole 要改用户持久化的 RoleModelMapping——那条路径上任何解码意外
+     * 都会把用户的全部 provider 配置静默退回默认，代价与收益完全不成比例。
+     * DRAFTER 更不能用：它因 Part 2 停用而在主链路不可达，拿它跑周报等于
+     * 悄悄复活一个用户以为已关闭的角色。
+     */
+    suspend fun digest(
+        runId: String,
+        input: PeriodicDigestInput,
+        maxCalls: Int,
+        llmExecution: LlmExecutionConfig,
+    ): PeriodicDigest {
+        require(input.items.isNotEmpty()) { "periodic digest requires at least one published item" }
+        val counter = CallCounter(maxCalls.coerceIn(1, 100))
+        val binding = providers.resolve(EditorialRole.EDITOR, llmExecution)
+        val availableLinks = input.items.mapTo(mutableSetOf()) { it.link }
+        var feedback = ""
+        repeat(3) { retryIndex ->
+            val output = callObject(
+                runId,
+                EditorialRole.EDITOR,
+                binding,
+                StructuredOutputSchema("periodic_digest", EditorialJsonSchemas.periodicDigest),
+                prompts.periodicDigest(),
+                codec.encodeToString(input) + feedback,
+                retryIndex,
+                counter,
+                binding.roleModel.maxTokens,
+                "periodic_digest",
+            )
+            val decoded = codec.decodeFromJsonElement(PeriodicDigest.serializer(), output)
+            val errors = PeriodicDigestContracts.validate(decoded, input.period, availableLinks)
+            if (errors.isEmpty()) return decoded
+            feedback = "\n\nPrevious output violated these deterministic contracts: ${errors.joinToString("; ")}. Correct every item."
+        }
+        error("Periodic digest contract validation failed after three attempts")
     }
 
     override suspend fun generate(

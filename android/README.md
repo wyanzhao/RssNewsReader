@@ -6,13 +6,25 @@ editorial cache semantics aligned with the Python reference implementation.
 
 ## Product surfaces
 
-- **简报 (brief)** — the AI-edited Top N digest with Chinese summaries.
-  Consumes `reports` / `report_items` only. The history entry sits in this
-  screen's top bar.
+- **简报 (brief)** — the AI-edited Top N digest with Chinese summaries for
+  **the selected day**, defaulting to today. The top bar carries a date stepper
+  that moves between days that actually have a report; a day without one says
+  so instead of silently showing an older report. Consumes `reports` /
+  `report_items` only. The history entry sits in this screen's top bar.
 - **阅读 (reader)** — a native RSS reader over the article pool: timeline,
   per-feed filter chips with unread counts and health dots, unread-only
-  filter, read/unread and favorites. Consumes `articles` / `feeds` only.
+  filter, read/unread and favorites. The timeline is grouped by UTC day with
+  sticky headers whose count is the full day total, not the paging window.
+  Consumes `articles` / `feeds` only.
 - **订阅 / 收藏 / 设置 (feeds / favorites / settings)** — unchanged surfaces.
+- **线索历史 (story)** — every Part 1 item carries a cross-day `event_key`;
+  when a story spans two or more days the card's overflow menu opens its
+  timeline. Consumes `report_items` only, and is deliberately absent from the
+  reader — that screen must not read report tables.
+- **周报 / 月报 (periodic)** — a second editorial pass over the published Part 1
+  summaries of a week or month, stored in its own `periodic_reports` table and
+  reachable from the history screen. Pure LLM: when generation fails the row is
+  written as FAILED with a reason and nothing is fabricated to fill the gap.
 
 Part 2 (per-source groups with per-article Chinese summaries) was retired in
 Epic U — see `ui/report/ReportSections.kt` for the two-line restore procedure.

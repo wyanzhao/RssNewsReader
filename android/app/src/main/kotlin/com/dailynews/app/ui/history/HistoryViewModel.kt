@@ -3,6 +3,8 @@ package com.dailynews.app.ui.history
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dailynews.data.db.ReportPreview
+import com.dailynews.data.db.PeriodicReportSummary
+import com.dailynews.data.repo.PeriodicReportRepository
 import com.dailynews.data.repo.ReportRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -21,16 +24,23 @@ data class HistoryUiState(
     val query: String = "",
     val reports: List<ReportPreview> = emptyList(),
     val selectedDate: String? = null,
+    /** 周报 / 月报。历史页已经是「过去的报告」语义面，不新增底部导航项（V4-D1 锁死 5 个成员）。 */
+    val periodicReports: List<PeriodicReportSummary> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HistoryViewModel(private val repository: ReportRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repository: ReportRepository,
+    periodicReports: PeriodicReportRepository? = null,
+) : ViewModel() {
     private val query = MutableStateFlow("")
     private val selected = MutableStateFlow<String?>(null)
     private val results = query.debounceSearchInput().flatMapLatest(repository::previews)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val state: StateFlow<HistoryUiState> = combine(query, results, selected, ::HistoryUiState)
+    private val periodic = periodicReports?.observeSummaries() ?: flowOf(emptyList())
+
+    val state: StateFlow<HistoryUiState> = combine(query, results, selected, periodic, ::HistoryUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HistoryUiState())
 
     init {

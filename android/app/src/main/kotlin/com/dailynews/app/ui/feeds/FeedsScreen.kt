@@ -180,11 +180,13 @@ private fun FeedList(
 @Composable
 private fun FeedRow(feed: FeedRecord, onEdit: () -> Unit, onDelete: () -> Unit, onMove: (Int) -> Unit) {
     var dragY by remember(feed.id) { mutableFloatStateOf(0f) }
+    // semantics {} 不是 composable 作用域，字符串必须在这里先取出来。
+    val reorderHint = stringResource(R.string.feed_reorder_hint, feed.name)
     Card(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .semantics { contentDescription = "${feed.name}，长按并上下拖动可排序" }
+            .semantics { contentDescription = reorderHint }
             .pointerInput(feed.id) {
                 detectDragGesturesAfterLongPress(
                     onDragEnd = { dragY = 0f },

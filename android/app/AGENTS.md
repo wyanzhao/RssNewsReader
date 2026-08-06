@@ -53,3 +53,16 @@
 - Adding a new screen requires touching AppNavHost routes, ViewModelFactory,
   and navigation-suite items together — a partial change compiles but fails
   at navigation time.
+
+- **Prompt assets are a contract surface.** `assets/prompts/*.md` names wire
+  fields and numbers as bare literals, so a renamed `@SerialName` or a changed
+  Kotlin constant fails silently — the model just receives a description of a
+  structure that no longer exists. `AssetPromptContractTest` locks both
+  directions: every placeholder must render away, and every `@SerialName` the
+  prompt must mention is read from the serializer descriptor rather than
+  written out by hand. Prompt edits and the Kotlin change ship in one commit.
+- **Screenshot baselines must be deterministic.** Anything that puts
+  wall-clock time or asynchronous startup work on a render path needs a test
+  injection point alongside it (`DailyNewsApp(clock=)`, `ReaderContent(now=)`,
+  explicit `seedIfEmpty()`). A baseline that turns red on its own every day
+  degrades the whole screenshot gate into noise.

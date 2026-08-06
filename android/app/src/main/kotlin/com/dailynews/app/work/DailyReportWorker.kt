@@ -111,6 +111,15 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 )
             }
         }
+        // 周期简报挂在日报之后：此时整个周期的日报都已入库。有行即跳，天然幂等。
+        runCatching {
+            PeriodicDigestWorker.dueKinds(
+                date,
+                config.weeklyDigestEnabled,
+                config.monthlyDigestEnabled,
+                config.weeklyDigestWeekday,
+            ).forEach { kind -> PeriodicDigestWorker.enqueue(applicationContext, kind) }
+        }
         runCatching { container.runMaintenanceRepository.prune(config.artifactRetentionDays) }
         runCatching { container.articleRepository.prune(config.articleRetentionDays) }
             .onFailure { failure ->

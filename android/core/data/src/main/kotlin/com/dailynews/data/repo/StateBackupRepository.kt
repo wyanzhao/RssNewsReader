@@ -15,6 +15,7 @@ import com.dailynews.data.db.RunEntity
 import com.dailynews.data.db.RunArtifactEntity
 import com.dailynews.data.db.RunArtifactMetadata
 import com.dailynews.data.db.RunLogEntity
+import com.dailynews.data.db.PeriodicReportEntity
 import com.dailynews.data.db.SeenLinkEntity
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.PipelineConfig
@@ -31,8 +32,8 @@ import kotlinx.serialization.encodeToString
 
 @Serializable
 data class DeviceStateBackup(
-    val schemaVersion: Int = 2,
-    val databaseVersion: Int = 7,
+    val schemaVersion: Int = 3,
+    val databaseVersion: Int = 8,
     val exportedAtUtc: String,
     val pipelineConfig: PipelineConfig,
     val feeds: List<FeedEntity>,
@@ -48,6 +49,7 @@ data class DeviceStateBackup(
     val reportItems: List<ReportItemEntity>,
     val editorialCache: List<EditorialCacheEntity>,
     val seenLinks: List<SeenLinkEntity>,
+    val periodicReports: List<PeriodicReportEntity> = emptyList(),
 )
 
 @Serializable
@@ -89,6 +91,7 @@ class StateBackupRepository(
                 reportItems = database.reports().allItemsNow(),
                 editorialCache = database.editorialCache().allNow(),
                 seenLinks = database.seenLinks().all(),
+                periodicReports = database.periodicReports().allNow(),
             ) to metadata
         }
         backup.validate()
@@ -130,7 +133,12 @@ class StateBackupRepository(
             requireNotNull(state) { "$ENTRY_NAME is missing" } to bodies
         }
         val backup = ArtifactJson.codec.decodeFromString<DeviceStateBackup>(json.toString(Charsets.UTF_8))
-        require(backup.schemaVersion in 1..2) { "unsupported state backup schema ${backup.schemaVersion}" }
+        require(backup.schemaVersion in 1..3) { "unsupported state backup schema ${backup.schemaVersion}" }
+        // databaseVersion 此前只写不读。更高版本的备份可能含本版本无法表达的表，
+        // 静默导入等于悄悄丢数据；宁可明确拒绝。
+        require(backup.databaseVersion <= CURRENT_DATABASE_VERSION) {
+            "state backup was exported from database v${backup.databaseVersion}, this build only understands v$CURRENT_DATABASE_VERSION"
+        }
         backup.validate()
         val artifacts = when (backup.schemaVersion) {
             1 -> backup.runArtifacts
@@ -158,6 +166,7 @@ class StateBackupRepository(
             database.feeds().clear()
             database.editorialCache().clear()
             database.seenLinks().clear()
+            database.periodicReports().clear()
 
             database.feeds().replaceAll(backup.feeds)
             database.articles().replaceAll(backup.articles)
@@ -171,6 +180,7 @@ class StateBackupRepository(
             database.reports().insertItems(backup.reportItems)
             database.editorialCache().upsert(backup.editorialCache)
             database.seenLinks().insertAll(backup.seenLinks)
+            backup.periodicReports.forEach { database.periodicReports().upsert(it) }
             }
         } catch (error: Exception) {
             runCatching { config.save(priorConfig) }
@@ -218,6 +228,8 @@ class StateBackupRepository(
     }
 
     private companion object {
+        /** 必须与 DailyNewsDatabase 的 @Database(version=) 同步。 */
+        const val CURRENT_DATABASE_VERSION = 8
         const val ENTRY_NAME = "dailynews-state.json"
         const val ARTIFACT_PREFIX = "run-artifacts/"
         const val MAX_ZIP_BYTES = 64 * 1_048_576

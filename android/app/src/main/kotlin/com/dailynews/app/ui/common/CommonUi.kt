@@ -101,8 +101,8 @@ fun ConfirmDialog(
 }
 
 @Composable
-fun ReadingColumn(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+fun ReadingColumn(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth)) { content() }
     }
 }

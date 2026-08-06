@@ -30,11 +30,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dailynews.app.R
 import com.dailynews.app.ui.theme.DailyNewsSpacing
+import com.dailynews.app.ui.theme.LocalDailyNewsColors
 import java.net.URI
 import java.time.Duration
 import java.time.Instant
@@ -110,10 +112,12 @@ fun ArticleCard(
                         },
                         modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
+                        // 形状 + 颜色双通道区分收藏态。只切 tint 时两种状态都是同一个
+                        // 描边心形，扫一眼列表分不出收没收；实心轮廓在缩略尺寸下也立得住。
                         Icon(
-                            painterResource(R.drawable.ic_favorite),
-                            contentDescription = if (saved) "取消收藏" else "收藏",
-                            tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            painterResource(if (saved) R.drawable.ic_favorite_filled else R.drawable.ic_favorite),
+                            contentDescription = stringResource(if (saved) R.string.remove_favorite else R.string.favorite),
+                            tint = if (saved) LocalDailyNewsColors.current.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

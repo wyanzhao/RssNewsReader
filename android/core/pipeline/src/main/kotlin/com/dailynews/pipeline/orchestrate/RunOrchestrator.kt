@@ -232,7 +232,18 @@ class RunOrchestrator(
             // A failed review must not consume cache/seen coverage for a report that
             // was immediately downgraded and never became publishable.
             val warnings = mutableListOf<String>()
-            runCatching { updateCache(artifacts, output, config) }.onFailure { warnings += "editorial cache update failed: ${it.message}" }
+            runCatching { updateCache(artifacts, output, config) }
+                .onSuccess { stats ->
+                    // 代码补齐比例长期居高，说明 prompt 的 event_key 复用规则没生效——
+                    // 那是收紧 validatePart1 的触发条件，不是靠猜。
+                    logSink.log(
+                        runId,
+                        "story_thread",
+                        LogLevel.INFO,
+                        "event_key reused=${stats.reusedExisting} model=${stats.modelSupplied} code=${stats.codeDerived}",
+                    )
+                }
+                .onFailure { warnings += "editorial cache update failed: ${it.message}" }
             runCatching { updateSeenLinks(request.reportDate, artifacts) }.onFailure { warnings += "seen-links update failed: ${it.message}" }
             val topN = TopNRenderer.render(artifacts.llmContext, output.part1, config.part1MaxItems, request.reportPath)
             topNSink.publishTopN(request.reportDate.toString(), topN)
@@ -250,14 +261,35 @@ class RunOrchestrator(
         seenLinks.recordReportedLinks(artifacts.llmContext.allArticles.map { it.link }, date)
     }
 
+    /** 一轮编辑里 event_key 的来源分布。用来判断 prompt 的复用规则有没有真的生效。 */
+    internal data class StoryThreadStats(val modelSupplied: Int, val codeDerived: Int, val reusedExisting: Int)
+
     private suspend fun updateCache(
         artifacts: ContextArtifacts,
         output: com.dailynews.pipeline.flow.EditorialOutput,
         config: PipelineConfig,
-    ) {
+    ): StoryThreadStats {
         val now = clock.now()
         val articles = artifacts.llmContext.allArticles.associateBy { it.link }
         val byKey = linkedMapOf<String, EditorialCacheRecord>()
+        var modelSupplied = 0
+        var codeDerived = 0
+        var reusedExisting = 0
+
+        // event_key 首写为准。它是线索 id，不是标签：事后改写只会把已发布的线索劈成两条，
+        // 或者把两条真线索错误地并成一条。Part 1 与 Part 2 必须同策略——此前 Part 1
+        // 无条件覆写而 Part 2 保留旧值，同一篇文章走哪条路径决定了它的线索是否稳定。
+        fun resolveEventKey(previous: String?, explicit: String, article: com.dailynews.model.Article): String {
+            val existing = EditorialCacheKeys.sanitizeEventKey(previous)
+            if (existing.isNotEmpty()) {
+                reusedExisting += 1
+                return existing
+            }
+            val resolved = EditorialCacheKeys.eventKey(explicit, article.title, article.link)
+            if (EditorialCacheKeys.sanitizeEventKey(explicit).isNotEmpty()) modelSupplied += 1 else codeDerived += 1
+            return resolved
+        }
+
         output.part2.groups.flatMap { it.articles }.forEach { item ->
             val article = articles.getValue(item.link)
             val key = EditorialCacheKeys.cacheKey(article)
@@ -265,7 +297,7 @@ class RunOrchestrator(
             byKey[key] = (previous ?: EditorialCacheRecord(key, item.link, article.source, article.title)).copy(
                 summaryZh = item.summaryZh,
                 noiseBucket = item.noiseBucket,
-                eventKey = previous?.eventKey ?: EditorialCacheKeys.eventKey(item.eventKey, article.title),
+                eventKey = resolveEventKey(previous?.eventKey, item.eventKey, article),
                 updatedAtUtc = now,
             )
         }
@@ -276,12 +308,13 @@ class RunOrchestrator(
             byKey[key] = previous.copy(
                 part1SummaryZh = item.summaryZh,
                 part1NoiseBucket = item.noiseBucket,
-                eventKey = EditorialCacheKeys.eventKey(item.eventKey, article.title),
+                eventKey = resolveEventKey(previous.eventKey, item.eventKey, article),
                 updatedAtUtc = now,
             )
         }
         cache.upsert(byKey.values.toList())
         cache.prune(now.minus(90, ChronoUnit.DAYS))
+        return StoryThreadStats(modelSupplied, codeDerived, reusedExisting)
     }
 
     private suspend fun snapshotContexts(runId: String, artifacts: ContextArtifacts) {

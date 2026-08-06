@@ -24,6 +24,8 @@ import java.io.File
 import android.content.Context
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
@@ -70,6 +72,7 @@ class ReportRepository(
                     materialByLink[item.link]?.articleText.orEmpty(),
                     item.summaryZh,
                     ArtifactJson.compact.encodeToString(item.alsoLinks),
+                    item.eventKey,
                 )
             })
             val reportedKeys = report.items.flatMap { item -> listOf(item.link) + item.alsoLinks }
@@ -129,6 +132,19 @@ class ReportRepository(
         }
     }
     fun items(date: String): Flow<List<ReportItemEntity>> = database.reports().observeItems(date)
+
+    /** 一条事件线索的全部历史报道（Part 1，按日期倒序）。只读 report_items，不碰文章池。 */
+    fun story(eventKey: String): Flow<List<ReportItemEntity>> =
+        database.reports().observeStory(eventKey)
+
+    /**
+     * 一批 event_key 各自被报道过多少天。入参最多 N 条（Top N 上限 50），
+     * 远低于 SQLITE_BIND_CHUNK，不需要分块。
+     */
+    fun storyDepth(eventKeys: List<String>): Flow<Map<String, Int>> =
+        if (eventKeys.isEmpty()) flowOf(emptyMap())
+        else database.reports().observeStoryDepth(eventKeys.distinct())
+            .map { rows -> rows.associate { it.eventKey to it.days } }
     suspend fun hasSuccess(date: String): Boolean = database.reports().hasSuccess(date)
 
     suspend fun widgetSnapshot(limit: Int = 3): WidgetReportSnapshot? {
@@ -208,7 +224,9 @@ class ReportRepository(
                             title = article.title,
                             summaryZh = summary.summaryZh,
                             noiseBucket = summary.noiseBucket,
-                            eventKey = EditorialCacheKeys.eventKey(summary.eventKey, article.title),
+                            // 与 RunOrchestrator.updateCache 同策略：event_key 首写为准。
+                            eventKey = EditorialCacheKeys.sanitizeEventKey(existing?.eventKey).takeIf { it.isNotEmpty() }
+                                ?: EditorialCacheKeys.eventKey(summary.eventKey, article.title, article.link),
                             updatedAtUtc = now,
                         ),
                     ),

@@ -294,6 +294,8 @@ data class ReportItem(
     @SerialName("pub_date_iso") val pubDateIso: String,
     @SerialName("summary_zh") val summaryZh: String,
     @SerialName("also_links") val alsoLinks: List<String> = emptyList(),
+    /** 跨日线索 id。`also_links` 只在本份报告内聚类，这个字段把同一事件连到往日报道。 */
+    @SerialName("event_key") val eventKey: String = "",
 )
 
 @Serializable

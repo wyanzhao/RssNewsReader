@@ -73,6 +73,10 @@ data class PipelineConfig(
     @SerialName("llm_execution") val llmExecution: LlmExecutionConfig = LlmExecutionConfig(),
     @SerialName("part1_max_items") val part1MaxItems: Int = 30,
     @SerialName("schedule_time") val scheduleTime: String = "10:00",
+    @SerialName("weekly_digest_enabled") val weeklyDigestEnabled: Boolean = true,
+    @SerialName("monthly_digest_enabled") val monthlyDigestEnabled: Boolean = true,
+    /** ISO 周几触发上一周的周报：1 = 周一。 */
+    @SerialName("weekly_digest_weekday") val weeklyDigestWeekday: Int = 1,
     @SerialName("wifi_only_page_enrichment") val wifiOnlyPageEnrichment: Boolean = false,
     @SerialName("artifact_retention_days") val artifactRetentionDays: Int = 14,
     @SerialName("article_retention_days") val articleRetentionDays: Int = 30,
@@ -106,5 +110,6 @@ data class PipelineConfig(
         monthlyTokenBudget = monthlyTokenBudget.coerceAtLeast(0),
         maxLlmCallsPerRun = maxLlmCallsPerRun.coerceIn(4, 100),
         editorFeedback = editorFeedback.map(String::trim).filter(String::isNotEmpty).takeLast(20),
+        weeklyDigestWeekday = weeklyDigestWeekday.coerceIn(1, 7),
     )
 }

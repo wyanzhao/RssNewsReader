@@ -1,6 +1,8 @@
 package com.dailynews.app.ui.history
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +26,7 @@ import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -40,6 +44,7 @@ fun HistoryScreen(
     viewModel: HistoryViewModel,
     expanded: Boolean,
     onOpenReport: (String) -> Unit,
+    onOpenPeriodic: (String) -> Unit = {},
     detail: @Composable (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -50,6 +55,50 @@ fun HistoryScreen(
         LazyColumn(modifier, contentPadding = PaddingValues(DailyNewsSpacing.regular)) {
             item {
                 OutlinedTextField(state.query, viewModel::setQuery, label = { Text(stringResource(R.string.search_reports)) }, modifier = Modifier.fillMaxWidth())
+            }
+            if (state.periodicReports.isNotEmpty()) {
+                item(key = "periodic-title") {
+                    Text(
+                        stringResource(R.string.periodic_section_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(vertical = DailyNewsSpacing.compact),
+                    )
+                }
+                items(state.periodicReports, key = { "periodic-${it.periodKey}" }) { digest ->
+                    Card(
+                        onClick = { onOpenPeriodic(digest.periodKey) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        Column(
+                            Modifier.padding(DailyNewsSpacing.roomy),
+                            verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact / 2),
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(digest.periodKey, fontWeight = FontWeight.Bold)
+                                StatusBadge(digest.status)
+                            }
+                            Text(
+                                "${digest.periodStartDate} 至 ${digest.periodEndDate} · ${digest.itemCount} 条",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            digest.failureReason?.takeIf { digest.status != "SUCCESS" }?.let { reason ->
+                                Text(reason, color = MaterialTheme.colorScheme.error, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                item(key = "daily-title") {
+                    Text(
+                        stringResource(R.string.daily_section_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(vertical = DailyNewsSpacing.compact),
+                    )
+                }
             }
             items(state.reports, key = { it.reportDate }) { report ->
                 Card(

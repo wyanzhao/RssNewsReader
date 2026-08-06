@@ -14,7 +14,11 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.net.toUri
 import androidx.compose.ui.Modifier
+import java.time.Clock
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
@@ -44,6 +48,10 @@ import com.dailynews.app.ui.report.ReportScreen
 import com.dailynews.app.ui.report.ReportViewModel
 import com.dailynews.app.ui.settings.SettingsScreen
 import com.dailynews.app.ui.settings.SettingsViewModel
+import com.dailynews.app.ui.periodic.PeriodicDigestScreen
+import com.dailynews.app.ui.periodic.PeriodicDigestViewModel
+import com.dailynews.app.ui.story.StoryScreen
+import com.dailynews.app.ui.story.StoryViewModel
 import com.dailynews.app.ui.brief.TodayScreen
 import com.dailynews.app.ui.brief.TodayViewModel
 import com.dailynews.app.work.DailyReportWorker
@@ -68,7 +76,11 @@ internal fun canonicalRoute(raw: String?): String? {
     val route = raw?.trim().orEmpty()
     if (route.isEmpty()) return null
     if (route == "today") return "brief"
-    if (route in topLevelRoutes || route.startsWith("report/") || route.startsWith("runDiagnostics/")) return route
+    if (route in topLevelRoutes || route.startsWith("report/") || route.startsWith("runDiagnostics/") ||
+        route.startsWith("story/") || route.startsWith("periodic/")
+    ) {
+        return route
+    }
     return null
 }
 
@@ -82,6 +94,9 @@ fun DailyNewsApp(
     routeRequestVersion: Int,
     sweepWorkInfos: Flow<List<WorkInfo>>,
     onRouteConsumed: (Int) -> Unit = {},
+    // 与 sweepWorkInfos 同一个用途的注入点：简报页会把当前时刻渲染进
+    // 「下次计划」和补跑卡，截图基线必须钉住它，否则每过一天就自己红。
+    clock: Clock = Clock.systemDefaultZone(),
 ) {
     val nav = rememberNavController()
     val currentEntry by nav.currentBackStackEntryAsState()
@@ -106,7 +121,7 @@ fun DailyNewsApp(
             }
         },
     ) {
-        AppNavHost(nav, container, expanded, sweepWorkInfos, Modifier.fillMaxSize())
+        AppNavHost(nav, container, expanded, sweepWorkInfos, clock, Modifier.fillMaxSize())
     }
 }
 
@@ -124,6 +139,7 @@ private fun AppNavHost(
     container: AppContainer,
     expanded: Boolean,
     sweepWorkInfos: Flow<List<WorkInfo>>,
+    clock: Clock,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -147,6 +163,7 @@ private fun AppNavHost(
                     runLogs = container.runLogRepository,
                     articleRepository = container.articleRepository,
                     sweepWorkInfos = sweepWorkInfos,
+                    clock = clock,
                 )
             })
             TodayScreen(
@@ -158,17 +175,41 @@ private fun AppNavHost(
                 onOpenReport = { nav.navigate("report/$it") },
                 reportViewModel = { date -> reportViewModel(container, date) },
                 onOpenHistory = { nav.navigate("history") },
+                onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") },
+            )
+        }
+        composable("periodic/{periodKey}") { entry ->
+            val periodKey = Uri.decode(entry.arguments?.getString("periodKey").orEmpty())
+            val vm: PeriodicDigestViewModel = viewModel(key = "periodic-$periodKey", factory = viewModelFactory {
+                PeriodicDigestViewModel(container.periodicReportRepository, periodKey)
+            })
+            PeriodicDigestScreen(vm, onBack = { nav.popBackStack() }, onOpenDiagnostics = { nav.navigate("diagnostics") })
+        }
+        composable("story/{eventKey}") { entry ->
+            val eventKey = Uri.decode(entry.arguments?.getString("eventKey").orEmpty())
+            val vm: StoryViewModel = viewModel(key = "story-$eventKey", factory = viewModelFactory {
+                StoryViewModel(container.reportRepository, eventKey)
+            })
+            StoryScreen(
+                vm,
+                onBack = { nav.popBackStack() },
+                onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
             )
         }
         composable("history") {
-            val vm: HistoryViewModel = viewModel(factory = viewModelFactory { HistoryViewModel(container.reportRepository) })
-            HistoryScreen(vm, expanded, onOpenReport = { nav.navigate("report/$it") }) { date ->
-                ReportPane(reportViewModel(container, date))
+            val vm: HistoryViewModel = viewModel(factory = viewModelFactory { HistoryViewModel(container.reportRepository, container.periodicReportRepository) })
+            HistoryScreen(
+                vm,
+                expanded,
+                onOpenReport = { nav.navigate("report/$it") },
+                onOpenPeriodic = { key -> nav.navigate("periodic/${Uri.encode(key)}") },
+            ) { date ->
+                ReportPane(reportViewModel(container, date), onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") })
             }
         }
         composable("report/{date}") { entry ->
             val date = entry.arguments?.getString("date").orEmpty()
-            ReportScreen(date, reportViewModel(container, date))
+            ReportScreen(date, reportViewModel(container, date), onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") })
         }
         composable("feeds") {
             val vm: FeedsViewModel = viewModel(factory = savedStateViewModelFactory { savedState -> FeedsViewModel(container.feedRepository, savedState) })

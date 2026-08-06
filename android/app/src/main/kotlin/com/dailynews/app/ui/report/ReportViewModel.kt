@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
@@ -27,6 +29,8 @@ data class ReportUiState(
     val expandedSources: Set<String> = emptySet(),
     val generatingSources: Set<String> = emptySet(),
     val groupErrors: Map<String, String> = emptyMap(),
+    /** event_key → 这条线索被报道过的天数。仅用于决定是否显示线索历史入口。 */
+    val storyDepth: Map<String, Int> = emptyMap(),
 )
 
 private data class ReportInteractionState(
@@ -36,6 +40,7 @@ private data class ReportInteractionState(
     val groupErrors: Map<String, String>,
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ReportViewModel(
     date: String,
     reports: ReportRepository,
@@ -52,13 +57,19 @@ class ReportViewModel(
     private val interaction = combine(showRaw, expandedSources, generatingSources, groupErrors) { raw, expanded, generating, errors ->
         ReportInteractionState(raw, expanded, generating, errors)
     }
+    // items 与线索深度折成一个 flow：主 combine 已经用满 5 元强类型重载。
+    // 深度查询只依赖当天的 Part 1 event_key 集合，最多 N 个绑定参数。
+    private val itemsWithDepth = reports.items(date).flatMapLatest { items ->
+        val keys = items.filter { it.part == 1 }.map(ReportItemEntity::eventKey).filter(String::isNotBlank)
+        reports.storyDepth(keys).map { depth -> items to depth }
+    }
     val state: StateFlow<ReportUiState> = combine(
         reports.report(date),
-        reports.items(date),
+        itemsWithDepth,
         favorites.observeSavedLinks(),
         favorites.observeReadLinks(),
         interaction,
-    ) { report, items, saved, read, interaction ->
+    ) { report, (items, storyDepth), saved, read, interaction ->
         val groups = runCatching {
             ArtifactJson.codec.decodeFromString<List<ReportGroup>>(report?.groupsJson.orEmpty())
         }.getOrDefault(emptyList())
@@ -72,6 +83,7 @@ class ReportViewModel(
             expandedSources = interaction.expandedSources ?: emptySet(),
             generatingSources = interaction.generatingSources,
             groupErrors = interaction.groupErrors,
+            storyDepth = storyDepth,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReportUiState())
 

@@ -157,7 +157,11 @@ data class ReportEntity(
 )
 
 @Serializable
-@Entity(tableName = "report_items", primaryKeys = ["reportDate", "part", "position"], indices = [Index("link")])
+@Entity(
+    tableName = "report_items",
+    primaryKeys = ["reportDate", "part", "position"],
+    indices = [Index("link"), Index("eventKey")],
+)
 data class ReportItemEntity(
     val reportDate: String,
     val part: Int,
@@ -172,6 +176,48 @@ data class ReportItemEntity(
     val articleText: String = "",
     val summaryZh: String,
     val alsoLinksJson: String = "[]",
+    /**
+     * 跨日线索 id。`alsoLinksJson` 只在单份报告内聚类同一事件，这个字段把聚类
+     * 延伸到跨天：同一 eventKey 的历史条目就是「这条线索的进展」。
+     * 由 EditorialCacheKeys 归一化，保证非空。
+     */
+    val eventKey: String = "",
+)
+
+/**
+ * 周报 / 月报。刻意不进 `reports` 表：那张表的主键 `reportDate` 在极多处被当日期解析，
+ * 而 `2026-W32` 字典序大于 `2026-08-05`（`W` > `0`），塞进去的第一个后果就是
+ * 桌面 widget 的 latestNow() 把周报当成「最新报告」展示。
+ * 语义也不同——`reports` 是流水线产物，这里是对已发布行的二次编辑产物。
+ */
+@Serializable
+@Entity(tableName = "periodic_reports", indices = [Index("kind"), Index("createdAtUtc")])
+data class PeriodicReportEntity(
+    /** `2026-W32`（ISO 周）或 `2026-08`（月）。 */
+    @PrimaryKey val periodKey: String,
+    /** `WEEKLY` | `MONTHLY`。 */
+    val kind: String,
+    val periodStartDate: String,
+    val periodEndDate: String,
+    /** `SUCCESS` | `FAILED`。失败必须留行，绝不伪造内容。 */
+    val status: String,
+    val markdown: String,
+    val sourceReportDatesJson: String = "[]",
+    val itemCount: Int = 0,
+    val failureReason: String? = null,
+    val createdAtUtc: String,
+    val publishedAtUtc: String? = null,
+)
+
+data class PeriodicReportSummary(
+    val periodKey: String,
+    val kind: String,
+    val status: String,
+    val periodStartDate: String,
+    val periodEndDate: String,
+    val itemCount: Int,
+    val failureReason: String?,
+    val createdAtUtc: String,
 )
 
 @Serializable
@@ -204,6 +250,12 @@ data class FavoriteArticle(
     val pubDateIso: String,
     val readAtUtc: String?,
 )
+
+/** 线索深度投影：该 event_key 被报道过多少个不同日期。 */
+data class StoryDepth(val eventKey: String, val days: Int)
+
+/** 按天分节的日计数投影。`day` 是 UTC 日（substr(pubDateIso,1,10)）。 */
+data class ReaderDayCount(val day: String, val total: Int)
 
 /**
  * 阅读器窄投影：不含 articleText 与完整 summaryEn，单项载荷比

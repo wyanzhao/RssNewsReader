@@ -7,6 +7,7 @@ import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.FetchLogEntity
 import com.dailynews.data.db.FeedUnreadCount
 import com.dailynews.data.db.ReaderArticle
+import com.dailynews.data.db.ReaderDayCount
 import com.dailynews.model.Article
 import com.dailynews.model.PipelineConfig
 import com.dailynews.model.RawRun
@@ -144,6 +145,18 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     }
 
     fun observeUnreadCounts(): Flow<List<FeedUnreadCount>> = database.articles().observeUnreadCounts()
+
+    /**
+     * 按天的全量条数，供阅读器分节头显示「08-05 星期三 · 12 篇」。
+     * 与时间线的分页窗口无关——窗口只截断渲染，分节头写的是那天真实有多少篇。
+     * 四种组合各走一条 SQL（见 ArticleDao 注释），全部命中覆盖索引。
+     */
+    fun observeDayCounts(feedName: String?, unreadOnly: Boolean): Flow<List<ReaderDayCount>> = when {
+        feedName == null && !unreadOnly -> database.articles().observeDayCounts()
+        feedName == null -> database.articles().observeUnreadDayCounts()
+        !unreadOnly -> database.articles().observeDayCountsForFeed(feedName)
+        else -> database.articles().observeUnreadDayCountsForFeed(feedName)
+    }
 
     fun observePoolCount(): Flow<Int> = database.articles().observePoolCount()
 

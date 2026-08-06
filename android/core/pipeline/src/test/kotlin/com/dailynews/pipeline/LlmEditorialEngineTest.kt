@@ -7,6 +7,8 @@ import com.dailynews.llm.LlmResponse
 import com.dailynews.llm.LlmTransportException
 import com.dailynews.llm.RoleModel
 import com.dailynews.model.ArtifactJson
+import com.dailynews.model.PeriodicDigest
+import com.dailynews.model.PeriodicDigestSection
 import com.dailynews.model.Part1Plan
 import com.dailynews.model.Part1PlanItem
 import com.dailynews.model.Part1ShortlistPayload
@@ -55,6 +57,12 @@ class LlmEditorialEngineTest {
             names(MissingPart2Summary.serializer().descriptor),
             EditorialJsonSchemas.missingPart2.getValue("properties").jsonObject
                 .getValue("items").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
+        )
+        assertEquals(names(PeriodicDigest.serializer().descriptor), properties(EditorialJsonSchemas.periodicDigest))
+        assertEquals(
+            names(PeriodicDigestSection.serializer().descriptor),
+            EditorialJsonSchemas.periodicDigest.getValue("properties").jsonObject
+                .getValue("sections").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
         )
     }
 
@@ -343,5 +351,6 @@ class LlmEditorialEngineTest {
         override fun part1Shortlist(topN: Int) = "shortlist"
         override fun part1Plan(topN: Int) = "plan"
         override fun part2Drafter() = "part2"
+        override fun periodicDigest() = "digest"
     }
 }

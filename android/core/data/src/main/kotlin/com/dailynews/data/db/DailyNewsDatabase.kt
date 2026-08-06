@@ -26,8 +26,9 @@ import java.nio.file.StandardCopyOption
         ReportItemEntity::class,
         EditorialCacheEntity::class,
         SeenLinkEntity::class,
+        PeriodicReportEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class DailyNewsDatabase : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class DailyNewsDatabase : RoomDatabase() {
     abstract fun reports(): ReportDao
     abstract fun editorialCache(): EditorialCacheDao
     abstract fun seenLinks(): SeenLinksDao
+    abstract fun periodicReports(): PeriodicReportDao
 
     companion object {
         /** Splits the review-failure reason out of `groupsJson`, which must stay a source-group list. */
@@ -165,15 +167,56 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             }
         }
 
+        /** Epic V：跨日线索 id 落库 + 周期简报表。索引名与建表 SQL 必须逐字匹配 Room 生成形态。 */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE report_items ADD COLUMN eventKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_report_items_eventKey` ON `report_items` (`eventKey`)")
+                // 回填：editorial_cache 按 link 保存过历史 event key。回填出的线索多半是单篇
+                // （旧实现的 key 是逐标题 slug，中文标题还会塌成空串），真正的跨源聚类从第一份
+                // v8 报告开始；但这一条 UPDATE 的成本换来首日就有历史深度，值得。
+                db.execSQL(
+                    """
+                    UPDATE report_items SET eventKey = COALESCE((
+                        SELECT c.eventKey FROM editorial_cache c
+                        WHERE c.link = report_items.link AND c.eventKey IS NOT NULL AND c.eventKey <> ''
+                        LIMIT 1
+                    ), '')
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `periodic_reports` (
+                        `periodKey` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `periodStartDate` TEXT NOT NULL,
+                        `periodEndDate` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `markdown` TEXT NOT NULL,
+                        `sourceReportDatesJson` TEXT NOT NULL,
+                        `itemCount` INTEGER NOT NULL,
+                        `failureReason` TEXT,
+                        `createdAtUtc` TEXT NOT NULL,
+                        `publishedAtUtc` TEXT,
+                        PRIMARY KEY(`periodKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_periodic_reports_kind` ON `periodic_reports` (`kind`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_periodic_reports_createdAtUtc` ON `periodic_reports` (`createdAtUtc`)")
+            }
+        }
+
         fun create(context: Context): DailyNewsDatabase {
             val appContext = context.applicationContext
             backupDatabaseVersionIfNeeded(appContext, 3, "dailynews-v3.db")
             backupDatabaseVersionIfNeeded(appContext, 4, "dailynews-v4.db")
+            backupDatabaseVersionIfNeeded(appContext, 7, "dailynews-v7.db")
             return Room.databaseBuilder(
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .build()
         }
 

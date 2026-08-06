@@ -78,17 +78,21 @@ class ReportAssembler {
         }
         val topNMarkdown = if (renderTopN) TopNRenderer.render(context, part1, normalizedTopN, reportPath) else ""
         val items = buildList {
+            // event_key 在这里归一化落库：模型可以不填，但 report_items 里必须非空，
+            // 否则线索视图会把所有"没填"的条目错误地并成同一条线索。
             part1.items.forEachIndexed { index, item ->
                 val article = articleByLink.getValue(TextUtils.cleanText(item.link))
                 val alsoLinks = item.alsoLinks.map { raw -> articleByLink.getValue(TextUtils.cleanText(raw)).link }
-                add(ReportItem(1, index + 1, article.link, article.title, article.source, article.pubDateUtc, article.pubDateIso, item.summaryZh, alsoLinks))
+                val eventKey = EditorialCacheKeys.eventKey(item.eventKey, article.title, article.link)
+                add(ReportItem(1, index + 1, article.link, article.title, article.source, article.pubDateUtc, article.pubDateIso, item.summaryZh, alsoLinks, eventKey))
             }
             var part2Position = 0
             renderedPart2.groups.forEach { group ->
                 group.articles.forEach { item ->
                     part2Position += 1
                     val authority = articleByLink.getValue(TextUtils.cleanText(item.link))
-                    add(ReportItem(2, part2Position, authority.link, authority.title, group.source, authority.pubDateUtc, item.pubDateIso, item.summaryZh))
+                    val eventKey = EditorialCacheKeys.eventKey(item.eventKey, authority.title, authority.link)
+                    add(ReportItem(2, part2Position, authority.link, authority.title, group.source, authority.pubDateUtc, item.pubDateIso, item.summaryZh, eventKey = eventKey))
                 }
             }
         }

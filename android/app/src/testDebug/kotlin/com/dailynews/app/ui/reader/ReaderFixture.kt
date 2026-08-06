@@ -6,9 +6,7 @@ import com.dailynews.data.db.ReaderArticle
  * 阅读器固定数据：V3 矩阵在 Robolectric 上是空 Room，只能拍到空态；
  * 「有数据的样子」由本 fixture + ReaderScreenshotTest 单独重录，不受 64 张矩阵牵连。
  */
-fun readerFixtureState(): ReaderUiState = ReaderUiState(
-    phase = ReaderPhase.CONTENT,
-    articles = listOf(
+fun readerFixtureArticles(): List<ReaderArticle> = listOf(
         ReaderArticle(
             linkKey = "https://example/top-story",
             link = "https://example/top-story",
@@ -41,6 +39,27 @@ fun readerFixtureState(): ReaderUiState = ReaderUiState(
             pubDateIso = "2026-08-04T22:45+00:00",
             readAtUtc = null,
             favoritedAtUtc = null,
+        ),
+)
+
+fun readerFixtureState(): ReaderUiState = ReaderUiState(
+    phase = ReaderPhase.CONTENT,
+    articles = readerFixtureArticles(),
+    // 分节头的计数**故意**大于窗口内渲染的条数：08-05 那天真实有 24 篇，
+    // 但分页窗口只吐出 2 篇。这条契约（全量计数 ≠ 窗口计数）被钉进截图基线，
+    // 以后谁把 header 改成数渲染条数，基线就会红。
+    sections = listOf(
+        ReaderDaySection(
+            day = "2026-08-05",
+            label = readerDayLabel("2026-08-05"),
+            totalCount = 24,
+            articles = readerFixtureArticles().take(2),
+        ),
+        ReaderDaySection(
+            day = "2026-08-04",
+            label = readerDayLabel("2026-08-04"),
+            totalCount = 31,
+            articles = readerFixtureArticles().drop(2),
         ),
     ),
     filter = ReaderFilter(),

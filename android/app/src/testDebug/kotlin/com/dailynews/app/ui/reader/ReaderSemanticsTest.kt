@@ -18,7 +18,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+// 视口显式放高：LazyColumn 只组合可见项，而按天分节额外插入了吸顶头，
+// 默认高度下最后一张卡片会落在视口外、根本不参与组合，断言就会莫名其妙地少一个。
+@Config(sdk = [35], qualifiers = "w360dp-h1600dp")
 class ReaderSemanticsTest {
     @get:Rule val compose = createComposeRule()
 

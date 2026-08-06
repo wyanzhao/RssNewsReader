@@ -129,6 +129,32 @@ interface ArticleDao {
     fun observeTimelineForFeed(feedName: String, unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>>
     @Query("SELECT feedName, COUNT(*) AS unread FROM articles WHERE readAtUtc IS NULL AND pubDateIso <> '' GROUP BY feedName")
     fun observeUnreadCounts(): Flow<List<FeedUnreadCount>>
+
+    // Epic V 按天分节的日计数。四种「全部/按源 × 全部/未读」各写一条，理由与
+    // observeTimeline 拆两条相同，而且更强：把 unreadOnly 也拆开之后，
+    // 四条全部是 COVERING INDEX（EXPLAIN QUERY PLAN 实测），无需 INDEXED BY 提示。
+    //   全部/全部 → SCAN   COVERING INDEX index_articles_pubDateIso
+    //   全部/未读 → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=?)
+    //   按源/全部 → SEARCH COVERING INDEX index_articles_feedName_pubDateIso (feedName=?)
+    //   按源/未读 → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=? AND feedName=?)
+    // 计数是全量的，与时间线的分页窗口无关：分节头写的是那天真实有多少篇。
+    @Query("SELECT substr(pubDateIso,1,10) AS day, COUNT(*) AS total FROM articles WHERE pubDateIso <> '' GROUP BY day ORDER BY day DESC")
+    fun observeDayCounts(): Flow<List<ReaderDayCount>>
+
+    @Query("SELECT substr(pubDateIso,1,10) AS day, COUNT(*) AS total FROM articles WHERE pubDateIso <> '' AND readAtUtc IS NULL GROUP BY day ORDER BY day DESC")
+    fun observeUnreadDayCounts(): Flow<List<ReaderDayCount>>
+
+    @Query("SELECT substr(pubDateIso,1,10) AS day, COUNT(*) AS total FROM articles WHERE pubDateIso <> '' AND feedName = :feedName GROUP BY day ORDER BY day DESC")
+    fun observeDayCountsForFeed(feedName: String): Flow<List<ReaderDayCount>>
+
+    @Query(
+        """
+        SELECT substr(pubDateIso,1,10) AS day, COUNT(*) AS total FROM articles
+        WHERE pubDateIso <> '' AND feedName = :feedName AND readAtUtc IS NULL
+        GROUP BY day ORDER BY day DESC
+        """,
+    )
+    fun observeUnreadDayCountsForFeed(feedName: String): Flow<List<ReaderDayCount>>
     @Query("SELECT COUNT(*) FROM articles WHERE pubDateIso <> ''") fun observePoolCount(): Flow<Int>
     @Query("UPDATE articles SET readAtUtc = NULL WHERE linkKey = :linkKey") suspend fun markUnread(linkKey: String)
     @Query("""
@@ -271,6 +297,39 @@ interface ReportDao {
         FROM reports r ORDER BY r.reportDate DESC
     """) fun observeAllPreviews(): Flow<List<ReportPreview>>
     @Query("SELECT * FROM report_items WHERE reportDate = :date ORDER BY part, position") fun observeItems(date: String): Flow<List<ReportItemEntity>>
+
+    // Epic V 线索历史：同一 event_key 的 Part 1 条目按日期倒序，走 index_report_items_eventKey。
+    @Query("SELECT * FROM report_items WHERE eventKey = :eventKey AND part = 1 AND eventKey <> '' ORDER BY reportDate DESC, position")
+    fun observeStory(eventKey: String): Flow<List<ReportItemEntity>>
+
+    /**
+     * 每条线索被报道过多少天。UI 只在 >= 2 时才显示「线索历史」入口——
+     * 单篇线索点进去只有它自己，是个空承诺。
+     */
+    @Query(
+        """
+        SELECT eventKey, COUNT(DISTINCT reportDate) AS days FROM report_items
+        WHERE part = 1 AND eventKey <> '' AND eventKey IN (:eventKeys)
+        GROUP BY eventKey
+        """,
+    )
+    fun observeStoryDepth(eventKeys: List<String>): Flow<List<StoryDepth>>
+
+    /**
+     * Epic V 周期简报素材：区间内**已成功发布**那些天的 Part 1 条目。
+     * 主键 (reportDate, part, position) 以 reportDate 打头，BETWEEN 走主键范围扫描；
+     * EXISTS 是 reports 的主键点查。无需新索引。
+     * 被 markFailed 降级的日子由 status = 'SUCCESS' 挡掉：审校没过的内容不该进周报。
+     */
+    @Query(
+        """
+        SELECT ri.* FROM report_items ri
+        WHERE ri.part = 1 AND ri.reportDate BETWEEN :start AND :end AND ri.summaryZh <> ''
+          AND EXISTS (SELECT 1 FROM reports r WHERE r.reportDate = ri.reportDate AND r.status = 'SUCCESS')
+        ORDER BY ri.reportDate, ri.position
+        """,
+    )
+    suspend fun publishedPart1Between(start: String, end: String): List<ReportItemEntity>
     @Query("SELECT * FROM reports WHERE reportDate = :date") suspend fun get(date: String): ReportEntity?
     @Query("SELECT * FROM reports ORDER BY reportDate DESC LIMIT 1") suspend fun latestNow(): ReportEntity?
     @Query("SELECT * FROM report_items WHERE reportDate = :date AND part = 1 ORDER BY position LIMIT :limit") suspend fun topItemsNow(date: String, limit: Int): List<ReportItemEntity>
@@ -302,4 +361,23 @@ interface SeenLinksDao {
     @Query("SELECT * FROM seen_links") suspend fun all(): List<SeenLinkEntity>
     @Query("DELETE FROM seen_links") suspend fun clear()
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(entries: List<SeenLinkEntity>)
+}
+
+@Dao
+interface PeriodicReportDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(report: PeriodicReportEntity)
+    @Query("SELECT * FROM periodic_reports WHERE periodKey = :periodKey") suspend fun find(periodKey: String): PeriodicReportEntity?
+    @Query("SELECT * FROM periodic_reports WHERE periodKey = :periodKey") fun observe(periodKey: String): Flow<PeriodicReportEntity?>
+    @Query(
+        """
+        SELECT periodKey, kind, status, periodStartDate, periodEndDate, itemCount, failureReason, createdAtUtc
+        FROM periodic_reports ORDER BY periodKey DESC
+        """,
+    )
+    fun observeSummaries(): Flow<List<PeriodicReportSummary>>
+    @Query("SELECT * FROM periodic_reports ORDER BY periodKey") suspend fun allNow(): List<PeriodicReportEntity>
+    /** 已成功发布的周期简报不得被后续失败覆盖，与 reports.wasPublished 同策略。 */
+    @Query("SELECT COUNT(*) > 0 FROM periodic_reports WHERE periodKey = :periodKey AND publishedAtUtc IS NOT NULL")
+    suspend fun wasPublished(periodKey: String): Boolean
+    @Query("DELETE FROM periodic_reports") suspend fun clear()
 }

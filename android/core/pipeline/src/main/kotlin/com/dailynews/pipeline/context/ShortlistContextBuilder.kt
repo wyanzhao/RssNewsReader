@@ -44,9 +44,23 @@ data class Part1ShortlistContext(
     val meta: LlmMeta,
     @SerialName("article_count") val articleCount: Int,
     @SerialName("cache_hits") val cacheHits: Int,
+    // wire 名是历史遗留：字段从来没有 30 条上限，它是 recent_top-N 的连续性材料。
+    // prompt 按这个名字读，改名要同时动 Kotlin 与 markdown，收益只有整洁，故保留。
     @SerialName("recent_top30") val recentTopN: List<RecentTopNEvent>,
     val articles: List<ShortlistContextArticle>,
 )
+
+/** 跨日线索连续性的回看窗口。prompt 文案里的天数由 AssetPromptContractTest 钉死到这个常量。 */
+const val RECENT_EVENT_WINDOW_DAYS = 7L
+
+/**
+ * `recent_top30[]` 的条数硬上限。
+ *
+ * 注意：`part1_shortlist_context` **不在 context_budget 的记账范围内**
+ * （预算只覆盖 llm_context / part1_brief / part2_context），所以这条负载没有
+ * 任何外部闸门。去重之后通常 120–180 条，这里再兜一道底。
+ */
+const val RECENT_EVENT_CAP = 150
 
 class ShortlistContextBuilder(
     private val cache: EditorialCacheStore,
@@ -74,10 +88,13 @@ class ShortlistContextBuilder(
                 summaryEn = article.summaryEn,
                 articleText = article.articleText,
                 cachedSummaryZh = cachedSummary,
-                cachedEventKey = record?.eventKey?.trim()?.takeIf { cachedSummary != null && it.isNotEmpty() },
+                // 摘要 lint 与 event key 是两条独立的防线：lint 挡的是注入正文，
+                // event key 有自己的形态守卫（sanitizeEventKey）。让摘要 lint 连坐掉 key
+                // 会在摘要偶发超长时悄悄切断这条文章的线索连续性。
+                cachedEventKey = EditorialCacheKeys.sanitizeEventKey(record?.eventKey).takeIf { it.isNotEmpty() },
             )
         }
-        val cutoff = clock.now().minus(3, ChronoUnit.DAYS)
+        val cutoff = clock.now().minus(RECENT_EVENT_WINDOW_DAYS, ChronoUnit.DAYS)
         val recent = cache.recentSince(cutoff)
             .filter { !it.part1SummaryZh.isNullOrBlank() && it.updatedAtUtc != null && !it.updatedAtUtc.isBefore(cutoff) }
             .filter { EditorialContracts.summaryLintErrors(it.part1SummaryZh, "recent cached", 400).isEmpty() }
@@ -85,11 +102,19 @@ class ShortlistContextBuilder(
                 RecentTopNEvent(
                     title = record.title,
                     source = record.source,
-                    eventKey = record.eventKey.orEmpty(),
+                    // 空 key 先归一化再去重，否则所有缺 key 的记录会塌进同一个桶，
+                    // 把互不相干的事件当成同一条线索。
+                    eventKey = EditorialCacheKeys.sanitizeEventKey(record.eventKey).ifEmpty {
+                        EditorialCacheKeys.eventKey(null, record.title, record.link)
+                    },
                     coveredOn = record.updatedAtUtc!!.atZone(java.time.ZoneOffset.UTC).toLocalDate().toString(),
                 )
             }
             .sortedWith(compareByDescending<RecentTopNEvent> { it.coveredOn }.thenByDescending { it.eventKey })
+            // 窗口从 3 天放宽到 7 天后条数会翻倍。按线索去重（保留最新一次报道）
+            // 才是模型真正需要的信息，重复的同一线索只是在烧 token。
+            .distinctBy { it.eventKey }
+            .take(RECENT_EVENT_CAP)
         return Part1ShortlistContext(context.meta, links.size, hits, recent, articles)
     }
 }

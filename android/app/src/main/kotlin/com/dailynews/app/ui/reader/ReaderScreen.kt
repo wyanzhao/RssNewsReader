@@ -2,17 +2,18 @@ package com.dailynews.app.ui.reader
 
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -35,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import java.time.Instant
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -65,7 +67,10 @@ fun ReaderScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val openLink: (String) -> Unit = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) }
-    val itemCount = state.searchResults?.size ?: state.articles.orEmpty().size
+    // 必须是 lazy-item 空间的计数（文章 + 分节头），因为下面拿来比较的
+    // firstVisibleItemIndex 也在这个空间里。用纯文章数会让窗口每隔约 20 个
+    // 分节就提前多涨一次 100。
+    val itemCount = state.searchResults?.size ?: readerLazyItemCount(state.sections)
     // 窗口增长只在有状态壳里触发；滚动本身绝不写 readAtUtc。
     LaunchedEffect(listState.firstVisibleItemIndex, itemCount) {
         val lastVisible = listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size
@@ -189,6 +194,31 @@ internal fun ReaderFilterChips(
  * 无状态内容：供截图/语义测试直接调用。
  * 三态显式：LOADING / EMPTY / CONTENT，不复制 Today 初始态与空态不可区分的坑。
  */
+/**
+ * 吸顶日期头。背景必须**整宽不透明**：只给 640dp 的内层加背景，
+ * 840dp 展开态下内容会从两侧的空隙里穿过吸顶头。
+ */
+@Composable
+private fun ReaderDayHeader(section: ReaderDaySection) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Text(
+            "${section.label} · ${section.totalCount} 篇",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = DailyNewsSpacing.readingMaxWidth)
+                .padding(vertical = DailyNewsSpacing.compact),
+        )
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ReaderContent(
     state: ReaderUiState,
@@ -199,6 +229,9 @@ fun ReaderContent(
     onToggleRead: (ReaderArticle) -> Unit = {},
     onShare: (String) -> Unit = {},
     onOpenLink: (String) -> Unit = {},
+    // 卡片上的「N 天前」是相对时间。截图测试必须钉住这个时刻，
+    // 否则固定 fixture 的文案会随日历自己漂，基线每过一天就红一次。
+    now: Instant = Instant.now(),
 ) {
     val searchResults = state.searchResults
     when {
@@ -226,6 +259,7 @@ fun ReaderContent(
                         onShare = { onShare("${entity.title}\n${entity.link}") },
                         onOpenRelated = onOpenLink,
                         blankSummaryText = "无英文摘要",
+                        now = now,
                     )
                 }
             }
@@ -240,30 +274,49 @@ fun ReaderContent(
                 }
             }
         }
+        // 分节视图不设 verticalArrangement.spacedBy：吸顶头必须紧贴内容，
+        // 中间留空隙会让下方卡片从缝里透出来。间距改由各项自己带。
         else -> LazyColumn(
             modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(DailyNewsSpacing.roomy),
-            verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.regular),
+            contentPadding = PaddingValues(horizontal = DailyNewsSpacing.roomy, vertical = DailyNewsSpacing.compact),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            itemsIndexed(state.articles.orEmpty(), key = { _, article -> article.linkKey }) { _, article ->
-                ReadingColumn {
-                    ArticleCard(
-                        article = article.toCardModel(),
-                        saved = article.favoritedAtUtc != null,
-                        read = article.readAtUtc != null,
-                        onOpen = { onOpen(article) },
-                        onToggleFavorite = { onToggleFavorite(article) },
-                        onShare = { onShare("${article.title}\n${article.link}\n${article.summaryZh}") },
-                        onOpenRelated = onOpenLink,
-                        extraMenuItem = {
-                            DropdownMenuItem(
-                                text = { Text(if (article.readAtUtc == null) "标记为已读" else "标记为未读") },
-                                onClick = { onToggleRead(article) },
-                            )
-                        },
-                    )
+            state.sections.forEach { section ->
+                stickyHeader(key = "day-${section.day}") {
+                    ReaderDayHeader(section)
+                }
+                items(section.articles, key = { it.linkKey }) { article ->
+                    ReadingColumn(Modifier.padding(bottom = DailyNewsSpacing.regular)) {
+                        ArticleCard(
+                            article = article.toCardModel(),
+                            saved = article.favoritedAtUtc != null,
+                            read = article.readAtUtc != null,
+                            onOpen = { onOpen(article) },
+                            onToggleFavorite = { onToggleFavorite(article) },
+                            onShare = { onShare("${article.title}\n${article.link}\n${article.summaryZh}") },
+                            onOpenRelated = onOpenLink,
+                            extraMenuItem = {
+                                DropdownMenuItem(
+                                    text = { Text(if (article.readAtUtc == null) "标记为已读" else "标记为未读") },
+                                    onClick = { onToggleRead(article) },
+                                )
+                            },
+                            now = now,
+                        )
+                    }
+                }
+            }
+            state.windowNotice?.let { notice ->
+                item(key = "window-cap") {
+                    ReadingColumn {
+                        Text(
+                            notice,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = DailyNewsSpacing.regular),
+                        )
+                    }
                 }
             }
         }

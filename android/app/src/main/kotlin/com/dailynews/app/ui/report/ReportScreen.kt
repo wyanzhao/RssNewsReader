@@ -33,11 +33,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dailynews.app.R
 import com.dailynews.app.ui.common.ArticleCard
 import com.dailynews.app.ui.common.ArticleCardModel
 import com.dailynews.app.ui.common.StatusBadge
@@ -50,7 +52,7 @@ import kotlinx.serialization.decodeFromString
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportScreen(date: String, viewModel: ReportViewModel) {
+fun ReportScreen(date: String, viewModel: ReportViewModel, onOpenStory: ((String) -> Unit)? = null) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var overflowExpanded by remember { mutableStateOf(false) }
@@ -93,7 +95,7 @@ fun ReportScreen(date: String, viewModel: ReportViewModel) {
             )
         },
     ) { padding ->
-        ReportPane(viewModel, Modifier.padding(padding), state = state, listState = listState)
+        ReportPane(viewModel, Modifier.padding(padding), state = state, listState = listState, onOpenStory = onOpenStory)
     }
 }
 
@@ -103,6 +105,7 @@ fun ReportPane(
     modifier: Modifier = Modifier,
     state: ReportUiState? = null,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    onOpenStory: ((String) -> Unit)? = null,
 ) {
     val observed by viewModel.state.collectAsStateWithLifecycle()
     val current = state ?: observed
@@ -122,6 +125,7 @@ fun ReportPane(
             onToggleFavorite = viewModel::toggleFavorite,
             onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
             onShare = { text -> shareText(context, text) },
+            onOpenStory = onOpenStory,
         )
     }
 }
@@ -136,6 +140,8 @@ fun LazyListScope.reportContent(
     onShare: (String) -> Unit,
     embedded: Boolean = false,
     onOpenDiagnostics: (() -> Unit)? = null,
+    /** null = 宿主没接线索历史（例如截图 fixture）；此时不显示入口。 */
+    onOpenStory: ((String) -> Unit)? = null,
 ) {
     val entries = state.items
     val groups = state.groups
@@ -183,6 +189,9 @@ fun LazyListScope.reportContent(
             onToggleFavorite = { onToggleFavorite(article) },
             onShare = { onShare(articleShareText(article)) },
             onOpenRelated = onOpen,
+            // 只在这条线索确实跨了 >= 2 天时才给入口：点进去只有自己一篇
+            // 的「历史」是个空承诺。深度由 report_items 聚合得到。
+            onOpenStory = onOpenStory?.takeIf { (state.storyDepth[article.eventKey] ?: 0) >= 2 },
         )
     }
     if (PART2_SECTION_ENABLED) {
@@ -317,6 +326,7 @@ private fun ReportArticleCard(
     onOpenRelated: (String) -> Unit,
     rank: Int? = null,
     generatingSummary: Boolean = false,
+    onOpenStory: ((String) -> Unit)? = null,
 ) {
     val alsoLinks = remember(item.alsoLinksJson) {
         runCatching { ArtifactJson.codec.decodeFromString<List<String>>(item.alsoLinksJson) }.getOrDefault(emptyList())
@@ -330,6 +340,14 @@ private fun ReportArticleCard(
         onShare = onShare,
         onOpenRelated = onOpenRelated,
         generatingSummary = generatingSummary,
+        extraMenuItem = onOpenStory?.let { open ->
+            {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.story_open)) },
+                    onClick = { open(item.eventKey) },
+                )
+            }
+        },
     )
 }
 

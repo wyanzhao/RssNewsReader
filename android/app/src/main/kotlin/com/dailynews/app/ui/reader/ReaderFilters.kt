@@ -39,6 +39,58 @@ internal fun nextWindow(current: Int, visibleIndex: Int, itemCount: Int): Int {
     return (current + READER_WINDOW_STEP).coerceAtMost(READER_WINDOW_MAX)
 }
 
+/** 一天的分节。[totalCount] 是那天的**全量**篇数，与窗口内渲染了几条无关。 */
+data class ReaderDaySection(
+    val day: String,
+    val label: String,
+    val totalCount: Int,
+    val articles: List<ReaderArticle>,
+)
+
+/**
+ * 按 UTC 日分组。分组键 `pubDateIso.take(10)` 与 SQL 的 `substr(pubDateIso,1,10)`
+ * 逐字节同源——两边必须用同一个定义，否则分节头的计数会对不上它下面的条目。
+ *
+ * 时间线本身已按 pubDateIso 降序，所以顺序遍历即可保持日期分组有序。
+ */
+internal fun readerDaySections(articles: List<ReaderArticle>, dayCounts: Map<String, Int>): List<ReaderDaySection> =
+    articles.groupBy { it.pubDateIso.take(10) }
+        .map { (day, items) ->
+            // 计数缺失时退回窗口内条数，宁可少报也不显示 0。
+            ReaderDaySection(day, readerDayLabel(day), dayCounts[day] ?: items.size, items)
+        }
+
+/** `08-05 星期三`。日期不可解析时原样回显。 */
+internal fun readerDayLabel(day: String): String {
+    val parsed = runCatching { java.time.LocalDate.parse(day) }.getOrNull() ?: return day
+    val weekday = when (parsed.dayOfWeek) {
+        java.time.DayOfWeek.MONDAY -> "星期一"
+        java.time.DayOfWeek.TUESDAY -> "星期二"
+        java.time.DayOfWeek.WEDNESDAY -> "星期三"
+        java.time.DayOfWeek.THURSDAY -> "星期四"
+        java.time.DayOfWeek.FRIDAY -> "星期五"
+        java.time.DayOfWeek.SATURDAY -> "星期六"
+        java.time.DayOfWeek.SUNDAY -> "星期日"
+    }
+    return "${day.removePrefix("${parsed.year}-")} $weekday"
+}
+
+/**
+ * LazyColumn 里的**项数**：文章 + 每个分节头各占一项。
+ * 分页判定用的 `listState.firstVisibleItemIndex` 也在这个空间里，两者必须同源，
+ * 否则窗口会每隔约 20 个分节就提前多涨一次 100。
+ */
+internal fun readerLazyItemCount(sections: List<ReaderDaySection>): Int =
+    sections.sumOf { it.articles.size } + sections.size
+
+/** 触顶 1000 时的终止提示；未触顶返回 null。 */
+internal fun readerWindowCapNotice(window: Int, loaded: Int): String? =
+    if (window >= READER_WINDOW_MAX && loaded >= READER_WINDOW_MAX) {
+        "已加载最近 $READER_WINDOW_MAX 篇。更早的文章请用搜索或按来源筛选。"
+    } else {
+        null
+    }
+
 /**
  * 空态文案的 5 个分支；非空返回值即为应展示的 EmptyState 文案。
  * 分支顺序即优先级：无订阅源 → 池空 → 该源无文章 → 都读完了 → 兜底。

@@ -16,7 +16,6 @@ import org.junit.runner.RunWith
 class Migration6To7InstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val databaseName = "migration-v6-v7"
-    private val fullChainDatabaseName = "migration-v3-v7"
 
     @get:Rule
     val helper = MigrationTestHelper(
@@ -29,7 +28,6 @@ class Migration6To7InstrumentedTest {
     @After
     fun cleanUp() {
         instrumentation.targetContext.deleteDatabase(databaseName)
-        instrumentation.targetContext.deleteDatabase(fullChainDatabaseName)
     }
 
     @Test
@@ -60,32 +58,6 @@ class Migration6To7InstrumentedTest {
         migrated.close()
     }
 
-    @Test
-    fun fullChainFromVersionThreeReachesVersionSevenWithFavoritesIntact() {
-        helper.createDatabase(fullChainDatabaseName, 3).apply {
-            execSQL("INSERT INTO feeds(name,url,errorPolicy,enabled,position) VALUES('Source','https://feed','block',1,0)")
-            execSQL(
-                "INSERT INTO favorites(link,title,source,summaryZh,savedAtUtc) " +
-                    "VALUES('https://example/chain/','Chained title','Source','收藏摘要','2026-08-03T01:02:03Z')",
-            )
-            close()
-        }
-
-        val migrated = helper.runMigrationsAndValidate(
-            fullChainDatabaseName,
-            7,
-            true,
-            DailyNewsDatabase.MIGRATION_3_4,
-            DailyNewsDatabase.MIGRATION_4_5,
-            DailyNewsDatabase.MIGRATION_5_6,
-            DailyNewsDatabase.MIGRATION_6_7,
-        )
-
-        migrated.query("SELECT linkKey, favoritedAtUtc FROM articles").use { cursor ->
-            assertTrue(cursor.moveToFirst())
-            assertEquals("https://example/chain", cursor.getString(0))
-            assertEquals("2026-08-03T01:02:03Z", cursor.getString(1))
-        }
-        migrated.close()
-    }
+    // 全链测试（v3 → 最新版本）住在 Migration7To8InstrumentedTest，
+    // 那里的终点跟着最新 schema 走；本文件只负责 v6→v7 这一步。
 }

@@ -29,6 +29,9 @@ data class ReaderUiState(
     val phase: ReaderPhase = ReaderPhase.LOADING,
     // null = Room 首次发射之前；非 null 后才区分 EMPTY / CONTENT，显式锁死三态。
     val articles: List<ReaderArticle>? = null,
+    /** 时间线按 UTC 日分节。分节头的计数是全量的，不受分页窗口影响。 */
+    val sections: List<ReaderDaySection> = emptyList(),
+    val windowNotice: String? = null,
     val filter: ReaderFilter = ReaderFilter(),
     val chips: List<FeedChipModel> = emptyList(),
     val totalUnread: Int = 0,
@@ -71,6 +74,9 @@ class ReaderViewModel(
         .flatMapLatest { (currentFilter, limit) ->
             articles.observeTimeline(currentFilter.feedName, currentFilter.unreadOnly, limit)
         }
+    private val dayCounts = filter.flatMapLatest { current ->
+        articles.observeDayCounts(current.feedName, current.unreadOnly)
+    }
     private val feedsFlow = feeds.observeAll()
     private val searchResults = searchQuery.flatMapLatest { query ->
         if (query.isBlank()) flowOf(emptyList()) else articles.search(query)
@@ -84,13 +90,18 @@ class ReaderViewModel(
     private val selection = combine(filter, searchQuery, searchResults, lastBatchStamp) { currentFilter, query, results, stamp ->
         ReaderSelection(currentFilter, query, results, stamp)
     }
+    private val sectioned = combine(timeline, dayCounts, window) { rows, counts, limit ->
+        Triple(rows, readerDaySections(rows, counts.associate { it.day to it.total }), limit)
+    }
 
-    val state: StateFlow<ReaderUiState> = combine(timeline, selection, header) { rows, current, head ->
+    val state: StateFlow<ReaderUiState> = combine(sectioned, selection, header) { (rows, sections, limit), current, head ->
         val searching = current.searchQuery.isNotBlank()
         val hasContent = if (searching) current.searchResults.isNotEmpty() else rows.isNotEmpty()
         ReaderUiState(
             phase = if (hasContent) ReaderPhase.CONTENT else ReaderPhase.EMPTY,
             articles = rows,
+            sections = sections,
+            windowNotice = readerWindowCapNotice(limit, rows.size),
             filter = current.filter,
             chips = feedChipModels(head.feeds, head.unreadCounts),
             totalUnread = totalUnread(head.unreadCounts),
