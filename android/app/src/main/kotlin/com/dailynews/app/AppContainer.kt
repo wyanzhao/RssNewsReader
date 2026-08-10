@@ -44,6 +44,7 @@ import com.dailynews.pipeline.flow.ProviderBinding
 import com.dailynews.pipeline.flow.ProviderResolver
 import com.dailynews.pipeline.orchestrate.RunOrchestrator
 import com.dailynews.pipeline.orchestrate.NetworkDiagnostics
+import com.dailynews.pipeline.orchestrate.NetworkProbeTarget
 import com.dailynews.pipeline.orchestrate.UnexpectedFailureDiagnostics
 import com.dailynews.pipeline.ports.ClockProvider
 import com.dailynews.pipeline.ports.NetworkStatePort
@@ -194,6 +195,16 @@ class AppContainer(context: Context) {
         )
     }
 
+    fun currentProviderNetworkTargets(): List<NetworkProbeTarget> {
+        val settings = providerSettings.load()
+        val configuredIds = listOf(settings.mapping.editor.providerId, settings.mapping.drafter.providerId).distinct()
+        return configuredIds.mapNotNull { providerId ->
+            settings.providers.firstOrNull { it.id == providerId }?.let { provider ->
+                NetworkProbeTarget("LLM provider ${provider.id}", provider.baseUrl)
+            }
+        }
+    }
+
     private val auditSink = object : LlmCallAuditSink {
         override suspend fun record(
             runId: String,
@@ -211,6 +222,8 @@ class AppContainer(context: Context) {
         AssetPromptSource(appContext),
         auditSink,
         ShortlistContextBuilder(cacheRepository, ClockProvider { clock.instant() }),
+        artifactStore,
+        runLogRepository,
     )
 
     suspend fun generatePart2Group(reportDate: String, source: String): Int {
@@ -244,7 +257,10 @@ class AppContainer(context: Context) {
         // and it inspects the throwable chain. Re-checking the message text here
         // would discard that and silently disable diagnostics on device.
         unexpectedDiagnostics = UnexpectedFailureDiagnostics {
-            networkDiagnostics.run(feedRepository.enabledFeeds()).map { probe ->
+            networkDiagnostics.run(
+                feedRepository.enabledFeeds(),
+                providerTargets = currentProviderNetworkTargets(),
+            ).map { probe ->
                 "${probe.target}/${probe.stage}: ${if (probe.passed) "ok" else "failed"} ${probe.detail}"
             }
         },

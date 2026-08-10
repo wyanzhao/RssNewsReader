@@ -296,6 +296,7 @@ private fun diagnosticsViewModel(container: AppContainer, runId: String?): Diagn
             container.feedRepository,
             container.networkDiagnostics,
             container::currentNetworkContext,
+            container::currentProviderNetworkTargets,
         )
     },
 )

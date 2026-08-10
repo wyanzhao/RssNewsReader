@@ -7,10 +7,13 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -19,6 +22,8 @@ import com.dailynews.app.notify.NotificationHelper
 import com.dailynews.app.widget.DailyNewsWidget
 import androidx.glance.appwidget.updateAll
 import com.dailynews.pipeline.orchestrate.RunRequest
+import com.dailynews.pipeline.orchestrate.RunExecutionResult
+import com.dailynews.pipeline.orchestrate.RetryKind
 import com.dailynews.pipeline.ports.LogLevel
 import java.time.LocalDate
 import java.io.File
@@ -60,17 +65,23 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 "foreground promotion rejected; continued in degraded mode: ${failure::class.simpleName}: ${failure.message}",
             )
         }
+        // Rare now that the request carries a CONNECTED constraint: the network has to
+        // drop between the constraint being satisfied and this line, or the app has to be
+        // firewalled off a network that still exists (Doze, Data Saver, a restricted
+        // standby bucket). Either way the pipeline never starts, so the run is deferred,
+        // not failed.
         if (!networkAvailable()) {
             if (runAttemptCount < 2) return Result.retry()
-            val failure = container.runRepository.recordPreflightFailure(
+            val message = "network unavailable after ${runAttemptCount + 1} WorkManager attempts"
+            val runId = container.runRepository.recordPreflightDeferral(
                 date,
                 trigger,
                 "network_preflight",
-                "network unavailable after ${runAttemptCount + 1} WorkManager attempts",
+                message,
                 runAttemptCount + 1,
             )
-            logForegroundDegradation(failure.runId)
-            publishUiResult(failure)
+            logForegroundDegradation(runId)
+            NotificationHelper.notifyDeferred(applicationContext, date, message, runId)
             ReportScheduler(applicationContext).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
             return Result.success()
         }
@@ -100,6 +111,18 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
         container.runRepository.finished(result)
         logForegroundDegradation(result.runId)
+        if (shouldRetryScheduledProviderNetwork(scheduled, runAttemptCount, result)) {
+            result.runId?.let { runId ->
+                container.runLogRepository.log(
+                    runId,
+                    "scheduled_retry",
+                    LogLevel.WARN,
+                    "provider network failure; WorkManager will retry after exponential backoff " +
+                        "(attempt ${runAttemptCount + 2}/$MAX_PROVIDER_NETWORK_WORK_ATTEMPTS)",
+                )
+            }
+            return Result.retry()
+        }
         val monthTokens = container.llmCallRepository.tokensThisMonth()
         if (config.monthlyTokenBudget > 0 && monthTokens.toDouble() / config.monthlyTokenBudget >= 0.8) {
             result.runId?.let { runId ->
@@ -155,13 +178,38 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         internal const val UNIQUE_WORK = "daily-report"
         internal const val FOREGROUND_WATCHDOG_MILLIS = 1_200_000L
         internal const val DEGRADED_WATCHDOG_MILLIS = 1_200_000L
+        internal const val MAX_PROVIDER_NETWORK_WORK_ATTEMPTS = 3
 
         fun enqueue(context: Context, scheduled: Boolean) {
             WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request(scheduled))
         }
 
+        /**
+         * The background hardening is deliberately scheduled-only.
+         *
+         * A scheduled trigger fires while the screen is off, so it needs both: without a
+         * network constraint WorkManager's in-process greedy scheduler starts the worker
+         * the instant the alarm fires — inside the Doze window, where the per-UID firewall
+         * makes getActiveNetwork() return null and the run dies at preflight while the
+         * device itself is online. The constraint turns "fail now" into "wait for a usable
+         * network", and an expedited job is granted network access and a wakelock on API
+         * 31+ (API 26-30: the getForegroundInfo() foreground service; out of quota:
+         * ordinary work, never dropped) so it no longer depends on a background
+         * setForeground() that Android 12 often refuses.
+         *
+         * A manual trigger must not get either. The app is in the foreground, so its UID is
+         * never firewalled — and a constrained request would sit ENQUEUED and silent when
+         * the device is genuinely offline, because only SweepWorker's WorkInfo is observed
+         * by the UI. Failing fast within the retry bound is the feedback the user tapped for.
+         */
         internal fun request(scheduled: Boolean) = OneTimeWorkRequestBuilder<DailyReportWorker>()
                 .setInputData(workDataOf(KEY_SCHEDULED to scheduled))
+                .apply {
+                    if (scheduled) {
+                        setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    }
+                }
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
 
@@ -173,3 +221,12 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         )
     }
 }
+
+internal fun shouldRetryScheduledProviderNetwork(
+    scheduled: Boolean,
+    runAttemptCount: Int,
+    result: RunExecutionResult,
+): Boolean = scheduled &&
+    runAttemptCount < DailyReportWorker.MAX_PROVIDER_NETWORK_WORK_ATTEMPTS - 1 &&
+    result is RunExecutionResult.Failed &&
+    result.retryKind == RetryKind.PROVIDER_NETWORK

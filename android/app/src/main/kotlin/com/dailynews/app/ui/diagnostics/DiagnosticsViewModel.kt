@@ -15,6 +15,7 @@ import com.dailynews.data.repo.RunRepository
 import com.dailynews.model.ValidationCounts
 import com.dailynews.model.FeedResult
 import com.dailynews.pipeline.orchestrate.NetworkDiagnostics
+import com.dailynews.pipeline.orchestrate.NetworkProbeTarget
 import com.dailynews.pipeline.orchestrate.NetworkProbe
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicLong
@@ -113,6 +114,7 @@ class DiagnosticsViewModel(
     private val feeds: FeedRepository,
     private val networkDiagnostics: NetworkDiagnostics,
     private val networkContext: () -> Map<String, String>,
+    private val providerTargets: () -> List<NetworkProbeTarget> = { emptyList() },
 ) : ViewModel() {
     private val selected = savedState.getStateFlow<String?>(SELECTED_RUN_ID, initialRunId)
     private val probes = MutableStateFlow<List<NetworkProbe>>(emptyList())
@@ -182,7 +184,13 @@ class DiagnosticsViewModel(
     fun runNetworkDiagnostics() {
         viewModelScope.launch(Dispatchers.IO) {
             probing.value = true
-            runCatching { networkDiagnostics.run(feeds.enabledFeeds(), androidContext = networkContext()) }
+            runCatching {
+                networkDiagnostics.run(
+                    feeds.enabledFeeds(),
+                    androidContext = networkContext(),
+                    providerTargets = providerTargets(),
+                )
+            }
                 .onSuccess { probes.value = it }
                 .onFailure { postEvent("诊断失败：${it.message ?: it::class.simpleName}", error = true, retryTag = "probe") }
             probing.value = false

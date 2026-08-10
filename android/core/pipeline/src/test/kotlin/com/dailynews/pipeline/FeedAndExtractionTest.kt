@@ -12,6 +12,7 @@ import com.dailynews.model.FeedDefinition
 import com.dailynews.model.Article
 import com.dailynews.model.PipelineConfig
 import com.dailynews.pipeline.orchestrate.NetworkDiagnostics
+import com.dailynews.pipeline.orchestrate.NetworkProbeTarget
 import java.net.UnknownHostException
 import java.time.Clock
 import java.time.Instant
@@ -330,6 +331,35 @@ class FeedAndExtractionTest {
     @Test
     fun `network diagnostic gate recognizes underlying network exception types`() {
         assertTrue(NetworkDiagnostics.evidenceWarrantsProbe(UnknownHostException("unusual platform wording")))
+    }
+
+    @Test
+    fun `network diagnostic gate recognizes Android DNS message variants`() {
+        listOf(
+            "Unable to resolve host api.deepseek.com",
+            "No address associated with hostname",
+            "java.net.UnknownHostException: api.deepseek.com",
+        ).forEach { evidence ->
+            assertTrue(NetworkDiagnostics.evidenceWarrantsProbe(evidence), evidence)
+            assertTrue(NetworkDiagnostics.evidenceWarrantsDelayedRetry(IllegalStateException(evidence)), evidence)
+        }
+    }
+
+    @Test
+    fun `provider probe treats an unauthenticated HTTP response as reachable`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(401))
+
+            val probes = NetworkDiagnostics(OkHttpClient()).run(
+                feeds = emptyList(),
+                providerTargets = listOf(NetworkProbeTarget("LLM provider test", server.url("/v1").toString())),
+            )
+
+            assertEquals(listOf("dns", "tcp", "https"), probes.map { it.stage })
+            assertTrue(probes.all { it.target == "LLM provider test" })
+            assertTrue(probes.last().passed)
+            assertEquals("HTTP 401", probes.last().detail)
+        }
     }
 
     @Test

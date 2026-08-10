@@ -25,14 +25,20 @@ import com.dailynews.pipeline.editorial.PeriodicDigestContracts
 import com.dailynews.pipeline.editorial.EditorialContracts
 import com.dailynews.pipeline.editorial.Part2Merger
 import com.dailynews.pipeline.context.Part1ShortlistContext
+import com.dailynews.pipeline.ports.ArtifactSink
+import com.dailynews.pipeline.ports.LogLevel
+import com.dailynews.pipeline.ports.RunLogSink
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.intOrNull
 
 data class ProviderBinding(
     val providerId: String,
@@ -41,6 +47,21 @@ data class ProviderBinding(
 )
 
 class EditorialLlmException(message: String, cause: Throwable) : RuntimeException(message, cause)
+
+class EditorialContractException(
+    val operation: String,
+    val violations: List<String>,
+) : RuntimeException("$operation contract validation failed after three attempts: ${violations.joinToString("; ")}")
+
+@Serializable
+data class EditorialContractViolation(
+    val operation: String,
+    val attempt: Int,
+    val batch: Int? = null,
+    @SerialName("item_count") val itemCount: Int? = null,
+    val shortfall: Int? = null,
+    val errors: List<String>,
+)
 
 fun interface ProviderResolver {
     fun resolve(role: EditorialRole, execution: LlmExecutionConfig): ProviderBinding
@@ -69,11 +90,17 @@ object NoOpLlmCallAuditSink : LlmCallAuditSink {
     override suspend fun record(runId: String, role: EditorialRole, providerId: String, model: String, response: LlmResponse?, retryIndex: Int, outcome: String) = Unit
 }
 
+private object NoOpArtifactSink : ArtifactSink {
+    override suspend fun write(runId: String, relativePath: String, content: ByteArray) = Unit
+}
+
+private object NoOpRunLogSink : RunLogSink {
+    override suspend fun log(runId: String, step: String, level: LogLevel, message: String) = Unit
+}
+
 data class EditorialOutput(
     val part1: Part1Plan,
     val part2: Part2Draft,
-    val part1ShortlistJson: String? = null,
-    val part1ShortlistContextJson: String? = null,
     val part2MissingSummariesJson: String? = null,
 )
 
@@ -133,6 +160,8 @@ class LlmEditorialEngine(
     private val prompts: PromptSource,
     private val audit: LlmCallAuditSink = NoOpLlmCallAuditSink,
     private val shortlistContexts: ShortlistContextFactory = NoCacheShortlistContextFactory,
+    private val artifacts: ArtifactSink = NoOpArtifactSink,
+    private val logs: RunLogSink = NoOpRunLogSink,
 ) : EditorialEngine, Part2OnDemandGenerator {
     private val codec = ArtifactJson.codec
 
@@ -159,8 +188,6 @@ class LlmEditorialEngine(
         EditorialOutput(
             part1 = part1.plan,
             part2 = part2.draft,
-            part1ShortlistJson = codec.encodeToString(Part1ShortlistPayload(part1.links)),
-            part1ShortlistContextJson = codec.encodeToString(part1.context),
             part2MissingSummariesJson = codec.encodeToString(MissingPart2Payload(part2.missing)),
         )
     }
@@ -183,6 +210,7 @@ class LlmEditorialEngine(
         }
         var shortlistFeedback = ""
         var acceptedLinks: List<String>? = null
+        var lastShortlistErrors = emptyList<String>()
         for (retryIndex in 0..2) {
             val shortlistObject = callObject(
                 runId,
@@ -199,6 +227,9 @@ class LlmEditorialEngine(
             val decodedShortlist = runCatching { codec.decodeFromJsonElement<Part1ShortlistPayload>(shortlistObject) }
             val shortlist = decodedShortlist.getOrNull()
             if (shortlist == null) {
+                val errors = listOf("schema: ${decodedShortlist.exceptionOrNull()?.message}")
+                recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
+                lastShortlistErrors = errors
                 shortlistFeedback = "\n\nPrevious shortlist JSON violated the schema: ${decodedShortlist.exceptionOrNull()?.message}. Return {\"links\":[...]} only."
                 continue
             }
@@ -212,11 +243,16 @@ class LlmEditorialEngine(
                 acceptedLinks = shortlist.links.map { known.getValue(com.dailynews.pipeline.text.TextUtils.cleanText(it)).link }
                 break
             }
+            recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
+            lastShortlistErrors = errors
             shortlistFeedback = "\n\nPrevious shortlist violated deterministic contracts: ${errors.joinToString("; ")}. Correct every issue."
         }
-        val links = acceptedLinks ?: error("Part 1 shortlist validation failed after two retries")
+        val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
+        persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links)))
         val shortlistContext = shortlistContexts.build(context, links)
+        persistArtifact(runId, "part1_shortlist_context.json", codec.encodeToString(shortlistContext))
         var feedback = ""
+        var lastPlanErrors = emptyList<String>()
         repeat(3) { retryIndex ->
             val output = callObject(
                 runId,
@@ -231,6 +267,9 @@ class LlmEditorialEngine(
                 operation = "part1_plan",
             )
             val decoded = runCatching { codec.decodeFromJsonElement<Part1Plan>(output) }.getOrElse { error ->
+                val errors = listOf("schema: ${error.message}")
+                recordViolation(runId, "part1_plan", retryIndex, output, errors)
+                lastPlanErrors = errors
                 feedback = "\n\nPrevious JSON violated the schema: ${error.message}. Return a corrected object."
                 return@repeat
             }
@@ -239,10 +278,12 @@ class LlmEditorialEngine(
             // lost items — to a truncated or repaired response — publish as if
             // it were complete.
             val errors = EditorialContracts.validatePart1(context, decoded, topN)
-            if (errors.isEmpty()) return Part1Result(decoded, links, shortlistContext)
+            if (errors.isEmpty()) return Part1Result(decoded)
+            recordViolation(runId, "part1_plan", retryIndex, output, errors)
+            lastPlanErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: ${errors.joinToString("; ")}. Correct every item."
         }
-        error("Part 1 contract validation failed after two retries")
+        throw EditorialContractException("part1_plan", lastPlanErrors)
     }
 
     private suspend fun draftPart2(
@@ -280,6 +321,7 @@ class LlmEditorialEngine(
         val binding = providers.resolve(EditorialRole.EDITOR, llmExecution)
         val availableLinks = input.items.mapTo(mutableSetOf()) { it.link }
         var feedback = ""
+        var lastErrors = emptyList<String>()
         repeat(3) { retryIndex ->
             val output = callObject(
                 runId,
@@ -293,12 +335,20 @@ class LlmEditorialEngine(
                 binding.roleModel.maxTokens,
                 "periodic_digest",
             )
-            val decoded = codec.decodeFromJsonElement(PeriodicDigest.serializer(), output)
+            val decoded = runCatching { codec.decodeFromJsonElement(PeriodicDigest.serializer(), output) }.getOrElse { error ->
+                val errors = listOf("schema: ${error.message}")
+                recordViolation(runId, "periodic_digest", retryIndex, output, errors)
+                lastErrors = errors
+                feedback = "\n\nPrevious JSON violated the schema: ${error.message}. Return a corrected object."
+                return@repeat
+            }
             val errors = PeriodicDigestContracts.validate(decoded, input.period, availableLinks)
             if (errors.isEmpty()) return decoded
+            recordViolation(runId, "periodic_digest", retryIndex, output, errors)
+            lastErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: ${errors.joinToString("; ")}. Correct every item."
         }
-        error("Periodic digest contract validation failed after three attempts")
+        throw EditorialContractException("periodic_digest", lastErrors)
     }
 
     override suspend fun generate(
@@ -335,6 +385,7 @@ class LlmEditorialEngine(
         counter: CallCounter,
     ): List<MissingPart2Summary> {
         var feedback = ""
+        var lastErrors = emptyList<String>()
         repeat(3) { retryIndex ->
             val objectResult = callObject(
                 runId,
@@ -351,6 +402,9 @@ class LlmEditorialEngine(
                 auditIndexBase = batchIndex * 100,
             )
             val payload = runCatching { codec.decodeFromJsonElement<MissingPart2Payload>(objectResult) }.getOrElse { error ->
+                val errors = listOf("schema: ${error.message}")
+                recordViolation(runId, "part2_batch", retryIndex, objectResult, errors, batchIndex + 1)
+                lastErrors = errors
                 feedback = "\n\nSchema error: ${error.message}. Return a corrected object."
                 return@repeat
             }
@@ -371,9 +425,57 @@ class LlmEditorialEngine(
                     item.copy(link = allowed.getValue(com.dailynews.pipeline.text.TextUtils.cleanText(item.link)).link)
                 }
             }
+            recordViolation(runId, "part2_batch", retryIndex, objectResult, errors, batchIndex + 1)
+            lastErrors = errors
             feedback = "\n\nContract errors: ${errors.joinToString("; ")}. Correct all items."
         }
-        error("Part 2 batch contract validation failed after two retries")
+        throw EditorialContractException("part2_batch", lastErrors)
+    }
+
+    private suspend fun recordViolation(
+        runId: String,
+        operation: String,
+        retryIndex: Int,
+        output: JsonObject,
+        errors: List<String>,
+        batch: Int? = null,
+    ) {
+        val itemCount = sequenceOf("items", "links", "sections")
+            .mapNotNull { key -> (output[key] as? JsonArray)?.size }
+            .firstOrNull()
+        val shortfall = (output["shortfall"] as? JsonPrimitive)?.intOrNull
+        val violation = EditorialContractViolation(
+            operation = operation,
+            attempt = retryIndex + 1,
+            batch = batch,
+            itemCount = itemCount,
+            shortfall = shortfall,
+            errors = errors,
+        )
+        val batchPath = batch?.let { "-batch-$it" }.orEmpty()
+        persistArtifact(
+            runId,
+            "contract_violations/$operation$batchPath-attempt-${retryIndex + 1}.json",
+            codec.encodeToString(violation),
+        )
+        runCatching {
+            logs.log(
+                runId,
+                "contract_$operation",
+                LogLevel.WARN,
+                "attempt=${retryIndex + 1}${batch?.let { " batch=$it" }.orEmpty()} " +
+                    "items=${itemCount ?: "unknown"} shortfall=${shortfall ?: "unknown"} errors=${errors.joinToString("; ")}",
+            )
+        }
+    }
+
+    private suspend fun persistArtifact(runId: String, path: String, text: String) {
+        try {
+            artifacts.write(runId, path, text.toByteArray(Charsets.UTF_8))
+        } catch (error: Exception) {
+            runCatching { logs.log(runId, "artifact", LogLevel.ERROR, "snapshot $path failed: ${error.message}") }
+            throw IllegalStateException("required editorial artifact $path could not be persisted", error)
+        }
     }
 
     private suspend fun callObject(
@@ -458,5 +560,5 @@ private fun Part2SummaryRequest.toBatchArticle() = Part2BatchArticle(
     summaryMaterial,
 )
 
-private data class Part1Result(val plan: Part1Plan, val links: List<String>, val context: Part1ShortlistContext)
+private data class Part1Result(val plan: Part1Plan)
 private data class Part2Result(val draft: Part2Draft, val missing: List<MissingPart2Summary>)

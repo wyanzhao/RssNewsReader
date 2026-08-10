@@ -15,6 +15,7 @@ import com.dailynews.pipeline.flow.EditorialOutput
 import com.dailynews.pipeline.orchestrate.RunExecutionResult
 import com.dailynews.pipeline.orchestrate.RunOrchestrator
 import com.dailynews.pipeline.orchestrate.RunRequest
+import com.dailynews.pipeline.orchestrate.RetryKind
 import com.dailynews.pipeline.orchestrate.UnexpectedFailureDiagnostics
 import com.dailynews.pipeline.orchestrate.ArtifactAuditGate
 import com.dailynews.pipeline.orchestrate.ReportReviewGate
@@ -36,6 +37,7 @@ import com.dailynews.pipeline.ports.TopNReportSink
 import com.dailynews.pipeline.validate.QcValidator
 import java.time.Instant
 import java.time.LocalDate
+import java.net.UnknownHostException
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -138,8 +140,24 @@ class RunOrchestratorTest {
 
         assertEquals("editorial", failed.stage)
         assertTrue("role=EDITOR" in failed.message)
+        assertEquals(RetryKind.NONE, failed.retryKind)
         assertEquals(1, harness.fetchCalls)
         assertEquals(1, harness.editorCalls)
+    }
+
+    @Test
+    fun `provider DNS failure is marked for a bounded scheduled retry`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val harness = Harness(raw, failEditorial = true, editorialNetworkFailure = true)
+
+        val failed = assertIs<RunExecutionResult.Failed>(
+            harness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", config)),
+        )
+
+        assertEquals("editorial", failed.stage)
+        assertEquals(RetryKind.PROVIDER_NETWORK, failed.retryKind)
+        assertTrue("Unable to resolve host" in failed.message)
+        assertEquals(1, harness.fetchCalls)
     }
 
     @Test
@@ -200,6 +218,7 @@ class RunOrchestratorTest {
         private val alwaysFailFetch: Boolean = false,
         private val failFirstFetch: Boolean = false,
         private val failEditorial: Boolean = false,
+        private val editorialNetworkFailure: Boolean = false,
         private val failAudit: Boolean = false,
         private val failReview: Boolean = false,
         private val damagedInput: Boolean = false,
@@ -216,10 +235,14 @@ class RunOrchestratorTest {
 
         private val editorial = EditorialEngine { _, context, _, part2Context, _, topN, _, part2Mode, _ ->
             editorCalls += 1
-            if (failEditorial) throw EditorialLlmException(
-                "role=EDITOR provider=test model=test operation=part1_shortlist contract_attempt=1 transport_attempt=3: timeout",
-                IllegalStateException("timeout"),
-            )
+            if (failEditorial) {
+                val detail = if (editorialNetworkFailure) "Unable to resolve host api.deepseek.com" else "provider rejected request"
+                val cause = if (editorialNetworkFailure) UnknownHostException(detail) else IllegalStateException(detail)
+                throw EditorialLlmException(
+                    "role=EDITOR provider=test model=test operation=part1_shortlist contract_attempt=1 transport_attempt=3: $detail",
+                    cause,
+                )
+            }
             val part1 = Part1Plan(
                 items = context.allArticles.take(topN).map { Part1PlanItem(it.link, "中文事件摘要", emptyList()) },
                 shortfall = maxOf(0, topN - context.allArticles.size),

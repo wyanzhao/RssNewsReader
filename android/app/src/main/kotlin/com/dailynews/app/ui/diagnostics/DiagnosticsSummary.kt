@@ -22,7 +22,7 @@ fun buildDiagnosticsSummary(state: DiagnosticsUiState): String = buildString {
     } ?: state.selectedRunId?.let { appendLine("运行：$it（产物已按保留期清理）") }
 
     appendLine("结论：${state.advice.headline}")
-    state.stage?.let { appendLine("失败阶段：$it") }
+    state.stage?.let { appendLine("${stageLabel(state.detail?.classification)}：$it") }
 
     if (state.blockingReasons.isNotEmpty()) {
         appendLine("阻断原因：")

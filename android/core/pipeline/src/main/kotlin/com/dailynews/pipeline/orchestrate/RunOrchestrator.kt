@@ -21,6 +21,7 @@ import com.dailynews.pipeline.editorial.TopNRenderer
 import com.dailynews.pipeline.editorial.ArtifactAudit
 import com.dailynews.pipeline.editorial.ReportReview
 import com.dailynews.pipeline.flow.EditorialEngine
+import com.dailynews.pipeline.flow.EditorialContractException
 import com.dailynews.pipeline.flow.EditorialLlmException
 import com.dailynews.pipeline.ports.ArtifactSink
 import com.dailynews.pipeline.ports.ClockProvider
@@ -92,8 +93,11 @@ sealed interface RunExecutionResult {
         override val runId: String?,
         val stage: String,
         val message: String,
+        val retryKind: RetryKind = RetryKind.NONE,
     ) : RunExecutionResult
 }
+
+enum class RetryKind { NONE, PROVIDER_NETWORK }
 
 class RunOrchestrator(
     private val fetch: FetchPort,
@@ -204,8 +208,6 @@ class RunOrchestrator(
                 config.part2Mode,
                 config.llmExecution,
             )
-            output.part1ShortlistJson?.let { snapshot(runId, "part1_shortlist.json", it) }
-            output.part1ShortlistContextJson?.let { snapshot(runId, "part1_shortlist_context.json", it) }
             snapshot(runId, "part1_plan.json", ArtifactJson.codec.encodeToString(output.part1))
             output.part2MissingSummariesJson?.let { snapshot(runId, "part2_missing_summaries.json", it) }
             snapshot(runId, "part2_draft.json", ArtifactJson.codec.encodeToString(output.part2))
@@ -253,7 +255,12 @@ class RunOrchestrator(
             RunExecutionResult.Success(request.reportDate, runId, finalReport, warnings)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            fail(request, runId, if (error is EditorialLlmException) "editorial" else "success_branch", error)
+            val stage = when (error) {
+                is EditorialLlmException -> "editorial"
+                is EditorialContractException -> "editorial_contract"
+                else -> "success_branch"
+            }
+            fail(request, runId, stage, error)
         }
     }
 
@@ -331,7 +338,18 @@ class RunOrchestrator(
 
     private suspend fun fail(request: RunRequest, runId: String?, stage: String, error: Throwable): RunExecutionResult.Failed {
         if (runId != null) logSink.log(runId, stage, LogLevel.ERROR, error.message ?: error::class.simpleName.orEmpty())
-        return RunExecutionResult.Failed(request.reportDate, runId, stage, error.message ?: error::class.simpleName.orEmpty())
+        val retryKind = if (stage == "editorial" && NetworkDiagnostics.evidenceWarrantsDelayedRetry(error)) {
+            RetryKind.PROVIDER_NETWORK
+        } else {
+            RetryKind.NONE
+        }
+        return RunExecutionResult.Failed(
+            request.reportDate,
+            runId,
+            stage,
+            error.message ?: error::class.simpleName.orEmpty(),
+            retryKind,
+        )
     }
 
     private suspend fun unexpectedFailure(

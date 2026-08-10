@@ -70,6 +70,61 @@ class DiagnosticsArtifactsTest {
         assertEquals(listOf("watchdog approaching"), resolved.validation.warnings)
     }
 
+    @Test fun passedValidationKeepsCountsButCannotEraseTerminalRunFailure() {
+        val passed = sample.copy(
+            passed = true,
+            blockingReasons = emptyList(),
+            warnings = listOf("17 empty feed(s)"),
+            counts = ValidationCounts(configured = 31, ok = 14, empty = 17, articles = 69),
+        )
+        val entity = RunEntity(
+            runId = "run-success-branch-failed",
+            reportDate = "2026-08-08",
+            status = "FAILED",
+            classification = "UNEXPECTED_ERROR",
+            validatorExitCode = 40,
+            attempt = 1,
+            trigger = "manual",
+            blockingReasonsJson = """["success_branch: Part 1 contract validation failed after three attempts"]""",
+            startedAtUtc = "2026-08-08T20:08:06Z",
+            finishedAtUtc = "2026-08-08T20:22:55Z",
+        )
+
+        val resolved = resolveDiagnosticsArtifacts(
+            ArtifactJson.codec.encodeToString(ValidationResult.serializer(), passed),
+            null,
+            entity,
+            emptyList(),
+        )
+
+        assertEquals(
+            listOf("success_branch: Part 1 contract validation failed after three attempts"),
+            resolved.validation.blockingReasons,
+        )
+        assertEquals(listOf("17 empty feed(s)"), resolved.validation.warnings)
+        assertEquals(69, resolved.validation.counts?.articles)
+    }
+
+    @Test fun parsedValidationWarningsDoNotSuppressFinalErrorLogFallback() {
+        val passed = sample.copy(passed = true, blockingReasons = emptyList(), warnings = listOf("stale feed"))
+        val logs = listOf(
+            RunLogEntity(1, "run", "editorial", "ERROR", "Unable to resolve host api.deepseek.com", "2026-08-08T17:01:55Z"),
+        )
+
+        val resolved = resolveDiagnosticsArtifacts(
+            ArtifactJson.codec.encodeToString(ValidationResult.serializer(), passed),
+            null,
+            entity = null,
+            logs = logs,
+        )
+
+        assertEquals(
+            listOf("editorial: Unable to resolve host api.deepseek.com"),
+            resolved.validation.blockingReasons,
+        )
+        assertEquals(listOf("stale feed"), resolved.validation.warnings)
+    }
+
     @Test fun allEmptyFallsBackToFinalErrorLog() {
         val logs = listOf(
             RunLogEntity(1, "run", "fetch", "INFO", "started", "2026-08-04T00:00:00Z"),

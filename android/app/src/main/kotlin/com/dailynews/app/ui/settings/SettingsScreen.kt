@@ -200,8 +200,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scheduleItems(state: 
     item {
         val power = context.getSystemService(PowerManager::class.java)
         if (!power.isIgnoringBatteryOptimizations(context.packageName)) {
-            InfoCard("后台长任务可能被省电策略中断；请允许 DailyNews 后台运行。", "打开电池优化设置") {
-                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            InfoCard("未加入电池优化白名单：Doze 会在灭屏后掐断本应用的后台网络，定时报告会顺延。", "允许后台运行") {
+                // The targeted intent raises the system allow/deny dialog on the spot.
+                // ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS only opens the global list,
+                // where the user still has to switch the filter to "all apps" and hunt for
+                // DailyNews — so it is the fallback, for OEMs that strip the dialog activity.
+                val direct = Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    "package:${context.packageName}".toUri(),
+                )
+                runCatching { context.startActivity(direct) }.onFailure {
+                    runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                }
             }
         }
     }

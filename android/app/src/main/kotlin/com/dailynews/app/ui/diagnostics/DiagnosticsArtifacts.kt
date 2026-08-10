@@ -136,24 +136,32 @@ fun resolveDiagnosticsArtifacts(
     val (budget, budgetArtifact) = resolveBudgetArtifact(budgetText)
 
     var resolved = validation
-    if (validationArtifact.status == ArtifactStatus.MISSING || validationArtifact.status == ArtifactStatus.UNPARSEABLE) {
-        if (entity != null) {
-            val entityReasons = entityStrings(entity.blockingReasonsJson)
-            val entityWarnings = entityStrings(entity.warningsJson)
-            val entityCounts = entity.finishedAtUtc
-                ?.let { runCatching { ArtifactJson.codec.decodeFromString<ValidationCounts>(entity.countsJson) }.getOrNull() }
-            resolved = ResolvedValidation(
-                blockingReasons = resolved.blockingReasons.ifEmpty { entityReasons },
-                warnings = resolved.warnings.ifEmpty { entityWarnings },
-                counts = resolved.counts ?: entityCounts,
-                feedResults = resolved.feedResults,
-            )
-        }
-        // Ladder bottom: nothing structured anywhere, fall back to the last ERROR log.
-        if (resolved.blockingReasons.isEmpty() && resolved.warnings.isEmpty()) {
-            logs.lastOrNull { it.level == "ERROR" }?.let { error ->
-                resolved = resolved.copy(blockingReasons = listOf("${error.step}: ${error.message}"))
-            }
+    if (entity != null) {
+        val entityReasons = entityStrings(entity.blockingReasonsJson)
+        val entityWarnings = entityStrings(entity.warningsJson)
+        val entityCounts = entity.finishedAtUtc
+            ?.let { runCatching { ArtifactJson.codec.decodeFromString<ValidationCounts>(entity.countsJson) }.getOrNull() }
+        // A success-branch failure deliberately keeps validation.json as passed=true.
+        // That artifact still owns feed counts/warnings, but it must never erase the
+        // later terminal reason stored on the run row. Put exit-40 reasons first so
+        // stageFrom() sees the actual failing stage instead of an earlier validator note.
+        val terminalReasonFirst = entity.validatorExitCode == 40 && entityReasons.isNotEmpty()
+        resolved = ResolvedValidation(
+            blockingReasons = (
+                if (terminalReasonFirst) entityReasons + resolved.blockingReasons
+                else resolved.blockingReasons + entityReasons
+                ).distinct(),
+            warnings = (resolved.warnings + entityWarnings).distinct(),
+            counts = resolved.counts ?: entityCounts,
+            feedResults = resolved.feedResults,
+        )
+    }
+    // Ladder bottom: a parsed, successful validation artifact may coexist with a
+    // later unexpected failure. Warnings must not suppress the final ERROR fallback.
+    val failedOrMissingRun = entity == null || entity.status == "FAILED" || entity.classification == "INTERRUPTED"
+    if (failedOrMissingRun && resolved.blockingReasons.isEmpty()) {
+        logs.lastOrNull { it.level == "ERROR" }?.let { error ->
+            resolved = resolved.copy(blockingReasons = listOf("${error.step}: ${error.message}"))
         }
     }
     return ResolvedArtifacts(resolved, validationArtifact, budget, budgetArtifact)

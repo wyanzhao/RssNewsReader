@@ -313,11 +313,14 @@ private fun TodayStatusCard(
 ) {
     val run = state.currentRun
     val failed = run?.status == "FAILED"
+    // Never started, so it is not a failure — but it still owes the user an explanation
+    // and a way into diagnostics, which the "等待首次生成" fallback below would not give.
+    val deferred = run?.status == "SKIPPED"
     Card(
         Modifier
             .fillMaxWidth()
             .widthIn(max = DailyNewsSpacing.readingMaxWidth)
-            .then(if (failed) Modifier.clickable { onOpenDiagnostics(run?.runId) } else Modifier),
+            .then(if (failed || deferred) Modifier.clickable { onOpenDiagnostics(run?.runId) } else Modifier),
     ) {
         Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
             Text(if (state.isToday) "今日生成状态" else "这一天的状态", style = MaterialTheme.typography.titleLarge)
@@ -331,6 +334,10 @@ private fun TodayStatusCard(
                 failed -> {
                     Text("${run.classification} · validator ${run.validatorExitCode}", color = MaterialTheme.colorScheme.error)
                     TextButton(onClick = { onOpenDiagnostics(run?.runId) }) { Text("打开诊断与重试") }
+                }
+                deferred -> {
+                    Text("没拿到可用网络，未开始抓取；下次计划 ${state.nextScheduledAt}")
+                    TextButton(onClick = { onOpenDiagnostics(run?.runId) }) { Text("打开诊断") }
                 }
                 state.current != null -> {
                     Text("当前报告：${state.current.reportDate}")

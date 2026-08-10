@@ -46,9 +46,23 @@ class DiagnosticsAdvisorTest {
         assertTrue("3 条警告" in noisy.headline)
     }
 
-    @Test fun r4NetworkPreflightSuggestsProbe() {
-        val advice = advise(input(stage = "network_preflight"))
-        assertEquals(DiagnosticsAction.RUN_PROBE, advice.action)
+    @Test fun r4NetworkPreflightReadsAsADeferralNotAFailure() {
+        // A foreground probe would come back green and prove nothing, so the advice is
+        // "run it now, where the app is not firewalled" — for the new DEFERRED rows and
+        // for pre-0.3.3 rows that still carry UNEXPECTED_ERROR with this stage.
+        val deferred = advise(input(status = "SKIPPED", classification = "DEFERRED", stage = "network_preflight", exit = 0))
+        assertEquals(DiagnosticsAction.RUN_NOW, deferred.action)
+        assertTrue("顺延" in deferred.headline)
+
+        val legacy = advise(input(stage = "network_preflight"))
+        assertEquals(DiagnosticsAction.RUN_NOW, legacy.action)
+        assertEquals(deferred.headline, legacy.headline)
+    }
+
+    @Test fun deferredRunsDoNotLabelTheirStageAsAFailure() {
+        assertEquals("阶段", stageLabel("DEFERRED"))
+        assertEquals("失败阶段", stageLabel("UNEXPECTED_ERROR"))
+        assertEquals("失败阶段", stageLabel(null))
     }
 
     @Test fun r5WatchdogAndStoppedRerun() {
@@ -68,6 +82,7 @@ class DiagnosticsAdvisorTest {
     }
 
     @Test fun r8AuditAndReviewFailuresExportArtifacts() {
+        assertEquals(DiagnosticsAction.EXPORT_ZIP, advise(input(stage = "editorial_contract")).action)
         assertEquals(DiagnosticsAction.EXPORT_ZIP, advise(input(stage = "artifact_audit")).action)
         assertEquals(DiagnosticsAction.EXPORT_ZIP, advise(input(stage = "review")).action)
     }
@@ -105,10 +120,23 @@ class DiagnosticsAdvisorTest {
         assertTrue("按规则" in advice.headline)
     }
 
-    @Test fun editorialStageBeatsNetworkProbeRule() {
-        // 429 matches evidenceWarrantsProbe too; R7 must win over R9.
+    @Test fun editorialNetworkEvidenceBeatsGenericProviderRule() {
         val advice = advise(input(stage = "editorial", evidence = "HTTP 429 too many requests"))
-        assertEquals(DiagnosticsAction.OPEN_PROVIDER_SETTINGS, advice.action)
+        assertEquals(DiagnosticsAction.RUN_PROBE, advice.action)
+    }
+
+    @Test fun AndroidUnknownHostEvidenceRoutesEditorialFailureToProbe() {
+        listOf(
+            "Unable to resolve host api.deepseek.com",
+            "No address associated with hostname",
+            "java.net.UnknownHostException: api.deepseek.com",
+        ).forEach { evidence ->
+            assertEquals(
+                DiagnosticsAction.RUN_PROBE,
+                advise(input(stage = "editorial", evidence = evidence)).action,
+                evidence,
+            )
+        }
     }
 
     @Test fun watchdogStageBeatsNetworkProbeRule() {

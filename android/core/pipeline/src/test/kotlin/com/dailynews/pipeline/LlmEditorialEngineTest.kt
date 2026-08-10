@@ -20,18 +20,24 @@ import com.dailynews.model.EditorialJsonSchemas
 import com.dailynews.pipeline.context.CacheLookup
 import com.dailynews.pipeline.context.LlmContextBuilder
 import com.dailynews.pipeline.flow.LlmEditorialEngine
+import com.dailynews.pipeline.flow.EditorialContractException
+import com.dailynews.pipeline.flow.EditorialContractViolation
 import com.dailynews.pipeline.flow.EditorialLlmException
 import com.dailynews.pipeline.flow.PromptSource
 import com.dailynews.pipeline.flow.ProviderBinding
 import com.dailynews.pipeline.flow.ProviderResolver
 import com.dailynews.pipeline.flow.Part2SummaryRequest
 import com.dailynews.pipeline.ports.EditorialCacheRecord
+import com.dailynews.pipeline.ports.ArtifactSink
+import com.dailynews.pipeline.ports.LogLevel
+import com.dailynews.pipeline.ports.RunLogSink
 import com.dailynews.pipeline.validate.QcValidator
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
@@ -95,6 +101,78 @@ class LlmEditorialEngineTest {
 
         assertEquals(5, output.part1.items.size)
         assertEquals(25, output.part1.shortfall)
+        assertEquals(0, responses.size)
+    }
+
+    @Test
+    fun `accepted shortlist is checkpointed and every rejected plan attempt is preserved`() = runBlocking {
+        val artifacts = lowVolumeArtifacts(cachedPart2 = false)
+        val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
+        val invalidPlan = ArtifactJson.compact.encodeToString(
+            Part1Plan(items = selected.take(3).map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 0),
+        )
+        val responses = ArrayDeque(
+            listOf(
+                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
+                LlmResponse(invalidPlan, stopReason = "stop"),
+                LlmResponse(invalidPlan, stopReason = "stop"),
+                LlmResponse(invalidPlan, stopReason = "stop"),
+            ),
+        )
+        val capturedArtifacts = linkedMapOf<String, String>()
+        val capturedLogs = mutableListOf<String>()
+        val engine = LlmEditorialEngine(
+            providers = ProviderResolver { _, _ ->
+                ProviderBinding(
+                    "test",
+                    object : LlmProvider {
+                        override suspend fun complete(request: LlmRequest) = responses.removeFirst()
+                    },
+                    RoleModel("test", "model", 8_192),
+                )
+            },
+            prompts = TestPrompts,
+            artifacts = object : ArtifactSink {
+                override suspend fun write(runId: String, relativePath: String, content: ByteArray) {
+                    capturedArtifacts[relativePath] = content.decodeToString()
+                }
+            },
+            logs = object : RunLogSink {
+                override suspend fun log(runId: String, step: String, level: LogLevel, message: String) {
+                    capturedLogs += "$step/$level: $message"
+                }
+            },
+        )
+
+        val error = assertFailsWith<EditorialContractException> {
+            engine.edit(
+                "checkpoint-run",
+                artifacts.llmContext,
+                artifacts.part1Brief,
+                artifacts.part2Context,
+                artifacts.contextBudget,
+                30,
+                20,
+                Part2Mode.LAZY,
+                LlmExecutionConfig(),
+            )
+        }
+
+        assertEquals("part1_plan", error.operation)
+        assertTrue("part1_shortlist.json" in capturedArtifacts)
+        assertTrue("part1_shortlist_context.json" in capturedArtifacts)
+        val violationPaths = capturedArtifacts.keys.filter { it.startsWith("contract_violations/part1_plan-") }
+        assertEquals(3, violationPaths.size)
+        val first = ArtifactJson.codec.decodeFromString<EditorialContractViolation>(capturedArtifacts.getValue(violationPaths.first()))
+        assertEquals(1, first.attempt)
+        assertEquals(3, first.itemCount)
+        assertEquals(0, first.shortfall)
+        assertEquals(
+            listOf("part1_plan shortfall 0 != expected 27 (30 - 3 items)"),
+            first.errors,
+        )
+        assertEquals(3, capturedLogs.count { it.startsWith("contract_part1_plan/WARN:") })
+        assertTrue(capturedLogs.first().contains("attempt=1 items=3 shortfall=0 errors=${first.errors.single()}"))
         assertEquals(0, responses.size)
     }
 

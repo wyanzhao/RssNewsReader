@@ -46,6 +46,7 @@ fun StatusBadge(status: String, detail: String? = null) {
         "RUNNING" -> "进行中"
         "EMPTY" -> "暂无更新"
         "STALE" -> "可能陈旧"
+        "SKIPPED", "DEFERRED" -> "已顺延"
         "FAILED", "ERROR", "UNEXPECTED_ERROR", "EXPECTED_BLOCK" -> "异常"
         else -> status.ifBlank { "未知" }
     }

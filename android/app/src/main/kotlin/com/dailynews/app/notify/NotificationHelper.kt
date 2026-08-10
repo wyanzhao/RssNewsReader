@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.dailynews.app.MainActivity
 import com.dailynews.app.work.DailyReportWorker
 import com.dailynews.pipeline.orchestrate.RunExecutionResult
+import java.time.LocalDate
 
 object NotificationHelper {
     const val PROGRESS_CHANNEL = "run_progress"
@@ -78,6 +79,27 @@ object NotificationHelper {
             is RunExecutionResult.ExpectedBlock -> failureBuilder(context, "校验阻断：${result.validation.blockingReasons.firstOrNull() ?: "无可发布文章"}", result.runId)
             is RunExecutionResult.Failed -> failureBuilder(context, "${result.stage}：${result.message}", result.runId)
     }
+
+    /**
+     * A scheduled trigger that never got a network. Posted on the low-importance progress
+     * channel, not FAILED_CHANNEL: nothing broke, so it must not buzz the phone or claim
+     * "生成失败" — but staying silent would leave a missing daily report unexplained.
+     */
+    fun notifyDeferred(context: Context, reportDate: LocalDate, message: String, runId: String?) {
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        NotificationManagerCompat.from(context).notify(reportDate.hashCode(), deferredNotification(context, message, runId))
+    }
+
+    internal fun deferredNotification(context: Context, message: String, runId: String?) = NotificationCompat.Builder(context, PROGRESS_CHANNEL)
+        .setSmallIcon(com.dailynews.app.R.drawable.ic_notification)
+        .setContentTitle("DailyNews 本次运行已顺延")
+        .setContentText("没有可用网络，未开始抓取")
+        .setStyle(NotificationCompat.BigTextStyle().bigText("没有可用网络，未开始抓取。$message"))
+        .setContentIntent(openApp(context, runId?.let { "runDiagnostics/$it" } ?: "diagnostics"))
+        .addAction(0, "立即运行", DailyReportWorker.retryIntent(context))
+        .setGroup(GROUP_KEY)
+        .setAutoCancel(true)
+        .build()
 
     private fun failureBuilder(context: Context, message: String, runId: String?) = NotificationCompat.Builder(context, FAILED_CHANNEL)
         .setSmallIcon(com.dailynews.app.R.drawable.ic_notification)

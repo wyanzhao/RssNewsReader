@@ -64,6 +64,45 @@ class RunRepository(private val database: DailyNewsDatabase) {
         database.runs().markRunningInterrupted(Instant.now().toString())
     }
 
+    /**
+     * A scheduled trigger that never got a usable network. The pipeline did not run, so
+     * this is not a failure of it: recording UNEXPECTED_ERROR / exit 40 here would put a
+     * red "运行故障" row in the history for what is really "the OS held us back". Written
+     * as its own terminal state instead, so the diagnostics advisor and the history filter
+     * can tell a deferral apart from a run that started and broke.
+     *
+     * Deliberately separate from [recordPreflightFailure], which still backs the
+     * [failRunning] fallback — a watchdog or a WorkManager stop *is* a real failure.
+     *
+     * @return the synthetic run id, for attaching run logs to.
+     */
+    suspend fun recordPreflightDeferral(
+        reportDate: LocalDate,
+        trigger: String,
+        stage: String,
+        message: String,
+        attempt: Int,
+    ): String {
+        val now = Instant.now()
+        val runId = "preflight-${now.epochSecond}-${UUID.randomUUID().toString().take(8)}"
+        database.runs().upsert(
+            RunEntity(
+                runId = runId,
+                reportDate = reportDate.toString(),
+                status = STATUS_SKIPPED,
+                classification = CLASSIFICATION_DEFERRED,
+                // The validator never ran; 40 would claim a pipeline crash that never happened.
+                validatorExitCode = 0,
+                attempt = attempt,
+                trigger = trigger,
+                blockingReasonsJson = ArtifactJson.compact.encodeToString(listOf("$stage: $message")),
+                startedAtUtc = now.toString(),
+                finishedAtUtc = now.toString(),
+            ),
+        )
+        return runId
+    }
+
     suspend fun recordPreflightFailure(
         reportDate: LocalDate,
         trigger: String,
@@ -96,5 +135,11 @@ class RunRepository(private val database: DailyNewsDatabase) {
         val result = RunExecutionResult.Failed(reportDate, running.runId, stage, message)
         finished(result)
         return result
+    }
+
+    companion object {
+        /** Terminal run state for a trigger that never started the pipeline. */
+        const val STATUS_SKIPPED = "SKIPPED"
+        const val CLASSIFICATION_DEFERRED = "DEFERRED"
     }
 }

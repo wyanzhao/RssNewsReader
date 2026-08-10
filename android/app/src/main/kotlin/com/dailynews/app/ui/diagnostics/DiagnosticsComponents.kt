@@ -68,6 +68,8 @@ internal fun RunVerdictBadge(status: String, classification: String, detail: Str
         classification == "EXPECTED_BLOCK" -> Triple("按规则阻断", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         classification == "UNEXPECTED_ERROR" -> Triple("运行故障", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         classification == "INTERRUPTED" -> Triple("被中断", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+        // Never ran, so it is not a verdict on the pipeline — neutral, not error red.
+        classification == "DEFERRED" -> Triple("已顺延", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
         else -> Triple(classification.ifBlank { "UNKNOWN" }, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(
@@ -116,7 +118,7 @@ internal fun VerdictCard(
                 )
                 if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            stage?.let { Text("失败阶段：$it", style = MaterialTheme.typography.labelMedium) }
+            stage?.let { Text("${stageLabel(detail?.classification)}：$it", style = MaterialTheme.typography.labelMedium) }
             if (blockingReasons.isNotEmpty()) {
                 Text("为什么：", style = MaterialTheme.typography.labelMedium)
                 blockingReasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
