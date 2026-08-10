@@ -1,3 +1,5 @@
+import java.io.File
+import java.util.Properties
 import org.gradle.api.tasks.Copy
 
 plugins {
@@ -8,6 +10,53 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
+// Release signing is opt-in and local-only. Credentials come from the gitignored
+// `keystore.properties`, or from env vars for a build that must not write the
+// password to disk. With neither configured the release variant stays unsigned
+// so `assembleRelease` still works on a fresh clone — but a *partially* filled
+// keystore.properties is a hard error, because silently handing back an
+// unsigned APK is exactly the failure this repo refuses everywhere else.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) keystorePropertiesFile.inputStream().use(::load)
+}
+
+// A blank value in the file counts as absent, so it falls through to the env
+// var rather than pinning the input to "".
+fun signingInput(key: String, env: String): String? =
+    keystoreProperties.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv(env)?.trim()?.takeIf { it.isNotEmpty() }
+
+val storeFileInput = signingInput("storeFile", "DAILYNEWS_STORE_FILE")
+val storePasswordInput = signingInput("storePassword", "DAILYNEWS_STORE_PASSWORD")
+val keyAliasInput = signingInput("keyAlias", "DAILYNEWS_KEY_ALIAS")
+// keytool's "press RETURN if same as keystore password" is the recommended path
+// for a self-signed app key, so an absent keyPassword means "same as store".
+val keyPasswordInput = signingInput("keyPassword", "DAILYNEWS_KEY_PASSWORD") ?: storePasswordInput
+
+val releaseKeystore: File? = storeFileInput?.let { raw ->
+    val expanded = if (raw.startsWith("~/")) System.getProperty("user.home") + raw.drop(1) else raw
+    File(expanded).takeIf { it.isAbsolute } ?: rootProject.file(expanded)
+}
+
+if (keystorePropertiesFile.exists()) {
+    val missing = listOf(
+        "storeFile" to storeFileInput,
+        "storePassword" to storePasswordInput,
+        "keyAlias" to keyAliasInput,
+    ).filter { it.second == null }.map { it.first }
+    check(missing.isEmpty()) {
+        "keystore.properties exists but is missing ${missing.joinToString()}. " +
+            "Fill it in or delete the file — a half-filled config would quietly produce an unsigned APK."
+    }
+    check(releaseKeystore?.isFile == true) {
+        "keystore.properties points at a keystore that is not there: $storeFileInput"
+    }
+}
+
+val releaseSigningReady = releaseKeystore?.isFile == true &&
+    storePasswordInput != null && keyAliasInput != null && keyPasswordInput != null
+
 android {
     namespace = "com.dailynews.app"
     compileSdk = 36
@@ -16,8 +65,8 @@ android {
         applicationId = "com.dailynews.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.1"
+        versionCode = 6
+        versionName = "0.3.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -32,11 +81,26 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = storePasswordInput
+                keyAlias = keyAliasInput
+                keyPassword = keyPasswordInput
+                // minSdk 26 is past the v1 (JAR signing) era; AGP already drops
+                // v1 here, and v2/v3 stay on by default.
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Null when nothing is configured: the variant then packages as
+            // app-release-unsigned.apk instead of failing the build.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     testOptions {

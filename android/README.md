@@ -63,8 +63,36 @@ run `./gradlew :app:assembleDebug` or instrumented tests.
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk` and is
 automatically signed with the local Android debug certificate, so it can be
 installed directly with `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
-Do not select `app/build/outputs/apk/release/app-release-unsigned.apk` for local
-installation: as its name states, that release artifact contains no certificate.
+
+## Release signing
+
+Release signing is opt-in and local-only. Copy `keystore.properties.example` to
+`keystore.properties` (gitignored) and fill in the passwords, or export the
+equivalent `DAILYNEWS_STORE_FILE` / `DAILYNEWS_STORE_PASSWORD` /
+`DAILYNEWS_KEY_ALIAS` / `DAILYNEWS_KEY_PASSWORD` env vars. Then:
+
+```bash
+./gradlew :app:assembleRelease
+```
+
+With credentials configured the output is
+`app/build/outputs/apk/release/app-release.apk`, signed v2/v3 and installable.
+With nothing configured the build still succeeds and yields
+`app-release-unsigned.apk` — as its name states, that artifact carries no
+certificate and cannot be installed. A *partially* filled `keystore.properties`
+is a hard build failure rather than a silent downgrade to unsigned.
+
+Two things the signed APK changes:
+
+- It is signed by a different certificate than the debug APK, so it cannot be
+  installed over an existing debug install. `adb uninstall com.dailynews.app`
+  first — which wipes the Room database and, because the backup rules exclude
+  `provider_keys.xml`, requires re-entering provider keys afterwards.
+- It is the only variant that exercises R8. Unit, Roborazzi, and instrumentation
+  tests all run against unminified classes, so a missing keep rule surfaces only
+  when the signed APK is installed and cold-started on a device. Keep
+  `app/build/outputs/mapping/release/mapping.txt` for every APK handed over, or
+  release crash traces cannot be deobfuscated.
 
 A full
 LLM success run requires configuring at least one provider and mapping both
