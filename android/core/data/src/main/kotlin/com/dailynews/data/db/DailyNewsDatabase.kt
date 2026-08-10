@@ -28,7 +28,7 @@ import java.nio.file.StandardCopyOption
         SeenLinkEntity::class,
         PeriodicReportEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class DailyNewsDatabase : RoomDatabase() {
@@ -207,16 +207,38 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the AIHOT bundled feed once for existing installations. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO feeds(
+                        name, url, errorPolicy, enabled, position,
+                        lastFetchAtUtc, lastStatus, lastError, newestItemDateIso
+                    ) VALUES(
+                        'AIHOT',
+                        'https://aihot.virxact.com/feed/full.xml',
+                        'block',
+                        1,
+                        COALESCE((SELECT MAX(position) + 1 FROM feeds), 0),
+                        NULL, NULL, NULL, NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun create(context: Context): DailyNewsDatabase {
             val appContext = context.applicationContext
             backupDatabaseVersionIfNeeded(appContext, 3, "dailynews-v3.db")
             backupDatabaseVersionIfNeeded(appContext, 4, "dailynews-v4.db")
             backupDatabaseVersionIfNeeded(appContext, 7, "dailynews-v7.db")
+            backupDatabaseVersionIfNeeded(appContext, 8, "dailynews-v8.db")
             return Room.databaseBuilder(
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .build()
         }
 

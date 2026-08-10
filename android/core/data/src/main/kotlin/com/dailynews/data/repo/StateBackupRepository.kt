@@ -229,7 +229,7 @@ class StateBackupRepository(
 
     private companion object {
         /** 必须与 DailyNewsDatabase 的 @Database(version=) 同步。 */
-        const val CURRENT_DATABASE_VERSION = 8
+        const val CURRENT_DATABASE_VERSION = 9
         const val ENTRY_NAME = "dailynews-state.json"
         const val ARTIFACT_PREFIX = "run-artifacts/"
         const val MAX_ZIP_BYTES = 64 * 1_048_576

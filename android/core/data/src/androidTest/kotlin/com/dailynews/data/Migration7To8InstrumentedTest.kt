@@ -99,7 +99,7 @@ class Migration7To8InstrumentedTest {
 
     /** 全链测试的终点始终是最新版本，这样一次覆盖安装的真实路径永远被验证。 */
     @Test
-    fun fullChainFromVersionThreeReachesVersionEightWithFavoritesIntact() {
+    fun fullChainFromVersionThreeReachesLatestVersionWithFavoritesIntact() {
         helper.createDatabase(fullChainDatabaseName, 3).apply {
             execSQL("INSERT INTO feeds(name,url,errorPolicy,enabled,position) VALUES('Source','https://feed','block',1,0)")
             execSQL(
@@ -111,13 +111,14 @@ class Migration7To8InstrumentedTest {
 
         val migrated = helper.runMigrationsAndValidate(
             fullChainDatabaseName,
-            8,
+            9,
             true,
             DailyNewsDatabase.MIGRATION_3_4,
             DailyNewsDatabase.MIGRATION_4_5,
             DailyNewsDatabase.MIGRATION_5_6,
             DailyNewsDatabase.MIGRATION_6_7,
             DailyNewsDatabase.MIGRATION_7_8,
+            DailyNewsDatabase.MIGRATION_8_9,
         )
 
         migrated.query("SELECT linkKey, favoritedAtUtc FROM articles").use { cursor ->

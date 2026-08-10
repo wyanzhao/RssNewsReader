@@ -125,6 +125,10 @@
     {
       "name": "MacRumors",
       "url": "https://feeds.macrumors.com/MacRumors-All"
+    },
+    {
+      "name": "AIHOT",
+      "url": "https://aihot.virxact.com/feed/full.xml"
     }
   ]
 }
