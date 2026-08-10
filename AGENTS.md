@@ -1,4 +1,4 @@
-# DailyNews Agent Guide
+# DailyNewsAgent Guide
 
 > `CLAUDE.md` is the Claude Code entrypoint and imports `AGENTS.md`.
 > `AGENTS.md` is the source of truth for the repo contract and maintainer guidance.

@@ -1,6 +1,6 @@
-# DailyNews
+# DailyNewsAgent
 
-DailyNews is a two-stage RSS workflow that turns a curated feed list into a
+DailyNewsAgent is a two-stage RSS workflow that turns a curated feed list into a
 daily Chinese-language Markdown report.
 
 You can use it in two ways:
