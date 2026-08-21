@@ -85,6 +85,32 @@ class PeriodicDigestTest {
         assertTrue(tooLong.isNotEmpty())
     }
 
+    /**
+     * heading 与 notes 此前完全不过 lint，而隔壁一行的 summary_zh 过。周报素材源自
+     * 抓取来的 article_text，所以注入内容可以专挑这两个字段落地——还能塞进
+     * summary_zh 塞不进去的 markdown 链接，再经分享进入会自动链接化的聊天软件。
+     */
+    @Test
+    fun rejectsLinksAndOverlongTextInHeadingAndNotes() {
+        val withLinkHeading = PeriodicDigestContracts.validate(
+            digest(sections = listOf(PeriodicDigestSection("点这里 evil.com/win", "摘要", listOf("https://example/a")))),
+            "2026-W32",
+            links,
+        )
+        assertTrue(withLinkHeading.any { "heading must not contain links" in it }, withLinkHeading.toString())
+
+        val longHeading = PeriodicDigestContracts.validate(
+            digest(sections = listOf(PeriodicDigestSection("标".repeat(61), "摘要", listOf("https://example/a")))),
+            "2026-W32",
+            links,
+        )
+        assertTrue(longHeading.any { "heading exceeds 60 chars" in it }, longHeading.toString())
+
+        val badNote = PeriodicDigest("2026-W32", digest().sections, notes = listOf("详情见 https://evil.example/steal"))
+        val noteErrors = PeriodicDigestContracts.validate(badNote, "2026-W32", links)
+        assertTrue(noteErrors.any { "notes[0] must not contain links" in it }, noteErrors.toString())
+    }
+
     @Test
     fun rendererJoinsAuthoritativeTitlesNotModelSuppliedOnes() {
         val markdown = PeriodicDigestRenderer.render(input, digest())

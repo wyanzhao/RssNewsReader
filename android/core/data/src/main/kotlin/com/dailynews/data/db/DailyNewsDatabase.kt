@@ -11,6 +11,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.StandardCopyOption
 
+/**
+ * Room schema 版本的唯一来源。
+ *
+ * `@Database(version=)` 与状态备份信封都必须读它。此前备份信封自带一个字面量
+ * 默认值，v8→v9 时只有一半被改，于是每份 v9 导出都自称 v8 —— 导入侧那道
+ * "拒绝更高版本备份"的守卫因此永远不可能触发。一个数字有两个副本就会漂移。
+ */
+const val DAILYNEWS_SCHEMA_VERSION = 9
+
 @Database(
     entities = [
         FeedEntity::class,
@@ -28,7 +37,7 @@ import java.nio.file.StandardCopyOption
         SeenLinkEntity::class,
         PeriodicReportEntity::class,
     ],
-    version = 9,
+    version = DAILYNEWS_SCHEMA_VERSION,
     exportSchema = true,
 )
 abstract class DailyNewsDatabase : RoomDatabase() {

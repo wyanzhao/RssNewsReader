@@ -20,6 +20,15 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 
 data class ReportUiState(
+    /**
+     * Room 是否已经发过第一帧。
+     *
+     * 没有这一位时，初始状态（report=null、items 空）和「这一天真的没有报告」在
+     * 渲染上完全一样，于是每次打开都会先闪一下 `UNKNOWN · Top 0 · 统计检查：Top 0 篇`
+     * ——而导航到一个已被清理的日期时，那个假骨架会永久留在屏幕上。
+     * 这个三态模式仓库里已有两处现成的（PeriodicDigestScreen 与 ReaderPhase）。
+     */
+    val loaded: Boolean = false,
     val report: ReportEntity? = null,
     val items: List<ReportItemEntity> = emptyList(),
     val groups: List<ReportGroup> = emptyList(),
@@ -74,6 +83,8 @@ class ReportViewModel(
             ArtifactJson.codec.decodeFromString<List<ReportGroup>>(report?.groupsJson.orEmpty())
         }.getOrDefault(emptyList())
         ReportUiState(
+            // 能走到这里说明 Room 已经发过一帧，所以这一帧的 null 是真的"没有报告"。
+            loaded = true,
             report = report,
             items = items,
             groups = groups,

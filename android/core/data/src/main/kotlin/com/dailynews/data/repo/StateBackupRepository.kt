@@ -3,6 +3,7 @@ package com.dailynews.data.repo
 import androidx.room.withTransaction
 import com.dailynews.data.config.PipelineConfigRepository
 import com.dailynews.data.db.ArticleEntity
+import com.dailynews.data.db.DAILYNEWS_SCHEMA_VERSION
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.EditorialCacheEntity
 import com.dailynews.data.db.FeedEntity
@@ -33,7 +34,8 @@ import kotlinx.serialization.encodeToString
 @Serializable
 data class DeviceStateBackup(
     val schemaVersion: Int = 3,
-    val databaseVersion: Int = 8,
+    /** 默认值来自 schema 的唯一来源，所以下一次 Room 版本变更不会再把它落在后面。 */
+    val databaseVersion: Int = DAILYNEWS_SCHEMA_VERSION,
     val exportedAtUtc: String,
     val pipelineConfig: PipelineConfig,
     val feeds: List<FeedEntity>,
@@ -76,6 +78,7 @@ class StateBackupRepository(
             val metadata = database.runArtifacts().metadata()
             val manifest = metadata.mapIndexed { index, item -> item.toStateEntry(index) }
             DeviceStateBackup(
+                databaseVersion = DAILYNEWS_SCHEMA_VERSION,
                 exportedAtUtc = Instant.now().toString(),
                 pipelineConfig = pipelineConfig,
                 feeds = database.feeds().allNow(),
@@ -228,8 +231,7 @@ class StateBackupRepository(
     }
 
     private companion object {
-        /** 必须与 DailyNewsDatabase 的 @Database(version=) 同步。 */
-        const val CURRENT_DATABASE_VERSION = 9
+        const val CURRENT_DATABASE_VERSION = DAILYNEWS_SCHEMA_VERSION
         const val ENTRY_NAME = "dailynews-state.json"
         const val ARTIFACT_PREFIX = "run-artifacts/"
         const val MAX_ZIP_BYTES = 64 * 1_048_576

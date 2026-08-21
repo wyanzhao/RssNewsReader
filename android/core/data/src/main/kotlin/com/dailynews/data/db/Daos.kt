@@ -71,16 +71,41 @@ interface ArticleDao {
     suspend fun updateEnriched(linkKey: String, summaryEn: String, articleText: String, enrichedAtUtc: String)
     @Query("SELECT linkKey FROM articles WHERE linkKey IN (:keys)") suspend fun existingKeys(keys: List<String>): List<String>
     @Query("SELECT * FROM articles WHERE linkKey = :linkKey") suspend fun get(linkKey: String): ArticleEntity?
+
+    /**
+     * 应用内阅读用的完整投影。摘要口径与 observeTimeline 一致：优先取已发布报告里
+     * 的中文摘要，没有才回落 feed 的英文摘要。
+     */
+    @Query("""
+        SELECT a.linkKey, a.link, a.title, a.feedName AS source,
+               COALESCE((SELECT ri.summaryZh FROM report_items ri
+                         WHERE ri.link = a.link AND ri.summaryZh <> ''
+                         ORDER BY ri.reportDate DESC, ri.part LIMIT 1), a.summaryEn) AS summaryZh,
+               a.articleText AS articleText,
+               a.pubDateUtc AS pubDateUtc, a.pubDateIso AS pubDateIso,
+               a.favoritedAtUtc AS favoritedAtUtc
+        FROM articles a WHERE a.linkKey = :linkKey
+    """)
+    fun observeDetail(linkKey: String): Flow<ArticleDetail?>
     @Query("SELECT * FROM articles ORDER BY pubDateIso DESC") suspend fun allNow(): List<ArticleEntity>
-    @Query("SELECT * FROM articles WHERE julianday(pubDateIso) >= julianday(:fromIso) ORDER BY julianday(pubDateIso) DESC, pubDateIso DESC") suspend fun inWindow(fromIso: String): List<ArticleEntity>
-    @Query("SELECT * FROM articles WHERE julianday(pubDateIso) >= julianday(:fromIso) AND enrichedAtUtc IS NULL ORDER BY julianday(pubDateIso) DESC, pubDateIso DESC LIMIT :limit")
+    // `julianday(pubDateIso)` 把索引列包在函数里，index_articles_pubDateIso 因此完全
+    // 不可用：EXPLAIN QUERY PLAN 实测是 SCAN articles + USE TEMP B-TREE FOR ORDER BY，
+    // 30 天保留期稳态下每次读约 4000 行（含 articleText）再整体排序，而区间扫描只需
+    // 碰窗口内的一两百行。
+    //
+    // 直接比较是安全的，但**绑定参数必须先归一化**：列值是 `...+00:00`，而调用方给的
+    // 是 `Instant.toString()` 的 `...Z`，字典序上 'Z' > '+'，裸比较会静默丢掉恰好等于
+    // 截止秒的文章。归一化在 ArticleRepository.toOffsetIso 里，由 SweepAndWindowStepTest
+    // 的边界用例钉住。ISO-8601 定宽前缀 + 左对齐小数使字典序等于时间序。
+    @Query("SELECT * FROM articles WHERE pubDateIso >= :fromIso ORDER BY pubDateIso DESC") suspend fun inWindow(fromIso: String): List<ArticleEntity>
+    @Query("SELECT * FROM articles WHERE pubDateIso >= :fromIso AND enrichedAtUtc IS NULL ORDER BY pubDateIso DESC LIMIT :limit")
     suspend fun pendingEnrichment(fromIso: String, limit: Int): List<ArticleEntity>
     @Query("UPDATE articles SET readAtUtc = :readAtUtc WHERE linkKey = :linkKey") suspend fun markRead(linkKey: String, readAtUtc: String)
     @Query("UPDATE articles SET favoritedAtUtc = :favoritedAtUtc WHERE linkKey = :linkKey") suspend fun setFavorite(linkKey: String, favoritedAtUtc: String?)
     @Query("UPDATE articles SET reportedDate = :reportDate WHERE linkKey IN (:linkKeys)") suspend fun markReported(linkKeys: List<String>, reportDate: String)
     @Query("SELECT link FROM articles WHERE favoritedAtUtc IS NOT NULL") fun observeSavedLinks(): Flow<List<String>>
     @Query("SELECT link FROM articles WHERE readAtUtc IS NOT NULL") fun observeReadLinks(): Flow<List<String>>
-    @Query("SELECT COUNT(*) FROM articles WHERE julianday(pubDateIso) >= julianday(:fromIso)") fun observeCountSince(fromIso: String): Flow<Int>
+    @Query("SELECT COUNT(*) FROM articles WHERE pubDateIso >= :fromIso") fun observeCountSince(fromIso: String): Flow<Int>
     @Query("""
         SELECT a.linkKey, a.link, a.title, a.feedName AS source,
                COALESCE((SELECT ri.summaryZh FROM report_items ri
@@ -251,6 +276,20 @@ interface ReportDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun replaceReports(reports: List<ReportEntity>)
     @Query("SELECT * FROM reports ORDER BY reportDate") suspend fun allNow(): List<ReportEntity>
     @Query("DELETE FROM report_items WHERE reportDate = :reportDate") suspend fun deleteItems(reportDate: String)
+
+    /**
+     * 只清 Part 2 的历史条目。
+     *
+     * `reports` / `report_items` 曾是**唯一没有保留期的两张表**，而它们同时是增长
+     * 最快的：LAZY 展开给池里每一篇文章生成一行 part 2，每行还带 summaryEn +
+     * articleText 快照（约 240 KB/天），而 `PART2_SECTION_ENABLED = false` 让这一段
+     * 界面根本不显示。半年约 60 MB。
+     *
+     * **Part 1 绝不能按同一把尺子清**：跨天线索（observeStory / observeStoryDepth）
+     * 与周报月报（publishedPart1Between）都读它，它必须长期保留。
+     */
+    @Query("DELETE FROM report_items WHERE part = 2 AND reportDate < :beforeDate")
+    suspend fun deletePart2Before(beforeDate: String): Int
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertItems(items: List<ReportItemEntity>)
     @Query("SELECT * FROM report_items ORDER BY reportDate, part, position") suspend fun allItemsNow(): List<ReportItemEntity>
     @Query("""

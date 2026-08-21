@@ -31,6 +31,8 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +54,13 @@ data class ArticleCardModel(
     val summaryZh: String,
     val rank: Int? = null,
     val relatedLinks: List<String> = emptyList(),
+    /**
+     * 这条线索被报道过的天数，>= 2 时才有意义。
+     *
+     * 跨天线索是这个 app 最有差异化的功能，此前唯一入口是长按菜单——读者没有任何
+     * 方式知道第 7 条是某个事件的第四天，要发现它得把 30 张卡片挨个长按一遍。
+     */
+    val storyDays: Int? = null,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -67,6 +76,7 @@ fun ArticleCard(
     generatingSummary: Boolean = false,
     blankSummaryText: String = "暂无中文摘要",
     extraMenuItem: @Composable (() -> Unit)? = null,
+    onOpenStory: (() -> Unit)? = null,
     now: Instant = Instant.now(),
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -86,7 +96,22 @@ fun ArticleCard(
             )
             // Merge the visible title, source/time, summary and related-source text. A custom
             // contentDescription here would replace all of that TalkBack information.
-            .semantics(mergeDescendants = true) {},
+            //
+            // customActions 是必须的：分享、复制链接、线索历史全部只挂在 onLongClick 的
+            // 菜单上，而 TalkBack 用户没有"长按"这个手势可以发现它们——合并语义让他们
+            // 听得到内容，却没有任何被播报的路径去用这四个动作。
+            .semantics(mergeDescendants = true) {
+                customActions = buildList {
+                    add(CustomAccessibilityAction("分享文章") { onShare(); true })
+                    add(
+                        CustomAccessibilityAction(if (saved) "取消收藏" else "收藏") {
+                            onToggleFavorite()
+                            true
+                        },
+                    )
+                    onOpenStory?.let { open -> add(CustomAccessibilityAction("查看线索历史") { open(); true }) }
+                }
+            },
     ) {
         Box {
             Column(
@@ -127,10 +152,21 @@ fun ArticleCard(
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                if (article.relatedLinks.isNotEmpty()) {
+                val storyDays = article.storyDays?.takeIf { it >= 2 }
+                if (article.relatedLinks.isNotEmpty() || storyDays != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                        if (storyDays != null && onOpenStory != null) {
+                            AssistChip(
+                                onClick = onOpenStory,
+                                label = { Text("线索 · $storyDays 天") },
+                            )
+                        }
                         article.relatedLinks.take(3).forEach { link ->
                             AssistChip(onClick = { onOpenRelated(link) }, label = { Text(linkDomain(link)) })
+                        }
+                        // 超出 3 条时给出总数，否则 6 个来源的聚类看起来只有 3 个。
+                        if (article.relatedLinks.size > 3) {
+                            AssistChip(onClick = {}, enabled = false, label = { Text("+${article.relatedLinks.size - 3}") })
                         }
                     }
                 }

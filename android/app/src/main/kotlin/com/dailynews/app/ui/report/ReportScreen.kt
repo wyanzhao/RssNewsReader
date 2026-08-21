@@ -3,6 +3,7 @@ package com.dailynews.app.ui.report
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -52,7 +54,12 @@ import kotlinx.serialization.decodeFromString
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportScreen(date: String, viewModel: ReportViewModel, onOpenStory: ((String) -> Unit)? = null) {
+fun ReportScreen(
+    date: String,
+    viewModel: ReportViewModel,
+    onOpenStory: ((String) -> Unit)? = null,
+    onOpenArticle: ((String) -> Unit)? = null,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var overflowExpanded by remember { mutableStateOf(false) }
@@ -95,7 +102,14 @@ fun ReportScreen(date: String, viewModel: ReportViewModel, onOpenStory: ((String
             )
         },
     ) { padding ->
-        ReportPane(viewModel, Modifier.padding(padding), state = state, listState = listState, onOpenStory = onOpenStory)
+        ReportPane(
+            viewModel,
+            Modifier.padding(padding),
+            state = state,
+            listState = listState,
+            onOpenStory = onOpenStory,
+            onOpenArticle = onOpenArticle,
+        )
     }
 }
 
@@ -106,6 +120,7 @@ fun ReportPane(
     state: ReportUiState? = null,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     onOpenStory: ((String) -> Unit)? = null,
+    onOpenArticle: ((String) -> Unit)? = null,
 ) {
     val observed by viewModel.state.collectAsStateWithLifecycle()
     val current = state ?: observed
@@ -123,7 +138,9 @@ fun ReportPane(
             onToggleGroup = viewModel::toggleGroup,
             onMarkRead = viewModel::markRead,
             onToggleFavorite = viewModel::toggleFavorite,
-            onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
+            onOpen = { link ->
+                onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
+            },
             onShare = { text -> shareText(context, text) },
             onOpenStory = onOpenStory,
         )
@@ -145,6 +162,33 @@ fun LazyListScope.reportContent(
 ) {
     val entries = state.items
     val groups = state.groups
+    // Room 还没发第一帧：任何统计都会读成 0，渲染出来是一份假的空报告。
+    if (!state.loaded) {
+        item(key = if (embedded) "embedded-loading" else "report-loading") {
+            Box(Modifier.fillMaxWidth().padding(DailyNewsSpacing.roomy), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        return
+    }
+    // 已加载但这一天没有报告——旧通知、旧小组件、被保留期清掉的日期都会走到这里。
+    // 此前没有这个分支，用户会永久停在 "UNKNOWN · Top 0" 的骨架上。
+    if (state.report == null) {
+        item(key = if (embedded) "embedded-absent" else "report-absent") {
+            Column(
+                Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth).padding(DailyNewsSpacing.roomy),
+                verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact),
+            ) {
+                Text("这一天没有报告", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "可能还没生成，也可能已超出保留期被清理。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        return
+    }
     item(key = if (embedded) "embedded-status" else "report-status") {
         Column(
             Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),
@@ -192,6 +236,7 @@ fun LazyListScope.reportContent(
             // 只在这条线索确实跨了 >= 2 天时才给入口：点进去只有自己一篇
             // 的「历史」是个空承诺。深度由 report_items 聚合得到。
             onOpenStory = onOpenStory?.takeIf { (state.storyDepth[article.eventKey] ?: 0) >= 2 },
+            storyDays = state.storyDepth[article.eventKey],
         )
     }
     if (PART2_SECTION_ENABLED) {
@@ -327,12 +372,16 @@ private fun ReportArticleCard(
     rank: Int? = null,
     generatingSummary: Boolean = false,
     onOpenStory: ((String) -> Unit)? = null,
+    storyDays: Int? = null,
 ) {
     val alsoLinks = remember(item.alsoLinksJson) {
         runCatching { ArtifactJson.codec.decodeFromString<List<String>>(item.alsoLinksJson) }.getOrDefault(emptyList())
     }
     ArticleCard(
-        article = ArticleCardModel(item.link, item.title, item.source, item.pubDateUtc, item.pubDateIso, item.summaryZh, rank, alsoLinks),
+        article = ArticleCardModel(
+            item.link, item.title, item.source, item.pubDateUtc, item.pubDateIso, item.summaryZh,
+            rank, alsoLinks, storyDays,
+        ),
         saved = saved,
         read = read,
         onOpen = onOpen,
@@ -348,6 +397,7 @@ private fun ReportArticleCard(
                 )
             }
         },
+        onOpenStory = onOpenStory?.let { open -> { open(item.eventKey) } },
     )
 }
 

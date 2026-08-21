@@ -98,3 +98,28 @@ A full
 LLM success run requires configuring at least one provider and mapping both
 EDITOR and DRAFTER roles in Settings. Without an API key, deterministic fetch
 and validation still run, while the editorial branch fails closed by design.
+
+### Editorial reference contract
+
+Editorial models never echo article URLs. Every article handed to a model
+carries a short id (`a1`, `a2`, …), and the model answers with `ref` /
+`also_refs` / `refs`; `EditorialRefs` resolves those ids back to the
+authoritative links, so `part1_plan.json`, `part2_draft.json`, and the periodic
+digest stay link-keyed on disk. Copying an 80-character URL verbatim is a task
+cheap models fail at — a two-character id is not — and a rewritten link now has
+no path through the contract at all.
+
+### OpenRouter routing
+
+The provider form exposes OpenRouter's routing controls for OpenAI-compatible
+providers: a provider `sort` (`throughput` directly targets the low
+tokens-per-second routing that makes cheap models time out), a model fallback
+list, and `require_parameters` (route only to providers that really support
+`response_format`). All three ship only when set to something other than their
+defaults — a non-OpenRouter compatible endpoint would reject the unknown
+top-level fields.
+
+Role token caps default to 16384 (EDITOR) and 8192 (DRAFTER). Truncation is a
+hard failure with no retry, so these are estimated generously, but not so
+generously that a provider rejects the request outright. Devices that already
+saved the old 65536 default keep it; change it in Settings.

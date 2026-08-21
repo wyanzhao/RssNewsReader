@@ -1,5 +1,6 @@
 package com.dailynews.pipeline.parse
 
+import com.dailynews.pipeline.fetch.LinkSafety
 import com.dailynews.pipeline.text.TextUtils
 import java.io.StringReader
 import java.time.Instant
@@ -38,7 +39,11 @@ object FeedParser {
         return descendants(root, itemTag).mapNotNull { item ->
             val title = item.firstText("title")
             if (title.isBlank()) return@mapNotNull null
-            val link = if (isAtom) atomLink(item) else item.firstText("link").ifBlank { item.firstText("guid") }
+            // `<guid>` / Atom `<id>` 常常根本不是 URL，而下游会拿它去打开浏览器、
+            // 去抓取页面。不安全的一律降级成空 link——条目仍然保留（无 link 条目
+            // 有稳定身份），只是不再是一个可被点击或抓取的目标。
+            val rawLink = if (isAtom) atomLink(item) else item.firstText("link").ifBlank { item.firstText("guid") }
+            val link = rawLink.takeIf { LinkSafety.isAcceptable(it) }.orEmpty()
             val dateText = if (isAtom) {
                 item.firstNonBlank("published", "updated")
             } else {

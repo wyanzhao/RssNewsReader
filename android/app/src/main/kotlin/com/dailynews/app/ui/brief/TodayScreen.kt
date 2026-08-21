@@ -70,6 +70,7 @@ fun TodayScreen(
     reportViewModel: @Composable (String) -> ReportViewModel,
     onOpenHistory: () -> Unit = {},
     onOpenStory: ((String) -> Unit)? = null,
+    onOpenArticle: ((String) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmRun by remember { mutableStateOf(false) }
@@ -221,7 +222,9 @@ fun TodayScreen(
                         onToggleGroup = reportVm::toggleGroup,
                         onMarkRead = reportVm::markRead,
                         onToggleFavorite = reportVm::toggleFavorite,
-                        onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
+                        onOpen = { link ->
+                            onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
+                        },
                         onShare = { text -> shareText(context, text) },
                         embedded = true,
                         onOpenDiagnostics = { onOpenDiagnostics(state.currentRun?.runId) },

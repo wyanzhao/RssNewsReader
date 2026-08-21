@@ -2,6 +2,7 @@ package com.dailynews.data.repo
 
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.dailynews.data.db.ArticleDetail
 import com.dailynews.data.db.ArticleEntity
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.FetchLogEntity
@@ -26,7 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPort {
-    fun observeCountSince(from: Instant): Flow<Int> = database.articles().observeCountSince(from.toString())
+    fun observeCountSince(from: Instant): Flow<Int> = database.articles().observeCountSince(from.toOffsetIso())
 
     fun observeReadLinks(): Flow<Set<String>> = database.articles().observeReadLinks().map { it.toSet() }
     suspend fun recordFetch(raw: RawRun) = recordSweep(
@@ -53,7 +54,7 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
         }
 
     override suspend fun pendingEnrichment(from: Instant, limit: Int): List<Article> =
-        database.articles().pendingEnrichment(from.toString(), limit.coerceIn(1, 200)).map(ArticleEntity::toModel)
+        database.articles().pendingEnrichment(from.toOffsetIso(), limit.coerceIn(1, 200)).map(ArticleEntity::toModel)
 
     override suspend fun recordSweep(write: SweepWrite) = database.withTransaction {
         val fetchedAt = write.fetchedAt.toString()
@@ -101,7 +102,7 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     }
 
     override suspend fun articlesSince(from: Instant): List<PooledArticle> =
-        database.articles().inWindow(from.toString()).map { PooledArticle(it.toModel(), it.enrichedAtUtc == null) }
+        database.articles().inWindow(from.toOffsetIso()).map { PooledArticle(it.toModel(), it.enrichedAtUtc == null) }
 
     override suspend fun updateEnriched(articles: List<Article>, enrichedAt: Instant) = database.withTransaction {
         articles.forEach { article ->
@@ -136,6 +137,17 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     suspend fun markRead(link: String, now: Instant = Instant.now()) {
         database.articles().markRead(TextUtils.dedupLinkKey(link), now.toString())
     }
+
+    /**
+     * 应用内阅读的完整投影。
+     *
+     * `articleText`（约 150 词正文）一直被抓取、持久化，甚至专门做过迁移
+     * denormalize 到 report_items 上——却没有任何界面读它。于是地铁上、飞机上这个
+     * app 是死的：能读的中文摘要之外，每个链接都落到浏览器的离线错误页，而数据
+     * 早就在库里、钱也早就付过了。
+     */
+    fun observeDetail(link: String): Flow<ArticleDetail?> =
+        database.articles().observeDetail(TextUtils.dedupLinkKey(link))
 
     // Epic U 阅读器数据层：窄投影时间线、未读计数、已读/未读写入。
     fun observeTimeline(feedName: String?, unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>> {
@@ -174,10 +186,10 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
         database.articles().prune(before) to database.fetchLogs().prune(before)
     }
 
-    suspend fun inWindow(from: Instant): List<ArticleEntity> = database.articles().inWindow(from.toString())
+    suspend fun inWindow(from: Instant): List<ArticleEntity> = database.articles().inWindow(from.toOffsetIso())
 
     suspend fun pendingEnrichmentRows(from: Instant, limit: Int): List<ArticleEntity> =
-        database.articles().pendingEnrichment(from.toString(), limit.coerceIn(1, 200))
+        database.articles().pendingEnrichment(from.toOffsetIso(), limit.coerceIn(1, 200))
 }
 
 internal const val SQLITE_BIND_CHUNK = 900
@@ -210,3 +222,12 @@ internal fun ftsMatchExpression(query: String): String {
     require(tokens.isNotEmpty()) { "FTS query must not be blank" }
     return tokens.joinToString(" AND ") { token -> "\"${token.replace("\"", "\"\"")}\"" }
 }
+
+/**
+ * 与 `FeedFetcher` 写入 `pubDateIso` 时用的是同一个变换。
+ *
+ * 这两处必须一致，否则窗口查询的字典序比较就会在时区后缀上失配：列值是
+ * `...+00:00`，而 `Instant.toString()` 给的是 `...Z`，'Z' > '+' 会静默丢掉恰好等于
+ * 截止秒的文章——这正是把 `julianday()` 换成区间比较时最容易引入的 bug。
+ */
+private fun Instant.toOffsetIso(): String = toString().removeSuffix("Z") + "+00:00"

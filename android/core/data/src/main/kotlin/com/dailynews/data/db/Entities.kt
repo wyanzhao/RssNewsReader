@@ -273,6 +273,25 @@ data class ReaderArticle(
     val favoritedAtUtc: String?,
 )
 
+/**
+ * 应用内阅读所需的完整投影。
+ *
+ * 与窄投影 [ReaderArticle] 的区别只有 `articleText`：正文只在真正要读它的那一屏
+ * 才取，列表投影保持轻量。中文摘要仍然按 report_items 优先、summaryEn 兜底，
+ * 与 observeTimeline 同一口径。
+ */
+data class ArticleDetail(
+    val linkKey: String,
+    val link: String,
+    val title: String,
+    val source: String,
+    val summaryZh: String,
+    val articleText: String,
+    val pubDateUtc: String,
+    val pubDateIso: String,
+    val favoritedAtUtc: String?,
+)
+
 data class FeedUnreadCount(
     val feedName: String,
     val unread: Int,

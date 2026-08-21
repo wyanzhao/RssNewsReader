@@ -168,15 +168,29 @@ class RunOrchestratorTest {
         assertEquals("artifact_audit", auditFailure.stage)
         assertEquals(0, auditHarness.editorCalls)
 
+        // 闸门只对真正会发出去的 part1_brief 生效。
         val budgetHarness = Harness(raw)
-        val hardBudget = config.copy(contextBudget = config.contextBudget.copy(totalContextMaxBytes = 1, hardBlock = true))
+        val hardBudget = config.copy(contextBudget = config.contextBudget.copy(part1BriefMaxBytes = 1, hardBlock = true))
         val budgetFailure = assertIs<RunExecutionResult.Failed>(budgetHarness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", hardBudget)))
         assertEquals("context_budget", budgetFailure.stage)
         assertEquals(0, budgetHarness.editorCalls)
 
         val advisoryHarness = Harness(raw)
-        val advisory = config.copy(part1MaxItems = 10, contextBudget = config.contextBudget.copy(totalContextMaxBytes = 1, hardBlock = false))
+        val advisory = config.copy(part1MaxItems = 10, contextBudget = config.contextBudget.copy(part1BriefMaxBytes = 1, hardBlock = false))
         assertIs<RunExecutionResult.Success>(advisoryHarness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", advisory)))
+
+        // 把三份不会发出去的负载收到 1 字节也必须放行——它们进不了任何 LlmRequest。
+        val unsentHarness = Harness(raw)
+        val unsentTight = config.copy(
+            part1MaxItems = 10,
+            contextBudget = config.contextBudget.copy(
+                llmContextMaxBytes = 1,
+                part2ContextMaxBytes = 1,
+                totalContextMaxBytes = 1,
+                hardBlock = true,
+            ),
+        )
+        assertIs<RunExecutionResult.Success>(unsentHarness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", unsentTight)))
     }
 
     @Test

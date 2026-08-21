@@ -58,6 +58,11 @@ import com.dailynews.data.db.ReaderArticle
 fun ReaderScreen(
     viewModel: ReaderViewModel,
     onSweep: () -> Unit = {},
+    /**
+     * 打开文章：优先进应用内阅读（本地已有正文摘录，离线也能读），浏览器原文
+     * 在那一屏一键可达。传 null 时退回直接开浏览器，保持旧行为可用。
+     */
+    onOpenArticle: ((String) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -66,7 +71,9 @@ fun ReaderScreen(
     var confirmMarkAllRead by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val openLink: (String) -> Unit = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) }
+    val openLink: (String) -> Unit = { link ->
+        onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
+    }
     // 必须是 lazy-item 空间的计数（文章 + 分节头），因为下面拿来比较的
     // firstVisibleItemIndex 也在这个空间里。用纯文章数会让窗口每隔约 20 个
     // 分节就提前多涨一次 100。

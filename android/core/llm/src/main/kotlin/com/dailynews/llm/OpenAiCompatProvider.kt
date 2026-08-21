@@ -28,6 +28,7 @@ class OpenAiCompatProvider(
             ?: throw LlmTransportException("missing API key for provider ${config.id}")
         val mode = effectiveMode(request)
         val responseFormat = responseFormat(mode, request.responseSchema)
+        val routing = config.routing.normalized()
         val payload = OpenAiRequest(
             model = request.model,
             messages = buildList {
@@ -37,6 +38,9 @@ class OpenAiCompatProvider(
             maxTokens = request.maxTokens,
             temperature = request.temperature,
             responseFormat = responseFormat,
+            // OpenRouter 要求备选列表把主模型放在第一位。
+            models = routing.modelFallbacks.takeIf { it.isNotEmpty() }?.let { listOf(request.model) + it },
+            provider = openRouterPreferences(routing),
         )
         val endpoint = ProviderEndpoints.openAi(config.baseUrl)
         val httpRequest = Request.Builder()
@@ -60,6 +64,7 @@ class OpenAiCompatProvider(
                 throw LlmTransportException(
                     "OpenAI-compatible HTTP ${response.code}: $safeBody",
                     retryable = response.code == 429 || response.code in 500..599,
+                    retryAfterMillis = response.retryAfterMillis,
                 )
         }
         val decoded = try {
@@ -101,6 +106,14 @@ class OpenAiCompatProvider(
         }.let { mode ->
             if (mode == StructuredMode.JSON_SCHEMA && request.responseSchema == null) StructuredMode.JSON_OBJECT else mode
         }
+    }
+
+    /** 全默认时返回 null，请求体里连 `provider` 这个键都不会出现。 */
+    private fun openRouterPreferences(routing: ProviderRouting): OpenRouterPreferences? {
+        val sort = routing.sort.wire
+        val requireParameters = true.takeIf { routing.requireParameters }
+        if (sort == null && requireParameters == null) return null
+        return OpenRouterPreferences(sort, requireParameters)
     }
 
     private fun isDeepSeek(request: LlmRequest): Boolean =
@@ -150,6 +163,15 @@ private data class OpenAiRequest(
     @SerialName("max_tokens") val maxTokens: Int,
     val temperature: Double? = null,
     @SerialName("response_format") val responseFormat: JsonObject? = null,
+    /** OpenRouter 扩展；null 时不进入请求体，兼容端点不会看到未知字段。 */
+    val models: List<String>? = null,
+    val provider: OpenRouterPreferences? = null,
+)
+
+@Serializable
+private data class OpenRouterPreferences(
+    val sort: String? = null,
+    @SerialName("require_parameters") val requireParameters: Boolean? = null,
 )
 
 @Serializable

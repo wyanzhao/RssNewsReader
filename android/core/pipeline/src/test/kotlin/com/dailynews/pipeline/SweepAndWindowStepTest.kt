@@ -20,7 +20,6 @@ import com.dailynews.pipeline.ports.SeenLinksStore
 import com.dailynews.pipeline.ports.SweepWrite
 import java.time.Instant
 import java.time.LocalDate
-import java.time.OffsetDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -31,6 +30,29 @@ import kotlinx.coroutines.runBlocking
 class SweepAndWindowStepTest {
     private val date = LocalDate.parse("2026-08-04")
     private val now = Instant.parse("2026-08-04T12:00:00Z")
+
+    /**
+     * 窗口比较的时区后缀边界。
+     *
+     * 池里的 `pubDateIso` 是 `...+00:00`，而截止时刻来自 `Instant`，其 `toString()` 是
+     * `...Z`。字典序上 'Z'(0x5A) > '+'(0x2B)，所以**不归一化**的裸比较会把恰好等于
+     * 截止秒的文章判为更早并丢掉。这是把 `julianday()` 换成索引友好的区间比较时
+     * 唯一可能引入的 bug，所以它必须有一条自己的用例。
+     */
+    @Test
+    fun windowIncludesArticlesExactlyOnTheCutoffSecond() = runBlocking {
+        val cutoff = Instant.parse("2026-08-04T10:00:00Z")
+        val pool = FakePool()
+        listOf(
+            article("https://on-the-second", "2026-08-04T10:00:00+00:00"),
+            article("https://one-second-earlier", "2026-08-03T09:59:59+00:00"),
+            article("https://later", "2026-08-04T11:00:00+00:00"),
+        ).forEach { pool.rows[ArticlePoolKeys.key(it)] = PooledArticle(it, false) }
+
+        val inWindow = pool.articlesSince(cutoff).map { it.article.link }
+
+        assertEquals(listOf("https://later", "https://on-the-second"), inWindow)
+    }
 
     @Test
     fun emptyPoolMatchesLegacySingleShotOutput() = runBlocking {
@@ -383,16 +405,26 @@ class SweepAndWindowStepTest {
             }
         }
 
-        override suspend fun pendingEnrichment(from: Instant, limit: Int): List<Article> = rows.values
-            .filter(PooledArticle::needsEnrichment)
-            .filter { !OffsetDateTime.parse(it.article.pubDateIso).toInstant().isBefore(from) }
-            .sortedByDescending { it.article.pubDateIso }
-            .take(limit)
-            .map(PooledArticle::article)
+        override suspend fun pendingEnrichment(from: Instant, limit: Int): List<Article> {
+            val cutoff = from.toString().removeSuffix("Z") + "+00:00"
+            return rows.values
+                .filter(PooledArticle::needsEnrichment)
+                .filter { it.article.pubDateIso >= cutoff }
+                .sortedByDescending { it.article.pubDateIso }
+                .take(limit)
+                .map(PooledArticle::article)
+        }
 
-        override suspend fun articlesSince(from: Instant): List<PooledArticle> = rows.values.filter { row ->
-            !OffsetDateTime.parse(row.article.pubDateIso).toInstant().isBefore(from)
-        }.sortedByDescending { it.article.pubDateIso }
+        // 生产侧是 SQL 的字典序比较（`pubDateIso >= :fromIso`，参数经 toOffsetIso
+        // 归一化），不是时刻比较。fake 用 OffsetDateTime.parse 会在两处偏离真实语义：
+        // 空 pubDateIso 会抛异常（生产是静默排除），且边界秒的时区后缀差异被抹平——
+        // 而后者正是 julianday 改成区间比较时唯一可能引入的 bug。
+        override suspend fun articlesSince(from: Instant): List<PooledArticle> {
+            val cutoff = from.toString().removeSuffix("Z") + "+00:00"
+            return rows.values
+                .filter { it.article.pubDateIso >= cutoff }
+                .sortedByDescending { it.article.pubDateIso }
+        }
 
         override suspend fun updateEnriched(articles: List<Article>, enrichedAt: Instant) {
             articles.forEach { article ->

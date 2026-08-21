@@ -7,15 +7,15 @@ import com.dailynews.llm.LlmResponse
 import com.dailynews.llm.LlmTransportException
 import com.dailynews.llm.RoleModel
 import com.dailynews.model.ArtifactJson
-import com.dailynews.model.PeriodicDigest
-import com.dailynews.model.PeriodicDigestSection
-import com.dailynews.model.Part1Plan
-import com.dailynews.model.Part1PlanItem
-import com.dailynews.model.Part1ShortlistPayload
+import com.dailynews.model.PeriodicDigestDraft
+import com.dailynews.model.PeriodicDigestDraftSection
+import com.dailynews.model.Part1PlanDraft
+import com.dailynews.model.Part1PlanDraftItem
+import com.dailynews.model.Part1ShortlistDraft
 import com.dailynews.model.Part2Mode
 import com.dailynews.model.LlmExecutionConfig
-import com.dailynews.model.MissingPart2Payload
-import com.dailynews.model.MissingPart2Summary
+import com.dailynews.model.MissingPart2Draft
+import com.dailynews.model.MissingPart2DraftItem
 import com.dailynews.model.EditorialJsonSchemas
 import com.dailynews.pipeline.context.CacheLookup
 import com.dailynews.pipeline.context.LlmContextBuilder
@@ -51,25 +51,54 @@ class LlmEditorialEngineTest {
             (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet()
         fun properties(schema: kotlinx.serialization.json.JsonObject) = schema.getValue("properties").jsonObject.keys
 
-        assertEquals(names(Part1ShortlistPayload.serializer().descriptor), properties(EditorialJsonSchemas.part1Shortlist))
-        assertEquals(names(Part1Plan.serializer().descriptor), properties(EditorialJsonSchemas.part1Plan))
-        assertEquals(names(MissingPart2Payload.serializer().descriptor), properties(EditorialJsonSchemas.missingPart2))
+        // 校验的是**草稿**类型：schema 约束的是模型返回什么（`ref`），
+        // 不是解析之后落盘的 link-keyed 契约。
+        assertEquals(names(Part1ShortlistDraft.serializer().descriptor), properties(EditorialJsonSchemas.part1Shortlist))
+        assertEquals(names(Part1PlanDraft.serializer().descriptor), properties(EditorialJsonSchemas.part1Plan))
+        assertEquals(names(MissingPart2Draft.serializer().descriptor), properties(EditorialJsonSchemas.missingPart2))
         assertEquals(
-            names(Part1PlanItem.serializer().descriptor),
+            names(Part1PlanDraftItem.serializer().descriptor),
             EditorialJsonSchemas.part1Plan.getValue("properties").jsonObject
                 .getValue("items").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
         )
         assertEquals(
-            names(MissingPart2Summary.serializer().descriptor),
+            names(MissingPart2DraftItem.serializer().descriptor),
             EditorialJsonSchemas.missingPart2.getValue("properties").jsonObject
                 .getValue("items").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
         )
-        assertEquals(names(PeriodicDigest.serializer().descriptor), properties(EditorialJsonSchemas.periodicDigest))
+        assertEquals(names(PeriodicDigestDraft.serializer().descriptor), properties(EditorialJsonSchemas.periodicDigest))
         assertEquals(
-            names(PeriodicDigestSection.serializer().descriptor),
+            names(PeriodicDigestDraftSection.serializer().descriptor),
             EditorialJsonSchemas.periodicDigest.getValue("properties").jsonObject
                 .getValue("sections").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
         )
+    }
+
+    /**
+     * 这条是这次重构的落点：模型交回的是短 id，而**改写过的链接不再有任何生路**。
+     * 2026-08-19 那次三轮失败正是链接改写，当时的契约无法区分「抄错」和「造假」。
+     */
+    @Test
+    fun `plan items reference articles by short id and rewritten links are rejected`() = runBlocking {
+        val artifacts = lowVolumeArtifacts()
+        val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
+        val rewritten = ArtifactJson.compact.encodeToString(
+            // 按标题重造 slug —— 8-19 事故的确切形状。
+            Part1PlanDraft(listOf(Part1PlanDraftItem("https://example.test/story-1-extended", "中文事件摘要", emptyList())), 29),
+        )
+        val responses = ArrayDeque(
+            listOf(
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
+                LlmResponse(rewritten, stopReason = "stop"),
+                // 大小写与前导零都属于同义写法，不该浪费一整轮重试。
+                LlmResponse(planDraft(listOf("a1", "A2", "a03", "4", "a5"), shortfall = 25), stopReason = "stop"),
+            ),
+        )
+
+        val output = runEngine(artifacts, responses)
+
+        assertEquals(selected, output.part1.items.map { it.link })
+        assertEquals(0, responses.size)
     }
 
     @Test
@@ -81,19 +110,9 @@ class LlmEditorialEngineTest {
         // truncated or repaired response takes. It must not be published.
         val responses = ArrayDeque(
             listOf(
-                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
-                LlmResponse(
-                    ArtifactJson.compact.encodeToString(
-                        Part1Plan(items = selected.take(3).map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 0),
-                    ),
-                    stopReason = "stop",
-                ),
-                LlmResponse(
-                    ArtifactJson.compact.encodeToString(
-                        Part1Plan(items = selected.map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 25),
-                    ),
-                    stopReason = "stop",
-                ),
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
+                LlmResponse(planDraft(ids(3), shortfall = 0), stopReason = "stop"),
+                LlmResponse(planDraft(ids(5), shortfall = 25), stopReason = "stop"),
             ),
         )
 
@@ -108,12 +127,10 @@ class LlmEditorialEngineTest {
     fun `accepted shortlist is checkpointed and every rejected plan attempt is preserved`() = runBlocking {
         val artifacts = lowVolumeArtifacts(cachedPart2 = false)
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
-        val invalidPlan = ArtifactJson.compact.encodeToString(
-            Part1Plan(items = selected.take(3).map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 0),
-        )
+        val invalidPlan = planDraft(ids(3), shortfall = 0)
         val responses = ArrayDeque(
             listOf(
-                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
                 LlmResponse(invalidPlan, stopReason = "stop"),
                 LlmResponse(invalidPlan, stopReason = "stop"),
                 LlmResponse(invalidPlan, stopReason = "stop"),
@@ -172,7 +189,13 @@ class LlmEditorialEngineTest {
             first.errors,
         )
         assertEquals(3, capturedLogs.count { it.startsWith("contract_part1_plan/WARN:") })
-        assertTrue(capturedLogs.first().contains("attempt=1 items=3 shortfall=0 errors=${first.errors.single()}"))
+        // 按内容找而不是按位置找：编辑阶段还会写别的日志（比如缓存命中率），
+        // "第一条就是契约告警"从来不是这个测试真正想钉的东西。
+        assertTrue(
+            capturedLogs.first { it.startsWith("contract_part1_plan/WARN:") }
+                .contains("attempt=1 items=3 shortfall=0 errors=${first.errors.single()}"),
+            capturedLogs.toString(),
+        )
         assertEquals(0, responses.size)
     }
 
@@ -183,14 +206,9 @@ class LlmEditorialEngineTest {
         val selected = links.take(5)
         val responses = ArrayDeque(
             listOf(
-                LlmResponse("{\"links\":[]}", stopReason = "stop"),
-                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
-                LlmResponse(
-                    ArtifactJson.compact.encodeToString(
-                        Part1Plan(items = selected.map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 25),
-                    ),
-                    stopReason = "stop",
-                ),
+                LlmResponse(shortlistDraft(0), stopReason = "stop"),
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
+                LlmResponse(planDraft(ids(5), shortfall = 25), stopReason = "stop"),
             ),
         )
 
@@ -207,13 +225,8 @@ class LlmEditorialEngineTest {
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
         val responses = ArrayDeque(
             listOf(
-                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
-                LlmResponse(
-                    ArtifactJson.compact.encodeToString(
-                        Part1Plan(selected.map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 25),
-                    ),
-                    stopReason = "stop",
-                ),
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
+                LlmResponse(planDraft(ids(5), shortfall = 25), stopReason = "stop"),
             ),
         )
         var drafterResolutions = 0
@@ -258,8 +271,8 @@ class LlmEditorialEngineTest {
         val provider = object : LlmProvider {
             override suspend fun complete(request: LlmRequest) = LlmResponse(
                 ArtifactJson.compact.encodeToString(
-                    MissingPart2Payload(
-                        requests.map { MissingPart2Summary(it.link, "${it.title} 中文摘要") },
+                    MissingPart2Draft(
+                        requests.mapIndexed { index, article -> MissingPart2DraftItem("a${index + 1}", "${article.title} 中文摘要") },
                     ),
                 ),
                 stopReason = "stop",
@@ -281,22 +294,20 @@ class LlmEditorialEngineTest {
         )
 
         assertEquals(requests.map { it.link }, generated.map { it.link })
-        assertEquals(8_192, observedMaxTokens)
+        // 批量摘要按操作收窄，而不是照搬角色上限：max_tokens 是预留，供应商按
+        // 「输入 + 预留」判断能否受理，一批 25 条短摘要没有理由预留 8K。
+        assertTrue(observedMaxTokens < 8_192, "expected a per-operation cap, got $observedMaxTokens")
+        assertTrue(observedMaxTokens >= 2_048, "cap must stay clear of truncation, got $observedMaxTokens")
     }
 
     @Test
-    fun `Part 1 shortlist and plan both use EDITOR token cap`() = runBlocking {
+    fun `shortlist reserves far less than the plan, and never more than the role cap`() = runBlocking {
         val artifacts = lowVolumeArtifacts(cachedPart2 = false)
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
         val responses = ArrayDeque(
             listOf(
-                LlmResponse("{\"links\":[${selected.joinToString(",") { "\"$it\"" }}]}", stopReason = "stop"),
-                LlmResponse(
-                    ArtifactJson.compact.encodeToString(
-                        Part1Plan(selected.map { Part1PlanItem(it, "中文事件摘要", emptyList()) }, shortfall = 25),
-                    ),
-                    stopReason = "stop",
-                ),
+                LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
+                LlmResponse(planDraft(ids(5), shortfall = 25), stopReason = "stop"),
             ),
         )
         val observed = mutableListOf<Int>()
@@ -328,7 +339,12 @@ class LlmEditorialEngineTest {
             LlmExecutionConfig(),
         )
 
-        assertEquals(listOf(12_288, 12_288), observed)
+        val (shortlistCap, planCap) = observed
+        // 短名单只吐几十个 `a12` 形状的 id；照搬 12288 会在 32K 上下文的便宜模型上
+        // 变成「26K 输入 + 12K 预留」直接 400。计划确实要写满，保持角色上限。
+        assertEquals(12_288, planCap)
+        assertTrue(shortlistCap < planCap, "shortlist should reserve less than the plan, got $shortlistCap")
+        assertTrue(shortlistCap <= 12_288, "never exceed the user's role cap")
     }
 
     @Test
@@ -424,6 +440,17 @@ class LlmEditorialEngineTest {
             },
         )
     }
+
+    /** 入围顺序即 id 顺序，所以测试可以直接按位置造引用。 */
+    private fun ids(count: Int) = (1..count).map { "a$it" }
+
+    /** 短名单现在也走短 id：模型写 brief 里的 id，不回显 URL。 */
+    private fun shortlistDraft(count: Int) =
+        ArtifactJson.compact.encodeToString(Part1ShortlistDraft(ids(count)))
+
+    private fun planDraft(refs: List<String>, shortfall: Int) = ArtifactJson.compact.encodeToString(
+        Part1PlanDraft(refs.map { Part1PlanDraftItem(it, "中文事件摘要", emptyList()) }, shortfall),
+    )
 
     private object TestPrompts : PromptSource {
         override fun part1Shortlist(topN: Int) = "shortlist"

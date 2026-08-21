@@ -69,6 +69,8 @@ data class DiagnosticsUiState(
     val probeSuggested: Boolean = false,
     val validationArtifact: ArtifactPayload = ArtifactPayload(),
     val budgetArtifact: ArtifactPayload = ArtifactPayload(),
+    /** 契约违规产物：name → 内容。空列表表示这次运行没有被打回过。 */
+    val contractViolations: List<Pair<String, String>> = emptyList(),
     val loading: Boolean = true,
     val artifactsLoading: Boolean = false,
     val events: List<DiagnosticsEvent> = emptyList(),
@@ -79,11 +81,17 @@ internal data class DiagnosticDetails(
     val calls: List<LlmCallEntity> = emptyList(),
     val artifactsLoading: Boolean = false,
     val resolved: ResolvedArtifacts = ResolvedArtifacts(),
+    val contractViolations: List<Pair<String, String>> = emptyList(),
 )
 
 private sealed interface ArtifactTexts {
     data object Loading : ArtifactTexts
-    data class Loaded(val validation: String?, val budget: String?) : ArtifactTexts
+    data class Loaded(
+        val validation: String?,
+        val budget: String?,
+        /** name → 内容。每一次 LLM 被打回都写一份，此前在 app 里完全不可见。 */
+        val violations: List<Pair<String, String>>,
+    ) : ArtifactTexts
 }
 
 internal data class SideState(
@@ -139,10 +147,20 @@ class DiagnosticsViewModel(
         else {
             val texts: Flow<ArtifactTexts> = flow {
                 emit(ArtifactTexts.Loading)
-                val documents = withContext(Dispatchers.IO) {
-                    artifacts.readText(entity.runId, "validation.json") to artifacts.readText(entity.runId, "context_budget.json")
+                val loaded = withContext(Dispatchers.IO) {
+                    // 契约违规产物是"模型第 N 次被打回时到底错在哪"的唯一记录。
+                    // 按名字排序即按 operation + attempt 排序，正好是发生顺序。
+                    val violations = artifacts.names(entity.runId)
+                        .filter { it.startsWith("contract_violations/") }
+                        .sorted()
+                        .mapNotNull { name -> artifacts.readText(entity.runId, name)?.let { name to it } }
+                    ArtifactTexts.Loaded(
+                        artifacts.readText(entity.runId, "validation.json"),
+                        artifacts.readText(entity.runId, "context_budget.json"),
+                        violations,
+                    )
                 }
-                emit(ArtifactTexts.Loaded(documents.first, documents.second))
+                emit(loaded)
             }
             combine(runLogs.observe(entity.runId), llmCalls.observe(entity.runId), texts) { logs, calls, artifactTexts ->
                 when (artifactTexts) {
@@ -152,6 +170,7 @@ class DiagnosticsViewModel(
                         calls = calls,
                         artifactsLoading = false,
                         resolved = resolveDiagnosticsArtifacts(artifactTexts.validation, artifactTexts.budget, entity, logs),
+                        contractViolations = artifactTexts.violations,
                     )
                 }
             }
@@ -270,6 +289,7 @@ internal fun buildState(
         probes = side.probes,
         probing = side.probing,
         probeSuggested = probeSuggested(side.probes, evidence),
+        contractViolations = detailBundle.contractViolations,
         validationArtifact = detailBundle.resolved.validationArtifact,
         budgetArtifact = detailBundle.resolved.budgetArtifact,
         loading = false,

@@ -3,6 +3,7 @@ package com.dailynews.data.repo
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.PeriodicReportEntity
 import com.dailynews.data.db.PeriodicReportSummary
+import com.dailynews.data.db.ReportItemEntity
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.PeriodicDigest
 import com.dailynews.pipeline.flow.PeriodicDigestInput
@@ -43,18 +44,36 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
             periodStartDate = start.toString(),
             periodEndDate = end.toString(),
             reportDates = rows.map { it.reportDate }.distinct().sorted(),
-            items = rows.map { row ->
-                PeriodicDigestItem(
-                    reportDate = row.reportDate,
-                    title = row.title,
-                    source = row.source,
-                    link = row.link,
-                    summaryZh = row.summaryZh,
-                    eventKey = row.eventKey,
-                )
-            },
+            items = boundedItems(rows),
         )
     }
+
+    /**
+     * 素材裁剪。此前是「整段时间的每一条 Part 1 原样送进一次调用」，月报实测约
+     * 900 条 × 451 字节 = 406 KB ≈ 15–20 万 token：在 32K 窗口的便宜模型上直接 400，
+     * 在宽窗口模型上一口气吃掉月度预算的约两成，契约重试再乘三。
+     *
+     * 两步都保留信息量：
+     * 1. **按 event_key 去重，保留每条线索最新的一次报道。** 周报的产品定义本就是
+     *    「按事件主线归并」，同一条线索的七天流水对模型是负担不是信息；
+     *    `ShortlistContextBuilder` 对 recent_top30 早就是同一个做法。
+     * 2. 去重之后仍超上限时，按日期倒序保留最近的，让简报偏向本期后半段的进展。
+     */
+    private fun boundedItems(rows: List<ReportItemEntity>): List<PeriodicDigestItem> = rows
+        .sortedByDescending { it.reportDate }
+        .distinctBy { it.eventKey.ifBlank { it.link } }
+        .take(MAX_DIGEST_ITEMS)
+        .sortedBy { it.reportDate }
+        .map { row ->
+            PeriodicDigestItem(
+                reportDate = row.reportDate,
+                title = row.title,
+                source = row.source,
+                link = row.link,
+                summaryZh = row.summaryZh,
+                eventKey = row.eventKey,
+            )
+        }
 
     /** 成功发布。已发布的周期简报不得被后续失败覆盖（与 ReportRepository 同策略）。 */
     suspend fun publish(
@@ -111,6 +130,14 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
     }
 
     companion object {
+        /**
+         * 单次周期简报的素材条数上限。
+         *
+         * 去重之后周报通常远低于此，月报会撞上。120 条 × 约 450 字节 ≈ 54 KB，
+         * 对 32K 上下文的便宜模型仍然宽裕。
+         */
+        const val MAX_DIGEST_ITEMS = 120
+
         /** ISO 周：`2026-W32`。月：`2026-08`。 */
         fun periodKeyFor(kind: PeriodKind, start: LocalDate): String = when (kind) {
             PeriodKind.WEEKLY -> {

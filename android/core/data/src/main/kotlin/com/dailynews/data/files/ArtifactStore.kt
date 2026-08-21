@@ -27,6 +27,17 @@ class ArtifactStore(
         )
     }
 
+    /**
+     * 这次运行留下的全部产物名。
+     *
+     * 诊断页此前只硬编码展示 `validation.json` 与 `context_budget.json` 两个文件，
+     * 而每一次 LLM 被打回都会写 `contract_violations/<op>-attempt-N.json`——也就是说
+     * 应用把答案写下来了，却是全仓库唯一不可见的那份。要看只能导出 ZIP 拿到电脑上。
+     */
+    suspend fun names(runId: String): List<String> = withContext(Dispatchers.IO) {
+        database.runArtifacts().metadataForRun(runId).map { it.name }
+    }
+
     suspend fun readText(runId: String, relativePath: String): String? = withContext(Dispatchers.IO) {
         validateName(relativePath)
         loadGzipBody(runId, relativePath)?.let { ungzip(it).toString(Charsets.UTF_8) }

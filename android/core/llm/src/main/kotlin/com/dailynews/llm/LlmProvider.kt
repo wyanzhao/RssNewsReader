@@ -1,5 +1,6 @@
 package com.dailynews.llm
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
@@ -35,6 +36,38 @@ enum class EditorialRole { EDITOR, DRAFTER }
 @Serializable
 data class StructuredOutputSchema(val name: String, val schema: JsonObject)
 
+/** OpenRouter `provider.sort` 取值。`DEFAULT` 表示根本不发这个字段。 */
+@Serializable
+enum class ProviderSort {
+    DEFAULT, THROUGHPUT, PRICE, LATENCY;
+
+    val wire: String? get() = if (this == DEFAULT) null else name.lowercase()
+}
+
+/**
+ * OpenRouter 路由偏好。
+ *
+ * 便宜模型在 OpenRouter 上常被路由到低吞吐的提供商，一次 Part 1 生成就能拖到几百
+ * 秒——本地把超时调大救不回来，中间网关对非流式长请求还有它自己的超时。这些字段
+ * 把选择权交回给我们：按吞吐排序、给主模型备选、只落到真正支持结构化输出的提供商。
+ *
+ * 全默认时一个字段都不会发出去：非 OpenRouter 的 OpenAI 兼容端点收到未知顶层字段
+ * 可能直接 400，所以这必须是显式开启的东西。
+ */
+@Serializable
+data class ProviderRouting(
+    /** 主模型不可用或超时时依次尝试的备选模型。 */
+    @SerialName("model_fallbacks") val modelFallbacks: List<String> = emptyList(),
+    val sort: ProviderSort = ProviderSort.DEFAULT,
+    /** 只路由到真正支持 `response_format` 的提供商，避免结构化输出被静默忽略。 */
+    @SerialName("require_parameters") val requireParameters: Boolean = false,
+) {
+    val isDefault: Boolean get() = modelFallbacks.isEmpty() && sort == ProviderSort.DEFAULT && !requireParameters
+
+    fun normalized(): ProviderRouting =
+        copy(modelFallbacks = modelFallbacks.map(String::trim).filter(String::isNotEmpty).distinct())
+}
+
 @Serializable
 data class ProviderConfig(
     val id: String,
@@ -43,6 +76,7 @@ data class ProviderConfig(
     val apiKeyAlias: String,
     val supportsJsonMode: Boolean = true,
     val structuredMode: StructuredMode = StructuredMode.AUTO,
+    val routing: ProviderRouting = ProviderRouting(),
 )
 
 @Serializable
@@ -51,6 +85,21 @@ data class RoleModel(
     val model: String,
     val maxTokens: Int,
 )
+
+/**
+ * 角色输出上限。
+ *
+ * 曾经默认 65536——多数便宜模型的 completion 上限远低于此，有的提供商会直接 400。
+ * 现在按各角色**实际需要**的量给：EDITOR 一次要写 Top N 条中文摘要，DRAFTER 一批
+ * 25 条短摘要。截断是硬失败（[wasTruncated] 不重试），所以这两个值只能往宽里估，
+ * 但没有理由宽到让提供商拒收整个请求。
+ */
+object RoleModelDefaults {
+    const val EDITOR_MAX_TOKENS = 16_384
+    const val DRAFTER_MAX_TOKENS = 8_192
+    const val MIN_MAX_TOKENS = 512
+    const val MAX_MAX_TOKENS = 65_536
+}
 
 @Serializable
 data class RoleModelMapping(
@@ -66,6 +115,8 @@ class LlmTransportException(
     message: String,
     cause: Throwable? = null,
     val retryable: Boolean = false,
+    /** 服务端 `Retry-After` 换算成的毫秒数。有值时它优先于本地退避曲线。 */
+    val retryAfterMillis: Long? = null,
 ) : RuntimeException(message, cause)
 class LlmProtocolException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 class StructuredOutputUnsupportedException(

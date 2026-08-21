@@ -21,6 +21,7 @@ import com.dailynews.pipeline.editorial.TopNRenderer
 import com.dailynews.pipeline.editorial.ArtifactAudit
 import com.dailynews.pipeline.editorial.ReportReview
 import com.dailynews.pipeline.flow.EditorialEngine
+import com.dailynews.pipeline.editorial.ReportContractException
 import com.dailynews.pipeline.flow.EditorialContractException
 import com.dailynews.pipeline.flow.EditorialLlmException
 import com.dailynews.pipeline.ports.ArtifactSink
@@ -258,6 +259,9 @@ class RunOrchestrator(
             val stage = when (error) {
                 is EditorialLlmException -> "editorial"
                 is EditorialContractException -> "editorial_contract"
+                // 装配/审校拒绝了一份已通过 LLM 契约的产物。与上一条是不同的病，
+                // 必须分开报：重跑对它毫无用处，只能靠产物定位。
+                is ReportContractException -> "report_contract"
                 else -> "success_branch"
             }
             fail(request, runId, stage, error)

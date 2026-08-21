@@ -12,17 +12,23 @@ import com.dailynews.model.ContextBudget
 import com.dailynews.model.LlmContext
 import com.dailynews.model.Part1Brief
 import com.dailynews.model.PeriodicDigest
+import com.dailynews.model.PeriodicDigestDraft
 import com.dailynews.model.Part1Plan
+import com.dailynews.model.Part1PlanDraft
 import com.dailynews.model.Part2Context
 import com.dailynews.model.Part2Draft
 import com.dailynews.model.Part2Mode
 import com.dailynews.model.LlmExecutionConfig
 import com.dailynews.model.EditorialJsonSchemas
+import com.dailynews.model.MissingPart2Draft
 import com.dailynews.model.MissingPart2Payload
 import com.dailynews.model.MissingPart2Summary
+import com.dailynews.model.Part1ShortlistDraft
 import com.dailynews.model.Part1ShortlistPayload
+import com.dailynews.pipeline.editorial.ArticleRefIndex
 import com.dailynews.pipeline.editorial.PeriodicDigestContracts
 import com.dailynews.pipeline.editorial.EditorialContracts
+import com.dailynews.pipeline.editorial.EditorialRefs
 import com.dailynews.pipeline.editorial.Part2Merger
 import com.dailynews.pipeline.context.Part1ShortlistContext
 import com.dailynews.pipeline.ports.ArtifactSink
@@ -114,9 +120,10 @@ private object NoCacheShortlistContextFactory : ShortlistContextFactory {
         articleCount = links.size,
         cacheHits = 0,
         recentTopN = emptyList(),
-        articles = links.map { link ->
+        articles = links.mapIndexed { index, link ->
             val article = context.allArticles.first { it.link == link }
             com.dailynews.pipeline.context.ShortlistContextArticle(
+                EditorialRefs.articleId(index),
                 article.source, article.title, article.link, article.pubDateUtc, article.pubDateIso,
                 article.summaryEn, article.articleText,
             )
@@ -201,13 +208,15 @@ class LlmEditorialEngine(
         llmExecution: LlmExecutionConfig,
     ): Part1Result {
         val binding = providers.resolve(EditorialRole.EDITOR, llmExecution)
-        val known = context.allArticles.associateBy { com.dailynews.pipeline.text.TextUtils.cleanText(it.link) }
         val maxTarget = minOf(context.allArticles.size, topN + 15)
         val minTarget = when {
             context.allArticles.isEmpty() -> 0
             context.allArticles.size >= topN + 10 -> topN + 10
             else -> 1
         }
+        // Index built from the brief the model is handed, so the ids it reads and the
+        // ids resolved here come from one assignment.
+        val briefRefs = ArticleRefIndex(brief.articles.map { it.id to it.link })
         var shortlistFeedback = ""
         var acceptedLinks: List<String>? = null
         var lastShortlistErrors = emptyList<String>()
@@ -221,26 +230,34 @@ class LlmEditorialEngine(
                 codec.encodeToString(brief) + shortlistFeedback,
                 retryIndex,
                 counter,
-                binding.roleModel.maxTokens,
+                outputCap(binding, OutputCaps.SHORTLIST),
                 operation = "part1_shortlist",
             )
-            val decodedShortlist = runCatching { codec.decodeFromJsonElement<Part1ShortlistPayload>(shortlistObject) }
+            val decodedShortlist = runCatching { codec.decodeFromJsonElement<Part1ShortlistDraft>(shortlistObject) }
             val shortlist = decodedShortlist.getOrNull()
             if (shortlist == null) {
                 val errors = listOf("schema: ${decodedShortlist.exceptionOrNull()?.message}")
                 recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
                 lastShortlistErrors = errors
-                shortlistFeedback = "\n\nPrevious shortlist JSON violated the schema: ${decodedShortlist.exceptionOrNull()?.message}. Return {\"links\":[...]} only."
+                shortlistFeedback = "\n\nPrevious shortlist JSON violated the schema: ${decodedShortlist.exceptionOrNull()?.message}. Return {\"refs\":[...]} only."
                 continue
             }
+            val resolved = shortlist.refs.map { it to briefRefs.resolve(it) }
+            val unknown = resolved.filter { it.second == null }.map { briefRefs.unknown("shortlist ref", it.first) }
+            if (unknown.isNotEmpty()) {
+                recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, unknown)
+                lastShortlistErrors = unknown
+                shortlistFeedback = "\n\nPrevious shortlist referenced unknown ids: ${unknown.joinToString("; ")}. " +
+                    "Copy an id from the brief verbatim; never invent one."
+                continue
+            }
+            val chosen = resolved.mapNotNull { it.second }
             val errors = buildList {
-                val cleanedLinks = shortlist.links.map(com.dailynews.pipeline.text.TextUtils::cleanText)
-                if (cleanedLinks.size != cleanedLinks.distinct().size) add("shortlist contains duplicate links")
-                if (!cleanedLinks.all(known::containsKey)) add("shortlist contains links absent from all_articles")
-                if (shortlist.links.size !in minTarget..maxTarget) add("shortlist size ${shortlist.links.size} outside $minTarget..$maxTarget")
+                if (chosen.size != chosen.distinct().size) add("shortlist references the same article twice")
+                if (chosen.size !in minTarget..maxTarget) add("shortlist size ${chosen.size} outside $minTarget..$maxTarget")
             }
             if (errors.isEmpty()) {
-                acceptedLinks = shortlist.links.map { known.getValue(com.dailynews.pipeline.text.TextUtils.cleanText(it)).link }
+                acceptedLinks = chosen
                 break
             }
             recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
@@ -250,7 +267,45 @@ class LlmEditorialEngine(
         val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
         persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links)))
         val shortlistContext = shortlistContexts.build(context, links)
-        persistArtifact(runId, "part1_shortlist_context.json", codec.encodeToString(shortlistContext))
+        val shortlistJson = codec.encodeToString(shortlistContext)
+        persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)
+        // 这是 Part 1 计划调用真正发出去的负载，也是整条链路上最大的一份，而
+        // context_budget 只记 llm_context / part1_brief / part2_context 三份——它在那里
+        // 计为零。条数由 shortlist 上限（topN + 15）结构性兜住，所以这里不硬拦，
+        // 只把尺寸变成可观测的：真出问题时日志里有数，而不是只能猜。
+        // 中文摘要缓存的命中率。
+        //
+        // 目前这个分支**结构性**命中为零：cacheKey 纯按 link 取，而 RunOrchestrator 把
+        // 每一篇抓取到的文章（不只是被报道的）都记进 seen-links，于是任何链接都不会
+        // 在跨天时第二次进入缓存查询——只有同日重跑才可能命中。这在 Android 上是自洽的
+        // （阅读器本来就呈现整个文章池，所以"全部标记为已呈现"没错），但它让 prompt 里
+        // 那两句"可复用 cached_summary_zh"描述了一个不会执行的分支。
+        //
+        // 不静默删掉这条路径：它的代价是存储与认知负担而不是 token，去留是产品决策。
+        // 但要让它可见——有了这行日志，决策就有数据而不是猜测。
+        runCatching {
+            logs.log(
+                runId,
+                "editorial_cache",
+                LogLevel.INFO,
+                "part1 cache hits ${shortlistContext.cacheHits}/${shortlistContext.articles.size}",
+            )
+        }
+        val shortlistBytes = shortlistJson.toByteArray(Charsets.UTF_8).size
+        if (shortlistBytes > SHORTLIST_CONTEXT_WARN_BYTES) {
+            runCatching {
+                logs.log(
+                    runId,
+                    "context_budget",
+                    LogLevel.WARN,
+                    "part1_shortlist_context is $shortlistBytes bytes " +
+                        "(over $SHORTLIST_CONTEXT_WARN_BYTES); it is resent on every contract retry",
+                )
+            }
+        }
+        // Build the index from the payload the model actually receives, so the ids it
+        // reads and the ids resolved here can never come from two different orderings.
+        val refs = ArticleRefIndex(shortlistContext.articles.map { it.id to it.link })
         var feedback = ""
         var lastPlanErrors = emptyList<String>()
         repeat(3) { retryIndex ->
@@ -266,11 +321,19 @@ class LlmEditorialEngine(
                 binding.roleModel.maxTokens,
                 operation = "part1_plan",
             )
-            val decoded = runCatching { codec.decodeFromJsonElement<Part1Plan>(output) }.getOrElse { error ->
+            val draft = runCatching { codec.decodeFromJsonElement<Part1PlanDraft>(output) }.getOrElse { error ->
                 val errors = listOf("schema: ${error.message}")
                 recordViolation(runId, "part1_plan", retryIndex, output, errors)
                 lastPlanErrors = errors
                 feedback = "\n\nPrevious JSON violated the schema: ${error.message}. Return a corrected object."
+                return@repeat
+            }
+            val resolved = EditorialRefs.resolvePart1(draft, refs)
+            val decoded = resolved.value ?: run {
+                recordViolation(runId, "part1_plan", retryIndex, output, resolved.errors)
+                lastPlanErrors = resolved.errors
+                feedback = "\n\nPrevious output referenced unknown ids: ${resolved.errors.joinToString("; ")}. " +
+                    "Copy an id from the input verbatim; never invent one."
                 return@repeat
             }
             // Validate the model's own shortfall instead of overwriting it.
@@ -281,7 +344,8 @@ class LlmEditorialEngine(
             if (errors.isEmpty()) return Part1Result(decoded)
             recordViolation(runId, "part1_plan", retryIndex, output, errors)
             lastPlanErrors = errors
-            feedback = "\n\nPrevious output violated these deterministic contracts: ${errors.joinToString("; ")}. Correct every item."
+            feedback = "\n\nPrevious output violated these deterministic contracts: " +
+                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item."
         }
         throw EditorialContractException("part1_plan", lastPlanErrors)
     }
@@ -319,7 +383,13 @@ class LlmEditorialEngine(
         require(input.items.isNotEmpty()) { "periodic digest requires at least one published item" }
         val counter = CallCounter(maxCalls.coerceIn(1, 100))
         val binding = providers.resolve(EditorialRole.EDITOR, llmExecution)
-        val availableLinks = input.items.mapTo(mutableSetOf()) { it.link }
+        // Stamping ids here rather than in collectInput keeps the payload and the index
+        // to one assignment, so the caller cannot hand over a mis-numbered material list.
+        val identified = input.copy(
+            items = input.items.mapIndexed { index, item -> item.copy(id = EditorialRefs.articleId(index)) },
+        )
+        val refs = ArticleRefIndex(identified.items.map { it.id to it.link })
+        val availableLinks = identified.items.mapTo(mutableSetOf()) { it.link }
         var feedback = ""
         var lastErrors = emptyList<String>()
         repeat(3) { retryIndex ->
@@ -329,24 +399,33 @@ class LlmEditorialEngine(
                 binding,
                 StructuredOutputSchema("periodic_digest", EditorialJsonSchemas.periodicDigest),
                 prompts.periodicDigest(),
-                codec.encodeToString(input) + feedback,
+                codec.encodeToString(identified) + feedback,
                 retryIndex,
                 counter,
                 binding.roleModel.maxTokens,
                 "periodic_digest",
             )
-            val decoded = runCatching { codec.decodeFromJsonElement(PeriodicDigest.serializer(), output) }.getOrElse { error ->
+            val draft = runCatching { codec.decodeFromJsonElement(PeriodicDigestDraft.serializer(), output) }.getOrElse { error ->
                 val errors = listOf("schema: ${error.message}")
                 recordViolation(runId, "periodic_digest", retryIndex, output, errors)
                 lastErrors = errors
                 feedback = "\n\nPrevious JSON violated the schema: ${error.message}. Return a corrected object."
                 return@repeat
             }
-            val errors = PeriodicDigestContracts.validate(decoded, input.period, availableLinks)
+            val resolved = EditorialRefs.resolveDigest(draft, refs)
+            val decoded = resolved.value ?: run {
+                recordViolation(runId, "periodic_digest", retryIndex, output, resolved.errors)
+                lastErrors = resolved.errors
+                feedback = "\n\nPrevious output referenced unknown ids: ${resolved.errors.joinToString("; ")}. " +
+                    "Copy an id from the input verbatim; never invent one."
+                return@repeat
+            }
+            val errors = PeriodicDigestContracts.validate(decoded, identified.period, availableLinks)
             if (errors.isEmpty()) return decoded
             recordViolation(runId, "periodic_digest", retryIndex, output, errors)
             lastErrors = errors
-            feedback = "\n\nPrevious output violated these deterministic contracts: ${errors.joinToString("; ")}. Correct every item."
+            feedback = "\n\nPrevious output violated these deterministic contracts: " +
+                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item."
         }
         throw EditorialContractException("periodic_digest", lastErrors)
     }
@@ -371,7 +450,11 @@ class LlmEditorialEngine(
         val binding = providers.resolve(EditorialRole.DRAFTER, llmExecution)
         val completed = mutableListOf<MissingPart2Summary>()
         articles.chunked(25).forEachIndexed { batchIndex, batch ->
-            val batchPayload = Part2BatchInput(batch.map(Part2SummaryRequest::toBatchArticle))
+            // Ids restart at a1 in every batch: the model only ever sees one batch, and a
+            // short range is exactly what makes the reference cheap to copy correctly.
+            val batchPayload = Part2BatchInput(
+                batch.mapIndexed { index, request -> request.toBatchArticle(EditorialRefs.articleId(index)) },
+            )
             completed += callPart2Batch(runId, binding, batchPayload, batchIndex, counter)
         }
         return completed
@@ -384,6 +467,7 @@ class LlmEditorialEngine(
         batchIndex: Int,
         counter: CallCounter,
     ): List<MissingPart2Summary> {
+        val refs = ArticleRefIndex(input.articles.map { it.id to it.link })
         var feedback = ""
         var lastErrors = emptyList<String>()
         repeat(3) { retryIndex ->
@@ -396,38 +480,39 @@ class LlmEditorialEngine(
                 codec.encodeToString(input) + feedback,
                 retryIndex,
                 counter,
-                binding.roleModel.maxTokens,
+                outputCap(binding, OutputCaps.PART2_BATCH),
                 operation = "part2_batch",
                 batch = (batchIndex + 1).toString(),
                 auditIndexBase = batchIndex * 100,
             )
-            val payload = runCatching { codec.decodeFromJsonElement<MissingPart2Payload>(objectResult) }.getOrElse { error ->
+            val draft = runCatching { codec.decodeFromJsonElement<MissingPart2Draft>(objectResult) }.getOrElse { error ->
                 val errors = listOf("schema: ${error.message}")
                 recordViolation(runId, "part2_batch", retryIndex, objectResult, errors, batchIndex + 1)
                 lastErrors = errors
                 feedback = "\n\nSchema error: ${error.message}. Return a corrected object."
                 return@repeat
             }
-            val allowed = input.articles.associateBy { com.dailynews.pipeline.text.TextUtils.cleanText(it.link) }
-            val cleanedPayloadLinks = payload.items.map { com.dailynews.pipeline.text.TextUtils.cleanText(it.link) }
+            val resolved = EditorialRefs.resolvePart2(draft, refs)
+            val items = resolved.value ?: run {
+                recordViolation(runId, "part2_batch", retryIndex, objectResult, resolved.errors, batchIndex + 1)
+                lastErrors = resolved.errors
+                feedback = "\n\nUnknown ids: ${resolved.errors.joinToString("; ")}. " +
+                    "Copy an id from the input verbatim; never invent one."
+                return@repeat
+            }
+            val requestedLinks = input.articles.map { com.dailynews.pipeline.text.TextUtils.cleanText(it.link) }.toSet()
+            val answeredLinks = items.map { com.dailynews.pipeline.text.TextUtils.cleanText(it.link) }
             val errors = buildList {
-                if (cleanedPayloadLinks.size != cleanedPayloadLinks.toSet().size) {
-                    add("batch response contains duplicate links")
+                if (answeredLinks.size != answeredLinks.toSet().size) add("batch response answers the same article twice")
+                items.forEachIndexed { index, item ->
+                    addAll(EditorialContracts.summaryLintErrors(item.summaryZh, "item ${index + 1} summary_zh", 200))
                 }
-                payload.items.forEachIndexed { index, item ->
-                    if (com.dailynews.pipeline.text.TextUtils.cleanText(item.link) !in allowed) add("item ${index + 1} link absent from batch")
-                    addAll(EditorialContracts.summaryLintErrors(item.summaryZh, "item ${index + 1}", 200))
-                }
-                if (cleanedPayloadLinks.toSet() != allowed.keys) add("batch response does not cover every requested link")
+                if (answeredLinks.toSet() != requestedLinks) add("batch response does not cover every requested id")
             }
-            if (errors.isEmpty()) {
-                return payload.items.map { item ->
-                    item.copy(link = allowed.getValue(com.dailynews.pipeline.text.TextUtils.cleanText(item.link)).link)
-                }
-            }
+            if (errors.isEmpty()) return items
             recordViolation(runId, "part2_batch", retryIndex, objectResult, errors, batchIndex + 1)
             lastErrors = errors
-            feedback = "\n\nContract errors: ${errors.joinToString("; ")}. Correct all items."
+            feedback = "\n\nContract errors: ${refs.toIdLanguage(errors.joinToString("; "))}. Correct all items."
         }
         throw EditorialContractException("part2_batch", lastErrors)
     }
@@ -532,6 +617,28 @@ class LlmEditorialEngine(
     }
 }
 
+/**
+ * 每个操作实际需要的输出上限。
+ *
+ * `max_tokens` 是**预留**，不是计费——但供应商按"输入 + 预留"判断能否受理。角色级的
+ * 16384 让只需吐几百个 token 的短名单在 32K 上下文的便宜模型上直接 400（26K 输入 +
+ * 16K 预留），并且会收窄 OpenRouter `require_parameters` 能接受的提供商池。
+ *
+ * 截断是硬失败（不重试），所以每个值都往宽里估：短名单 45 个 `a12` 形状的 id 约 300
+ * token，批量摘要 25 条 × 60 字约 2.5K。计划与周报保持角色级上限——它们确实要写满。
+ */
+private object OutputCaps {
+    const val SHORTLIST = 2_048
+    const val PART2_BATCH = 4_096
+}
+
+/** 实测正常日约 114 KB。超出这个数就值得在日志里留一行，因为它每轮重试都重发。 */
+private const val SHORTLIST_CONTEXT_WARN_BYTES = 200_000
+
+/** 永不超过用户配置的角色上限：这是他们为自己的模型选的天花板。 */
+private fun outputCap(binding: ProviderBinding, operationCap: Int) =
+    minOf(binding.roleModel.maxTokens, operationCap)
+
 private class CallCounter(private val maximum: Int) {
     private var count = 0
     @Synchronized fun take() {
@@ -545,6 +652,8 @@ private data class Part2BatchInput(val articles: List<Part2BatchArticle>)
 
 @Serializable
 private data class Part2BatchArticle(
+    /** 短引用 id（批次内编号）。摘要条目只写这个，不回显 link。 */
+    val id: String,
     val source: String,
     val title: String,
     val link: String,
@@ -552,7 +661,8 @@ private data class Part2BatchArticle(
     @SerialName("summary_material") val summaryMaterial: String,
 )
 
-private fun Part2SummaryRequest.toBatchArticle() = Part2BatchArticle(
+private fun Part2SummaryRequest.toBatchArticle(id: String) = Part2BatchArticle(
+    id,
     source,
     title,
     link,

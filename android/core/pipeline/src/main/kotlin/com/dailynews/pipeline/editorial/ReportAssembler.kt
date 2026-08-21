@@ -10,7 +10,14 @@ import com.dailynews.model.ReportItem
 import com.dailynews.model.ValidationResult
 import com.dailynews.pipeline.text.TextUtils
 
-class EditorialContractException(val errors: List<String>) : IllegalArgumentException(errors.joinToString("; "))
+/**
+ * 确定性装配/审校拒绝了一份**已经通过 LLM 契约**的产物。
+ *
+ * 曾经与 `flow.EditorialContractException` 同名。编排器只 import 了后者，于是这一类
+ * 全部落进分类兜底，用户拿到的建议是"重跑一次"——而它们重跑必然精确复现。同名
+ * 不同物是那个 bug 的全部成因，所以这里改名而不只是补一个分支。
+ */
+class ReportContractException(val errors: List<String>) : IllegalArgumentException(errors.joinToString("; "))
 
 class ReportAssembler {
     fun assemble(
@@ -26,7 +33,7 @@ class ReportAssembler {
         require(validation.passed) { "validation.passed == true is required before report assembly" }
         val normalizedTopN = topN.coerceIn(10, 50)
         val errors = EditorialContracts.validateHandoffs(context, validation, part1, part2, normalizedTopN, reportPath, part2Mode)
-        if (errors.isNotEmpty()) throw EditorialContractException(errors)
+        if (errors.isNotEmpty()) throw ReportContractException(errors)
         val renderedPart2 = if (part2Mode == Part2Mode.LAZY) Part2Merger.materializeLazy(context, validation, part2) else part2
         val renderedErrors = EditorialContracts.validatePart2(
             context,
@@ -34,7 +41,7 @@ class ReportAssembler {
             renderedPart2,
             allowMissingSummaries = part2Mode == Part2Mode.LAZY,
         )
-        if (renderedErrors.isNotEmpty()) throw EditorialContractException(renderedErrors)
+        if (renderedErrors.isNotEmpty()) throw ReportContractException(renderedErrors)
 
         val articleByLink = context.allArticles.associateBy { TextUtils.cleanText(it.link) }
         val markdown = buildString {
@@ -110,7 +117,7 @@ object TopNRenderer {
     fun render(context: LlmContext, plan: Part1Plan, topN: Int = 30, reportPath: String? = null): String {
         val normalizedTopN = topN.coerceIn(10, 50)
         val errors = EditorialContracts.validatePart1(context, plan, normalizedTopN)
-        if (errors.isNotEmpty()) throw EditorialContractException(errors)
+        if (errors.isNotEmpty()) throw ReportContractException(errors)
         val articleByLink = context.allArticles.associateBy { TextUtils.cleanText(it.link) }
         return buildString {
             appendLine("# DailyNews Top $normalizedTopN · ${context.meta.date}")

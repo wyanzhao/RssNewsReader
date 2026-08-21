@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FavoritesScreen(viewModel: FavoritesViewModel) {
+fun FavoritesScreen(viewModel: FavoritesViewModel, onOpenArticle: ((String) -> Unit)? = null) {
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
@@ -64,7 +64,8 @@ fun FavoritesScreen(viewModel: FavoritesViewModel) {
                     read = item.readAtUtc != null,
                     onOpen = {
                         viewModel.markRead(item.link)
-                        CustomTabsIntent.Builder().build().launchUrl(context, item.link.toUri())
+                        onOpenArticle?.invoke(item.link)
+                            ?: CustomTabsIntent.Builder().build().launchUrl(context, item.link.toUri())
                     },
                     onToggleFavorite = {
                         viewModel.remove(item.link)

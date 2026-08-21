@@ -53,15 +53,38 @@ class QcAndContextParityTest {
             ArtifactJson.codec.encodeToString(artifacts.llmContext).toByteArray().size,
             artifacts.contextBudget.sizes.llmContextBytes,
         )
-        val tiny = LlmContextBuilder().build(
+        // 闸门只对**真正会发出去**的负载生效。part1_brief 是这一步唯一进入
+        // LlmRequest 的那份。
+        val tightBrief = LlmContextBuilder().build(
             raw,
             validation,
             "2026-04-10",
             "/report.md",
-            config.copy(contextBudget = config.contextBudget.copy(totalContextMaxBytes = 1)),
+            config.copy(contextBudget = config.contextBudget.copy(part1BriefMaxBytes = 1)),
         )
-        assertEquals("total_context_bytes", tiny.contextBudget.violations.single().size)
-        assertEquals(1, tiny.contextBudget.violations.single().limit)
+        assertEquals("part1_brief_bytes", tightBrief.contextBudget.violations.single().size)
+        assertEquals(1, tightBrief.contextBudget.violations.single().limit)
+
+        // 反向：llm_context 从不被序列化进任何请求，part2_context 在强制 LAZY 下是死的，
+        // total 是三者之和。把这些收到 1 字节也不该拦下一次运行——此前会，于是这道闸
+        // 可以因为免费字节阻断，同时放行真正花钱的那份。
+        val tightUnsent = LlmContextBuilder().build(
+            raw,
+            validation,
+            "2026-04-10",
+            "/report.md",
+            config.copy(
+                contextBudget = config.contextBudget.copy(
+                    llmContextMaxBytes = 1,
+                    part2ContextMaxBytes = 1,
+                    totalContextMaxBytes = 1,
+                ),
+            ),
+        )
+        assertEquals(emptyList(), tightUnsent.contextBudget.violations)
+        assertTrue(tightUnsent.contextBudget.withinBudget)
+        // 尺寸仍然全部上报——产物形状是契约，Python 侧逐字节对账。
+        assertTrue(tightUnsent.contextBudget.sizes.totalContextBytes > 0)
     }
 
     @Test
@@ -122,6 +145,7 @@ class QcAndContextParityTest {
     /** MIGRATION-GUARD: reads local-only real-run sidecars. */
     @Test
     fun `real 2026 08 03 contexts fit configured budgets with exact bytes`() = runBlocking {
+        ReplayAvailability.require()
         val contextText = FixtureFactory.text("replay/2026-08-03/llm_context.json")
         val briefText = FixtureFactory.text("replay/2026-08-03/part1_brief.json")
         val part2Text = FixtureFactory.text("replay/2026-08-03/part2_context.json")
@@ -144,6 +168,7 @@ class QcAndContextParityTest {
      */
     @Test
     fun `kotlin rebuilds the real Python sidecars field for field`() = runBlocking {
+        ReplayAvailability.require()
         val replay = ReplayFixture.load()
 
         val artifacts = LlmContextBuilder().build(
@@ -164,20 +189,32 @@ class QcAndContextParityTest {
         )
 
         val pythonBudget = ArtifactJson.codec.decodeFromString<ContextBudget>(FixtureFactory.text("replay/2026-08-03/context_budget.json"))
-        assertEquals(pythonBudget.sizes.part1BriefBytes, artifacts.contextBudget.sizes.part1BriefBytes)
+        // 分歧之二的字节账：Android 的 brief 比 Python 多出每篇一行短引用 id。
+        // 逐行量出来而不是写死数字，这样 id 方案变了这条断言会跟着走。
+        val briefIdBytes = ArtifactJson.codec.encodeToString(artifacts.part1Brief)
+            .lines()
+            .filter { it.trimStart().startsWith("\"id\": ") }
+            .sumOf { it.length + 1 }
+        assertEquals(artifacts.part1Brief.articles.size, artifacts.part1Brief.articles.count { it.id.isNotEmpty() })
+        assertEquals(pythonBudget.sizes.part1BriefBytes, artifacts.contextBudget.sizes.part1BriefBytes - briefIdBytes)
         assertEquals(pythonBudget.sizes.llmContextBytes, artifacts.contextBudget.sizes.llmContextBytes)
         // The one accepted divergence: Python records an absolute cache file path
         // that has no Android equivalent, so part2_context is exactly that string shorter.
         val cachePathBytes = FixtureFactory.json("replay/2026-08-03/part2_context.json")
             .getValue("cache").jsonObject.getValue("path").jsonPrimitive.content.length
         assertEquals(pythonBudget.sizes.part2ContextBytes - cachePathBytes, artifacts.contextBudget.sizes.part2ContextBytes)
-        assertEquals(pythonBudget.sizes.totalContextBytes - cachePathBytes, artifacts.contextBudget.sizes.totalContextBytes)
+        assertEquals(
+            pythonBudget.sizes.totalContextBytes - cachePathBytes,
+            artifacts.contextBudget.sizes.totalContextBytes - briefIdBytes,
+        )
         assertTrue(artifacts.contextBudget.withinBudget)
     }
 
     /** MIGRATION-GUARD: reads local-only real-run sidecars. */
     @Test
     fun `preview policy stays at the Python word counts`() = runBlocking {
+        ReplayAvailability.require()
+        ReplayAvailability.require()
         val replay = ReplayFixture.load()
         val brief = ArtifactJson.codec.parseToJsonElement(
             ArtifactJson.codec.encodeToString(LlmContextBuilder().build(replay.raw, replay.validation, "2026-08-03", replay.reportPath, replay.config).part1Brief),

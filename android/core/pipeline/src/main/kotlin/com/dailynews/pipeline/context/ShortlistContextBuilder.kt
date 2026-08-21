@@ -5,6 +5,7 @@ import com.dailynews.model.LlmContext
 import com.dailynews.model.LlmMeta
 import com.dailynews.pipeline.editorial.EditorialCacheKeys
 import com.dailynews.pipeline.editorial.EditorialContracts
+import com.dailynews.pipeline.editorial.EditorialRefs
 import com.dailynews.pipeline.flow.ShortlistContextFactory
 import com.dailynews.pipeline.ports.ClockProvider
 import com.dailynews.pipeline.ports.EditorialCacheStore
@@ -16,6 +17,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ShortlistContextArticle(
+    /** 短引用 id（`a1`、`a2`…）。Part 1 计划只写这个，不回显 link。 */
+    val id: String,
     val source: String,
     val title: String,
     val link: String,
@@ -70,16 +73,17 @@ class ShortlistContextBuilder(
         val byLink = context.allArticles.associateBy(Article::link)
         require(links.all(byLink::containsKey)) { "shortlist contains links absent from all_articles" }
         var hits = 0
-        val articles = links.map { link ->
+        val articles = links.mapIndexed { index, link ->
             val article = byLink.getValue(link)
             val record = cache.find(EditorialCacheKeys.cacheKey(article))
                 ?: cache.find(EditorialCacheKeys.legacyCacheKey(article))
             val cachedSummary = record?.part1SummaryZh
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
-                ?.takeIf { EditorialContracts.summaryLintErrors(it, "cached", 400).isEmpty() }
+                ?.takeIf { EditorialContracts.summaryLintErrors(it, "cached summary_zh", 400).isEmpty() }
             if (cachedSummary != null) hits += 1
             ShortlistContextArticle(
+                id = EditorialRefs.articleId(index),
                 source = article.source,
                 title = article.title,
                 link = article.link,
@@ -97,7 +101,7 @@ class ShortlistContextBuilder(
         val cutoff = clock.now().minus(RECENT_EVENT_WINDOW_DAYS, ChronoUnit.DAYS)
         val recent = cache.recentSince(cutoff)
             .filter { !it.part1SummaryZh.isNullOrBlank() && it.updatedAtUtc != null && !it.updatedAtUtc.isBefore(cutoff) }
-            .filter { EditorialContracts.summaryLintErrors(it.part1SummaryZh, "recent cached", 400).isEmpty() }
+            .filter { EditorialContracts.summaryLintErrors(it.part1SummaryZh, "recent cached summary_zh", 400).isEmpty() }
             .map { record ->
                 RecentTopNEvent(
                     title = record.title,

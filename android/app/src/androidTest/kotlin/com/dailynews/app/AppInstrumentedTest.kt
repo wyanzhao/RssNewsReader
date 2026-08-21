@@ -128,8 +128,18 @@ class AppInstrumentedTest {
         assertEquals(75 * 60_000L, sweep.workSpec.intervalDuration)
         assertEquals(NetworkType.CONNECTED, sweep.workSpec.constraints.requiredNetworkType)
         assertEquals(1_200_000L, DailyReportWorker.FOREGROUND_WATCHDOG_MILLIS)
-        assertEquals(1_200_000L, DailyReportWorker.DEGRADED_WATCHDOG_MILLIS)
         assertEquals(1_200_000L, SweepWorker.WATCHDOG_MILLIS)
+        // 钉的是性质而不是数值：降级看门狗必须排在平台约十分钟的非前台执行窗口
+        // **之前**，否则系统会先强杀，我们拿不到记账的机会。写死两个相等的数值曾经
+        // 让这条不变式静默失效整整一轮。
+        assertTrue(
+            "degraded watchdog must be shorter than the foreground one",
+            DailyReportWorker.DEGRADED_WATCHDOG_MILLIS < DailyReportWorker.FOREGROUND_WATCHDOG_MILLIS,
+        )
+        assertTrue(
+            "degraded watchdog must fire before the platform's non-foreground window",
+            DailyReportWorker.DEGRADED_WATCHDOG_MILLIS < 600_000L,
+        )
     }
 
     @Test

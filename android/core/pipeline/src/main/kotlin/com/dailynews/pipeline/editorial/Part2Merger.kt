@@ -37,7 +37,7 @@ object Part2Merger {
             total += articles.size
             Part2DraftGroup(group.source, group.status, articles.size, group.errorText, articles)
         }
-        if (absent.isNotEmpty()) throw EditorialContractException(listOf("missing Part 2 summaries for links: $absent"))
+        if (absent.isNotEmpty()) throw ReportContractException(listOf("missing Part 2 summaries for links: $absent"))
         return Part2Draft(total, groups)
     }
 

@@ -10,6 +10,7 @@ import com.dailynews.model.RawMeta
 import com.dailynews.model.RawRun
 import com.dailynews.model.ValidationResult
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -103,11 +104,19 @@ object ReplayFixture {
             element.forEach { (key, value) ->
                 when (key) {
                     "meta" -> Unit
+                    // 已登记的分歧之二：Android 给每篇文章盖了短引用 id，模型据此
+                    // 引用文章而不回显 URL；Python 侧仍是 link-keyed 契约，没有这个
+                    // 字段。剩下的每一个字段仍然逐字比对，所以这条 strip 只放过那
+                    // 一处刻意的差异，不会掩盖派生逻辑的漂移。
+                    "id" -> Unit
                     "cache" -> put(key, strip(JsonObject(value.jsonObject - "path")))
                     else -> put(key, strip(value))
                 }
             }
         }
+        // 数组此前不被递归，所以任何登记过的分歧一旦落在 articles[] 这类列表里就
+        // 悄悄失效。`id` 正是这种情况。
+        is JsonArray -> JsonArray(element.map(::strip))
         else -> element
     }
 }

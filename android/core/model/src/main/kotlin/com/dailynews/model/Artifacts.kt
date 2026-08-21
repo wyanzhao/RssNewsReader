@@ -148,6 +148,13 @@ data class PreviewPolicy(
 
 @Serializable
 data class Part1BriefArticle(
+    /**
+     * 短引用 id（`a1`、`a2`…）。短名单只写这个，不回显 link。
+     *
+     * 这是四个编辑调用里复制负担最重的一处：一次要点名 40–45 篇文章。要求模型逐字
+     * 抄同样多条平均 100 字符的 URL，正是 2026-08-19 事故的成因。
+     */
+    val id: String,
     val source: String,
     val title: String,
     val link: String,

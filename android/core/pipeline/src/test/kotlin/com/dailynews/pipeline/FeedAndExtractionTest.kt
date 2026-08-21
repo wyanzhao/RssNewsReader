@@ -256,13 +256,46 @@ class FeedAndExtractionTest {
     }
 
     @Test
-    fun `atom id is the stable link fallback when link is absent`() {
-        val atom = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
-            <title>ID-only item</title><id>tag:example.com,2026:item-1</id>
+    fun `atom id is the link fallback only when it is a usable http url`() {
+        fun atom(id: String) = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+            <title>ID-only item</title><id>$id</id>
             <updated>2026-04-10T21:43:33Z</updated><summary>Summary</summary>
         </entry></feed>""".trimIndent()
 
-        assertEquals("tag:example.com,2026:item-1", FeedParser.parse(atom).single().link)
+        assertEquals("https://example.com/item-1", FeedParser.parse(atom("https://example.com/item-1")).single().link)
+
+        // `tag:` 是合法的 Atom id，但不是能打开或能抓取的东西。下游会拿 link 去
+        // CustomTabs（裸 ACTION_VIEW，无人处理就崩）和文章页富化，所以它必须降级
+        // 成空 link。条目本身仍然保留——ArticlePoolKeys 用 source+title+时间给无 link
+        // 条目算稳定身份，所以去重不受影响。
+        val tagId = FeedParser.parse(atom("tag:example.com,2026:item-1")).single()
+        assertEquals("", tagId.link)
+        assertEquals("ID-only item", tagId.title)
+    }
+
+    @Test
+    fun `hostile feed links that target other apps or the local network are dropped`() {
+        fun rss(link: String) = """<rss><channel><item>
+            <title>Item</title><link>$link</link>
+            <pubDate>Thu, 10 Apr 2026 21:43:33 GMT</pubDate><description>d</description>
+        </item></channel></rss>""".trimIndent()
+
+        // 应用私有 scheme / tel：launchUrl 不加 CATEGORY_BROWSABLE，这些能触达
+        // 刻意设计成网页无法触达的 activity，无人处理则直接崩。
+        listOf("tel:+19005551234", "market://details?id=com.evil", "javascript:alert(1)", "file:///etc/hosts")
+            .forEach { assertEquals("", FeedParser.parse(rss(it)).single().link, "should drop $it") }
+
+        // 内网目标：富化会从用户局域网内部 GET 它，正文进 articleText 再发往云端。
+        listOf(
+            "http://192.168.1.1/status", "http://127.0.0.1:8080/", "http://10.0.0.5/",
+            "http://169.254.169.254/latest/meta-data/", "http://172.16.0.1/", "http://localhost/x",
+        ).forEach { assertEquals("", FeedParser.parse(rss(it)).single().link, "should drop $it") }
+
+        // 正常公网链接照旧。
+        assertEquals(
+            "https://example.com/story",
+            FeedParser.parse(rss("https://example.com/story")).single().link,
+        )
     }
 
     @Test
@@ -285,6 +318,36 @@ class FeedAndExtractionTest {
             assertEquals("A longer fallback summary", result.summaryEn)
             assertEquals("Useful article body.", result.articleText)
             assertEquals("/article", server.takeRequest().path)
+        }
+    }
+
+    /**
+     * OkHttp 自己加 `Accept-Encoding: gzip` 并透明解压，所以一个小 gzip 炸弹会在单个
+     * Buffer 里展开成 GB 级。此前是裸 `body.string()`，没有上限，任一订阅源都能就此
+     * 杀掉后台进程。这里用一个超过上限的普通响应体验证闸门本身。
+     */
+    @Test
+    fun `an oversized response body is rejected instead of buffered whole`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("x".repeat(9 * 1024 * 1024)))
+            server.enqueue(MockResponse().setBody("<rss><channel></channel></rss>"))
+            // 只入队一条超限响应：超限不可重试，所以第二条一定留给下一次抓取。
+            server.start()
+            val fetcher = FeedFetcher(OkHttpClient())
+
+            val oversized = fetcher.fetchAll(
+                listOf(FeedDefinition("Huge", server.url("/huge").toString())),
+                PipelineConfig(),
+            ).single()
+            assertTrue(oversized.error.orEmpty().isNotBlank(), "超限响应必须记为该源的抓取错误")
+            assertTrue(oversized.articles.isEmpty())
+
+            // 闸门只针对超限的那一个，后续正常响应照旧。
+            val normal = fetcher.fetchAll(
+                listOf(FeedDefinition("Fine", server.url("/fine").toString())),
+                PipelineConfig(),
+            ).single()
+            assertEquals(null, normal.error)
         }
     }
 

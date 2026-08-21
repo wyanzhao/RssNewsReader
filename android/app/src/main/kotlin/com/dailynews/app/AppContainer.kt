@@ -35,6 +35,7 @@ import com.dailynews.pipeline.context.ShortlistContextBuilder
 import com.dailynews.pipeline.editorial.ReportAssembler
 import com.dailynews.pipeline.fetch.ArticlePageEnricher
 import com.dailynews.pipeline.fetch.FeedFetcher
+import com.dailynews.pipeline.fetch.LinkSafety
 import com.dailynews.pipeline.fetch.FetchStep
 import com.dailynews.pipeline.fetch.SweepStep
 import com.dailynews.pipeline.fetch.WindowSliceStep
@@ -77,15 +78,21 @@ class AppContainer(context: Context) {
     val providerSettings by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { ProviderSettingsRepository(appContext) }
     val artifactStore = ArtifactStore(database)
     private val clock = Clock.systemUTC()
+    // 订阅源 URL 是用户自己加的，但内容不是；同样给短超时与内网拦截器。
     private val feedClient = OkHttpClient.Builder()
-        .connectTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .callTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .addNetworkInterceptor(LinkSafety.privateHostInterceptor())
         .build()
+    // 文章页 URL 完全由第三方 feed 控制，所以这个客户端拿的是最短的超时和一道
+    // 内网拦截器。超时不与运行级常量共用：一个敌意源不该能占着并发信号量把整轮
+    // 运行的预算耗光（3 次尝试 × 20 分钟 = 60 分钟）。
     private val pageClient = feedClient.newBuilder()
-        .connectTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .callTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .addNetworkInterceptor(LinkSafety.privateHostInterceptor())
         .build()
     private val connectionTestClient = OkHttpClient.Builder()
         .connectTimeout(DEFAULT_RUNTIME_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -268,5 +275,14 @@ class AppContainer(context: Context) {
 
     private companion object {
         const val DEFAULT_RUNTIME_TIMEOUT_SECONDS = 1_200L
+
+        /**
+         * 抓取路径（feed 与文章页）的超时。
+         *
+         * 刻意远短于运行级的 1200 秒：抓取有 8 路（feed）与 4 路（页面）并发信号量，
+         * 单个慢源占着 permit 20 分钟就能把整轮运行拖过看门狗，而它对报告的贡献
+         * 只是一个来源。60 秒对任何健康的 RSS 或文章页都绰绰有余。
+         */
+        const val FETCH_TIMEOUT_SECONDS = 60L
     }
 }

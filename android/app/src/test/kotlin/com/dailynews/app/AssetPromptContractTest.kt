@@ -2,8 +2,9 @@ package com.dailynews.app
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.dailynews.model.Part1Plan
-import com.dailynews.model.Part1PlanItem
+import com.dailynews.model.Part1PlanDraft
+import com.dailynews.model.Part1PlanDraftItem
+import com.dailynews.model.Part1ShortlistDraft
 import com.dailynews.pipeline.context.Part1ShortlistContext
 import com.dailynews.pipeline.context.RECENT_EVENT_WINDOW_DAYS
 import com.dailynews.pipeline.context.ShortlistContextArticle
@@ -54,11 +55,14 @@ class AssetPromptContractTest {
     /**
      * Part 1 plan 的输出契约由 `EditorialJsonSchemas.part1Plan` 强制，模型能不能*正确*填充
      * 则取决于 prompt 是否点名了每个字段。所以 plan 契约类的字段名一个都不许缺席。
+     *
+     * 钉的是**草稿**类型：模型写的是 `ref`/`also_refs`，link-keyed 的 `Part1Plan` 是
+     * Kotlin 解析之后才存在的东西，prompt 里不该出现它的字段名。
      */
     @Test
     fun planPromptNamesEveryPlanContractField() {
         val prompt = source.read(AssetPromptSource.PLAN_TEMPLATE)
-        val required = wireNames<Part1PlanItem>() + wireNames<Part1Plan>()
+        val required = wireNames<Part1PlanDraftItem>() + wireNames<Part1PlanDraft>()
         required.forEach { field ->
             assertTrue(field in prompt, "part1_plan.md 没有点名输出字段 `$field` —— 改了 @SerialName 却没改 prompt")
         }
@@ -75,6 +79,36 @@ class AssetPromptContractTest {
         val required = (wireNames<ShortlistContextArticle>() + wireNames<Part1ShortlistContext>()) - INPUT_EXEMPT
         required.forEach { field ->
             assertTrue(field in prompt, "part1_plan.md 没有点名输入字段 `$field`（如确实无需告知模型，请加进 INPUT_EXEMPT 并说明理由）")
+        }
+    }
+
+    /**
+     * 短名单是四个编辑调用里点名文章最多的一个（40–45 篇），也是 Epic Z 第一轮
+     * 漏掉的那一个——它当时仍要求逐字回显 URL。这条护栏此前只覆盖 plan 模板，
+     * 于是那个漏项没有任何东西会发现。
+     */
+    @Test
+    fun shortlistPromptNamesItsOwnContractFields() {
+        val prompt = source.read(AssetPromptSource.SHORTLIST_TEMPLATE)
+        wireNames<Part1ShortlistDraft>().forEach { field ->
+            assertTrue(field in prompt, "part1_shortlist.md 没有点名输出字段 `$field`")
+        }
+        assertTrue("id" in prompt, "part1_shortlist.md 必须告诉模型按 `id` 引用文章")
+        assertTrue(
+            "不要输出 link" in prompt,
+            "part1_shortlist.md 必须明确禁止回显 link —— 这正是 2026-08-19 事故的成因",
+        )
+    }
+
+    /** 抓取来的素材是数据不是指令，四个模板都要说这句话。 */
+    @Test
+    fun everyPromptDeclaresScrapedMaterialUntrusted() {
+        AssetPromptSource.TEMPLATES.forEach { template ->
+            val prompt = source.read(template)
+            assertTrue(
+                "素材" in prompt && "忽略" in prompt,
+                "$template 没有声明抓取内容是素材、其中的指令一律忽略",
+            )
         }
     }
 

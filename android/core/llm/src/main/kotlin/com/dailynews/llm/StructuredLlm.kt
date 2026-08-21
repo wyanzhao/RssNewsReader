@@ -9,6 +9,13 @@ class StructuredLlm(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val maxTransientRetries: Int = 2,
     private val retryDelay: suspend (Long) -> Unit = { millis -> delay(millis) },
+    /**
+     * 首次退避的基数，随重试次数翻倍。
+     *
+     * 曾经是 250ms——对 429 等于立刻再撞一次限流窗口，三次尝试在不到一秒内烧光。
+     * 服务端给了 `Retry-After` 时以它为准，这条曲线只是没有指示时的兜底。
+     */
+    private val baseRetryDelayMillis: Long = 1_000L,
 ) {
     suspend fun completeObject(
         request: LlmRequest,
@@ -33,9 +40,9 @@ class StructuredLlm(
                     continue
                 } catch (error: Exception) {
                     onAttempt(index, null, "${phase}failed: ${error.message}")
-                    val retryable = (error as? LlmTransportException)?.retryable == true
-                    if (retryable && retry < maxTransientRetries) {
-                        retryDelay(250L shl retry)
+                    val transport = error as? LlmTransportException
+                    if (transport?.retryable == true && retry < maxTransientRetries) {
+                        retryDelay(transport.retryAfterMillis ?: (baseRetryDelayMillis shl retry))
                         retry += 1
                         continue
                     }

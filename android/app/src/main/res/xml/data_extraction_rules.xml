@@ -2,13 +2,31 @@
 <data-extraction-rules>
     <!-- provider_settings travels with provider_keys or not at all: restoring the
          settings alone leaves the app looking configured while every run fails
-         on a missing key, with no way back into onboarding. -->
+         on a missing key, with no way back into onboarding.
+
+         数据库与报告文件也一律排除，三条独立理由：
+         1. 体量。report_items 目前没有保留期，半年就能把库推过 25 MB 的云备份配额；
+            越过之后**整个** app 的自动备份会静默失败，连设置都不再被备份。
+         2. 隐私。里面是完整阅读史与每一篇抓取到的正文，没有任何理由送去云端。
+         3. 一致性。Room 跑 WAL，没有 BackupAgent 就直接拷贝活动 SQLite 文件，
+            恢复出来可能是撕裂的库。
+         用户要搬家有一等公民的路径：设置里的状态导出 ZIP，它是事务内快照。 -->
     <cloud-backup>
         <exclude domain="sharedpref" path="provider_keys.xml" />
         <exclude domain="sharedpref" path="provider_settings.xml" />
+        <exclude domain="database" path="dailynews.db" />
+        <exclude domain="database" path="dailynews.db-wal" />
+        <exclude domain="database" path="dailynews.db-shm" />
+        <exclude domain="file" path="reports" />
+        <exclude domain="file" path="backup" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="provider_keys.xml" />
         <exclude domain="sharedpref" path="provider_settings.xml" />
+        <exclude domain="database" path="dailynews.db" />
+        <exclude domain="database" path="dailynews.db-wal" />
+        <exclude domain="database" path="dailynews.db-shm" />
+        <exclude domain="file" path="reports" />
+        <exclude domain="file" path="backup" />
     </device-transfer>
 </data-extraction-rules>

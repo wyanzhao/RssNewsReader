@@ -80,6 +80,11 @@ data class PipelineConfig(
     @SerialName("wifi_only_page_enrichment") val wifiOnlyPageEnrichment: Boolean = false,
     @SerialName("artifact_retention_days") val artifactRetentionDays: Int = 14,
     @SerialName("article_retention_days") val articleRetentionDays: Int = 30,
+    /**
+     * Part 2 报告条目的保留期。只作用于 `part = 2`——Part 1 是跨天线索与周期简报的
+     * 素材，必须长期保留，不能和这把尺子共用。
+     */
+    @SerialName("report_retention_days") val reportRetentionDays: Int = 45,
     @SerialName("sweep_interval_minutes") val sweepIntervalMinutes: Int = 120,
     @SerialName("use_legacy_single_shot_fetch") val useLegacySingleShotFetch: Boolean = false,
     @SerialName("part2_mode") val part2Mode: Part2Mode = Part2Mode.FULL,
@@ -106,6 +111,7 @@ data class PipelineConfig(
         part2Mode = Part2Mode.LAZY,
         artifactRetentionDays = artifactRetentionDays.coerceIn(1, 365),
         articleRetentionDays = articleRetentionDays.coerceIn(1, 365),
+        reportRetentionDays = reportRetentionDays.coerceIn(7, 365),
         sweepIntervalMinutes = sweepIntervalMinutes.coerceIn(15, 360),
         monthlyTokenBudget = monthlyTokenBudget.coerceAtLeast(0),
         maxLlmCallsPerRun = maxLlmCallsPerRun.coerceIn(4, 100),

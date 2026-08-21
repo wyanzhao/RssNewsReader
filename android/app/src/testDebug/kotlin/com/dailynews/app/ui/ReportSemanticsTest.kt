@@ -58,6 +58,7 @@ class ReportSemanticsTest {
     fun part2SectionKeepsSourceFoldSemanticsWhenInvokedDirectly() {
         var toggled = ""
         val state = ReportUiState(
+            loaded = true,
             report = ReportEntity("2026-08-04", "SUCCESS", "full", "# report", createdAtUtc = "2026-08-04T00:00:00Z"),
             groups = listOf(ReportGroup("Example", "ok", 1)),
         )
@@ -85,6 +86,7 @@ class ReportSemanticsTest {
         var shared = ""
         val exact = "# Top 1\n\n1. Exact\n"
         val state = ReportUiState(
+            loaded = true,
             report = ReportEntity("2026-08-04", "SUCCESS", "full", exact, createdAtUtc = "2026-08-04T00:00:00Z"),
             groups = listOf(ReportGroup("Example", "ok", 1)),
         )

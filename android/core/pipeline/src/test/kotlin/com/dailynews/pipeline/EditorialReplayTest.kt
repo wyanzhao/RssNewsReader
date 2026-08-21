@@ -10,7 +10,7 @@ import com.dailynews.model.Part2Mode
 import com.dailynews.model.ValidationResult
 import com.dailynews.pipeline.context.CacheLookup
 import com.dailynews.pipeline.context.LlmContextBuilder
-import com.dailynews.pipeline.editorial.EditorialContractException
+import com.dailynews.pipeline.editorial.ReportContractException
 import com.dailynews.pipeline.editorial.EditorialContracts
 import com.dailynews.pipeline.editorial.ReportAssembler
 import com.dailynews.pipeline.editorial.ReportReviewer
@@ -19,7 +19,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /** MIGRATION-GUARD: local-only 2026-08-03 report replay, retired explicitly after Phase C. */
@@ -28,8 +27,7 @@ class EditorialReplayTest {
 
     @Test
     fun `real 2026-08-03 replay is byte equal`() {
-        val loader = javaClass.classLoader
-        assumeTrue(loader.getResource("replay/2026-08-03/llm_context.json") != null, "local ignored replay is unavailable")
+        ReplayAvailability.require()
         val context = codec.decodeFromString<LlmContext>(FixtureFactory.text("replay/2026-08-03/llm_context.json"))
         val validation = codec.decodeFromString<ValidationResult>(FixtureFactory.text("replay/2026-08-03/validation.json"))
         val part1 = codec.decodeFromString<Part1Plan>(FixtureFactory.text("replay/2026-08-03/part1_plan.json"))
@@ -42,8 +40,7 @@ class EditorialReplayTest {
 
     @Test
     fun `top N twenty derives shortfall and rejects duplicates`() {
-        val loader = javaClass.classLoader
-        assumeTrue(loader.getResource("replay/2026-08-03/llm_context.json") != null)
+        ReplayAvailability.require()
         val context = codec.decodeFromString<LlmContext>(FixtureFactory.text("replay/2026-08-03/llm_context.json"))
         val source = codec.decodeFromString<Part1Plan>(FixtureFactory.text("replay/2026-08-03/part1_plan.json"))
         val plan = source.copy(items = source.items.take(20), shortfall = 0)
@@ -53,7 +50,10 @@ class EditorialReplayTest {
     }
 
     @Test
-    fun `lazy Part 2 accepts cached-only handoff and materializes the complete roster`() = runBlocking {
+    // 显式 `: Unit`。函数体最后一句是 assertFailsWith，它返回异常对象，于是表达式体
+    // 推断出的返回类型不是 Unit，JUnit 5 的可测方法判定要求 void——这个测试因此
+    // 从未被收录过。与 R11 同构，由 TestMethodShapeTest 钉死防止再犯。
+    fun `lazy Part 2 accepts cached-only handoff and materializes the complete roster`(): Unit = runBlocking {
         val (raw, feeds, config) = FixtureFactory.goldenRaw()
         val validation = com.dailynews.pipeline.validate.QcValidator().validate(raw, feeds).result
         val artifacts = LlmContextBuilder().build(
@@ -103,7 +103,7 @@ class EditorialReplayTest {
                 part2Mode = Part2Mode.LAZY,
             ).passed,
         )
-        assertFailsWith<EditorialContractException> {
+        assertFailsWith<ReportContractException> {
             ReportAssembler().assemble(artifacts.llmContext, validation, part1, cachedOnly, topN = 10)
         }
     }

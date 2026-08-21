@@ -1,5 +1,6 @@
 package com.dailynews.app.ui.periodic
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +61,8 @@ fun PeriodicDigestScreen(
     viewModel: PeriodicDigestViewModel,
     onBack: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
+    /** 周报里的条目也走应用内阅读，与日报一致。 */
+    onOpenArticle: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -105,9 +108,45 @@ fun PeriodicDigestScreen(
                 contentPadding = PaddingValues(DailyNewsSpacing.roomy),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                item(key = "markdown") {
-                    ReadingColumn {
-                        Text(report.markdown, style = MaterialTheme.typography.bodyLarge)
+                val parsed = parseDigestMarkdown(report.markdown)
+                if (parsed.title.isNotBlank()) {
+                    item(key = "digest-title") {
+                        ReadingColumn { Text(parsed.title, style = MaterialTheme.typography.headlineSmall) }
+                    }
+                }
+                parsed.sections.forEachIndexed { index, section ->
+                    item(key = "digest-section-$index") {
+                        ReadingColumn {
+                            Column(verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                                Text(section.heading, style = MaterialTheme.typography.titleLarge)
+                                if (section.body.isNotBlank()) {
+                                    Text(section.body, style = MaterialTheme.typography.bodyLarge)
+                                }
+                                section.links.forEach { link ->
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onOpenArticle(link.url) }
+                                            .padding(vertical = DailyNewsSpacing.compact),
+                                    ) {
+                                        Text(link.title, style = MaterialTheme.typography.bodyMedium)
+                                        if (link.meta.isNotBlank()) {
+                                            Text(
+                                                link.meta,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 解析不认识的行原样保留：最坏退回今天的样子，绝不丢内容。
+                if (parsed.trailing.isNotBlank()) {
+                    item(key = "digest-trailing") {
+                        ReadingColumn { Text(parsed.trailing, style = MaterialTheme.typography.bodyMedium) }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.dailynews.app.ui.settings
 
+import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.model.ContextBudgetConfig
 import com.dailynews.model.FetchConfig
 import com.dailynews.model.PipelineConfig
@@ -21,8 +22,13 @@ class SettingsViewModelTest {
         assertEquals("1200", form.llmConnectTimeoutSeconds)
         assertEquals("1200", form.llmReadTimeoutSeconds)
         assertEquals("1200", form.llmCallTimeoutSeconds)
-        assertEquals("65536", form.editorMaxTokens)
-        assertEquals("65536", form.drafterMaxTokens)
+        // 表单默认必须能通过表单自己的校验：把某个角色的默认上限调到允许区间之外，
+        // 用户一打开设置页就会看到一条无法保存的报错，而不是任何有用的提示。
+        assertEquals(RoleModelDefaults.EDITOR_MAX_TOKENS, form.editorMaxTokens.toInt())
+        assertEquals(RoleModelDefaults.DRAFTER_MAX_TOKENS, form.drafterMaxTokens.toInt())
+        assertTrue(settingsValidationErrors(form).isEmpty(), settingsValidationErrors(form).toString())
+        // EDITOR 一次要写满 Top N 条中文摘要，DRAFTER 只写一批短摘要。
+        assertTrue(RoleModelDefaults.EDITOR_MAX_TOKENS > RoleModelDefaults.DRAFTER_MAX_TOKENS)
         assertEquals(listOf(1_200, 1_200, 1_200), listOf(
             execution.connectTimeoutSeconds,
             execution.readTimeoutSeconds,

@@ -4,7 +4,9 @@ import android.content.Context
 import com.dailynews.llm.ProviderConfig
 import com.dailynews.llm.ProviderEndpoints
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.ProviderRouting
 import com.dailynews.llm.RoleModel
+import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.llm.RoleModelMapping
 import com.dailynews.llm.StructuredMode
 import com.dailynews.model.ArtifactJson
@@ -20,6 +22,9 @@ data class ProviderSettings(
     val providers: List<ProviderConfig>,
     val mapping: RoleModelMapping,
 )
+
+fun clampMaxTokens(value: Int): Int =
+    value.coerceIn(RoleModelDefaults.MIN_MAX_TOKENS, RoleModelDefaults.MAX_MAX_TOKENS)
 
 object ProviderSettingsValidator {
     private val providerIdPattern = Regex("[A-Za-z0-9._-]+")
@@ -57,8 +62,8 @@ class ProviderSettingsRepository(context: Context) {
     private fun defaultSettings() = ProviderSettings(
         providers = emptyList(),
         mapping = RoleModelMapping(
-            editor = RoleModel("default", "", 65_536),
-            drafter = RoleModel("default", "", 65_536),
+            editor = RoleModel("default", "", RoleModelDefaults.EDITOR_MAX_TOKENS),
+            drafter = RoleModel("default", "", RoleModelDefaults.DRAFTER_MAX_TOKENS),
         ),
     )
 
@@ -91,7 +96,10 @@ class ProviderSettingsRepository(context: Context) {
                         supportsJsonMode = type == ProviderType.OPENAI_COMPAT,
                     ),
                 ),
-                RoleModelMapping(RoleModel(id, model.trim(), 65_536), RoleModel(id, model.trim(), 65_536)),
+                RoleModelMapping(
+                    RoleModel(id, model.trim(), RoleModelDefaults.EDITOR_MAX_TOKENS),
+                    RoleModel(id, model.trim(), RoleModelDefaults.DRAFTER_MAX_TOKENS),
+                ),
             ),
         )
     }
@@ -104,6 +112,7 @@ class ProviderSettingsRepository(context: Context) {
         supportsJsonMode: Boolean,
         vault: ApiKeyVault,
         structuredMode: StructuredMode = StructuredMode.AUTO,
+        routing: ProviderRouting = ProviderRouting(),
     ): ProviderSettings {
         val cleanId = ProviderSettingsValidator.normalizeId(id)
         val alias = "provider-$cleanId"
@@ -113,7 +122,7 @@ class ProviderSettingsRepository(context: Context) {
             ProviderType.OPENAI_COMPAT -> ProviderEndpoints.openAi(baseUrl)
             ProviderType.ANTHROPIC -> ProviderEndpoints.anthropic(baseUrl)
         }
-        val provider = ProviderConfig(cleanId, type, normalizedUrl, alias, supportsJsonMode, structuredMode)
+        val provider = ProviderConfig(cleanId, type, normalizedUrl, alias, supportsJsonMode, structuredMode, routing.normalized())
         val updated = current.copy(providers = (current.providers.filterNot { it.id == cleanId } + provider).sortedBy { it.id })
         save(updated)
         return updated
@@ -131,8 +140,8 @@ class ProviderSettingsRepository(context: Context) {
         ProviderSettingsValidator.requireMapping(current, editorProviderId, drafterProviderId, editorModel, drafterModel)
         val updated = current.copy(
             mapping = RoleModelMapping(
-                RoleModel(editorProviderId, editorModel.trim(), editorMaxTokens.coerceIn(512, 65_536)),
-                RoleModel(drafterProviderId, drafterModel.trim(), drafterMaxTokens.coerceIn(512, 65_536)),
+                RoleModel(editorProviderId, editorModel.trim(), clampMaxTokens(editorMaxTokens)),
+                RoleModel(drafterProviderId, drafterModel.trim(), clampMaxTokens(drafterMaxTokens)),
             ),
         )
         save(updated)

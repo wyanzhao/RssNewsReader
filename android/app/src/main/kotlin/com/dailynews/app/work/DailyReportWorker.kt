@@ -85,6 +85,25 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
             ReportScheduler(applicationContext).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
             return Result.success()
         }
+        // 预算闸门必须在花钱之前。此前只在 run 结束后记一行 80% 的 WARN——也就是说
+        // 唯一真正的硬闸装在周期简报（最便宜的调用）前面，而开销最大的日常运行只被
+        // 事后观察。日常运行的 happy path 实测约 6.5 万 token/天，默认预算 100 万/月，
+        // 也就是说不设闸的话默认配置本身就会超支约一倍。
+        val monthTokensBefore = container.llmCallRepository.tokensThisMonth()
+        if (config.monthlyTokenBudget > 0 && monthTokensBefore >= config.monthlyTokenBudget) {
+            val message = "本月 token 用量 $monthTokensBefore 已达预算 ${config.monthlyTokenBudget}，未发起生成"
+            val runId = container.runRepository.recordPreflightDeferral(
+                date,
+                trigger,
+                "cost_guard",
+                message,
+                runAttemptCount + 1,
+            )
+            logForegroundDegradation(runId)
+            NotificationHelper.notifyDeferred(applicationContext, date, message, runId)
+            ReportScheduler(applicationContext).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
+            return Result.success()
+        }
         // OEM or WorkManager policy may still preempt a degraded worker before
         // this application-level deadline when foreground promotion fails.
         val watchdogMillis = if (foregroundFailure == null) FOREGROUND_WATCHDOG_MILLIS else DEGRADED_WATCHDOG_MILLIS
@@ -143,18 +162,28 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 config.weeklyDigestWeekday,
             ).forEach { kind -> PeriodicDigestWorker.enqueue(applicationContext, kind) }
         }
-        runCatching { container.runMaintenanceRepository.prune(config.artifactRetentionDays) }
-        runCatching { container.articleRepository.prune(config.articleRetentionDays) }
-            .onFailure { failure ->
-                result.runId?.let { runId ->
-                    container.runLogRepository.log(
-                        runId,
-                        "retention",
-                        LogLevel.WARN,
-                        "database retention failed after run completion: ${failure::class.simpleName}: ${failure.message}",
-                    )
-                }
+        suspend fun warnRetention(failure: Throwable) {
+            result.runId?.let { runId ->
+                container.runLogRepository.log(
+                    runId,
+                    "retention",
+                    LogLevel.WARN,
+                    "database retention failed after run completion: ${failure::class.simpleName}: ${failure.message}",
+                )
             }
+        }
+        // 此前这一行是裸 runCatching 没有 onFailure：产物/日志/运行记录的保留可以
+        // 天天失败而毫无信号，库无界增长。下面一行早就有日志，两行不该有区别。
+        val pruned = runCatching {
+            container.runMaintenanceRepository.prune(config.artifactRetentionDays, reportRetentionDays = config.reportRetentionDays)
+        }.onFailure { warnRetention(it) }.getOrNull()
+        runCatching { container.articleRepository.prune(config.articleRetentionDays) }
+            .onFailure { warnRetention(it) }
+        // SQLite 默认 auto_vacuum = NONE，删掉的页只会进空闲列表，文件不会变小。
+        // 只在真删掉了 part 2 条目之后做——VACUUM 要重写整库，不该每天空跑一次。
+        if ((pruned?.part2ItemsDeleted ?: 0) > 0) {
+            runCatching { container.runMaintenanceRepository.compact() }.onFailure { warnRetention(it) }
+        }
         publishUiResult(result)
         ReportScheduler(applicationContext).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
         // Once the deterministic pipeline starts, run state owns failure semantics.
@@ -177,7 +206,16 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         internal const val KEY_SCHEDULED = "scheduled"
         internal const val UNIQUE_WORK = "daily-report"
         internal const val FOREGROUND_WATCHDOG_MILLIS = 1_200_000L
-        internal const val DEGRADED_WATCHDOG_MILLIS = 1_200_000L
+
+        /**
+         * 降级（前台提升失败）时的看门狗。
+         *
+         * 必须**明显短于**前台值：没有前台服务时，平台给普通 worker 的执行窗口约
+         * 十分钟，一个 20 分钟的应用级看门狗永远排在系统强杀之后，等于不存在——
+         * 而系统强杀不会给我们记账的机会，`runs` 表就留一行 RUNNING。八分钟留出
+         * 余量让 failRunning 跑完。两个常量曾经写成同一个值，那个三元分支是死的。
+         */
+        internal const val DEGRADED_WATCHDOG_MILLIS = 480_000L
         internal const val MAX_PROVIDER_NETWORK_WORK_ATTEMPTS = 3
 
         fun enqueue(context: Context, scheduled: Boolean) {

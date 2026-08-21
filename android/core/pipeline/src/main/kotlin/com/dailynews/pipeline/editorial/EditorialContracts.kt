@@ -20,13 +20,30 @@ object EditorialContracts {
     const val MIN_TOP_N = 10
     const val MAX_TOP_N = 50
 
+    /**
+     * 裸域名。
+     *
+     * 只查 `http://` 前缀挡不住 `bit.ly/x` 或 `evil.com/verify`——它们在应用内是惰性
+     * 文本，但每一条分享路径都会把这段字符串交给会自动链接化的聊天软件。TLD 收在
+     * 一个显式清单里，所以 `GPT-4.5`、`0.3.1` 这类版本号不会误伤；真出现误报，代价
+     * 只是一轮契约重试，而中文摘要本来也没有理由带域名。
+     */
+    private val BARE_DOMAIN = Regex(
+        """\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.""" +
+            """(?:com|net|org|io|ai|co|cn|dev|app|me|ly|gg|sh|tv|xyz|top|info|biz|edu|gov|uk|jp|de|ru|fr|nl|us)\b""",
+    )
+
+    /**
+     * 通用的模型自由文本 lint。`label` 必须自带字段名——这个函数也用于 heading 与
+     * notes，把 `summary_zh` 焊在消息里会让那些报错读起来是错的。
+     */
     fun summaryLintErrors(summary: String?, label: String, hardCap: Int): List<String> {
         val cleaned = TextUtils.cleanText(summary)
         return buildList {
-            if (cleaned.length > hardCap) add("$label summary_zh exceeds $hardCap chars (${cleaned.length})")
+            if (cleaned.length > hardCap) add("$label exceeds $hardCap chars (${cleaned.length})")
             val lowered = cleaned.lowercase()
-            if ("http://" in lowered || "https://" in lowered || "](" in cleaned) {
-                add("$label summary_zh must not contain links")
+            if ("http://" in lowered || "https://" in lowered || "](" in cleaned || BARE_DOMAIN.containsMatchIn(lowered)) {
+                add("$label must not contain links")
             }
         }
     }
@@ -87,7 +104,7 @@ object EditorialContracts {
             if (TextUtils.cleanText(item.summaryZh).isEmpty()) {
                 errors += "part1 item $index missing summary_zh"
             } else {
-                errors += summaryLintErrors(item.summaryZh, "part1 item $index", PART1_SUMMARY_HARD_CAP)
+                errors += summaryLintErrors(item.summaryZh, "part1 item $index summary_zh", PART1_SUMMARY_HARD_CAP)
             }
             item.alsoLinks.forEach { rawAlsoLink ->
                 val alsoLink = TextUtils.cleanText(rawAlsoLink)
@@ -132,7 +149,7 @@ object EditorialContracts {
                 if (article.link.isBlank()) errors += "${group.source} article $index missing link"
                 if (article.pubDateIso.isBlank()) errors += "${group.source} article $index missing pub_date_iso"
                 if (!allowMissingSummaries && article.summaryZh.isBlank()) errors += "${group.source} article $index missing summary_zh"
-                errors += summaryLintErrors(article.summaryZh, "${group.source} article $index", PART2_SUMMARY_HARD_CAP)
+                errors += summaryLintErrors(article.summaryZh, "${group.source} article $index summary_zh", PART2_SUMMARY_HARD_CAP)
                 val cleanLink = TextUtils.cleanText(article.link)
                 if (!seenLinks.add(cleanLink)) errors += "${group.source} article $index duplicates link: $cleanLink"
                 val authority = articleByLink[cleanLink]

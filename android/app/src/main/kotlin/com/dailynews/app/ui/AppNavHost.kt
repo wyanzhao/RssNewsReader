@@ -51,6 +51,9 @@ import com.dailynews.app.ui.settings.SettingsViewModel
 import com.dailynews.app.ui.periodic.PeriodicDigestScreen
 import com.dailynews.app.ui.periodic.PeriodicDigestViewModel
 import com.dailynews.app.ui.story.StoryScreen
+import com.dailynews.app.ui.common.shareText
+import com.dailynews.app.ui.article.ArticleDetailScreen
+import com.dailynews.app.ui.article.ArticleDetailViewModel
 import com.dailynews.app.ui.story.StoryViewModel
 import com.dailynews.app.ui.brief.TodayScreen
 import com.dailynews.app.ui.brief.TodayViewModel
@@ -77,7 +80,7 @@ internal fun canonicalRoute(raw: String?): String? {
     if (route.isEmpty()) return null
     if (route == "today") return "brief"
     if (route in topLevelRoutes || route.startsWith("report/") || route.startsWith("runDiagnostics/") ||
-        route.startsWith("story/") || route.startsWith("periodic/")
+        route.startsWith("story/") || route.startsWith("periodic/") || route.startsWith("article/")
     ) {
         return route
     }
@@ -144,6 +147,10 @@ private fun AppNavHost(
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
+    // 所有卡片点击的统一去处：应用内阅读。正文摘录已在本地，所以离线也能打开，
+    // 而浏览器原文在那一屏一键可达。此前每一处都直接开浏览器，于是没网时整个
+    // app 只剩下摘要能看。
+    val openArticle: (String) -> Unit = { link -> nav.navigate("article/${Uri.encode(link)}") }
     NavHost(
         navController = nav,
         startDestination = "brief",
@@ -176,6 +183,7 @@ private fun AppNavHost(
                 reportViewModel = { date -> reportViewModel(container, date) },
                 onOpenHistory = { nav.navigate("history") },
                 onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") },
+                onOpenArticle = openArticle,
             )
         }
         composable("periodic/{periodKey}") { entry ->
@@ -183,7 +191,24 @@ private fun AppNavHost(
             val vm: PeriodicDigestViewModel = viewModel(key = "periodic-$periodKey", factory = viewModelFactory {
                 PeriodicDigestViewModel(container.periodicReportRepository, periodKey)
             })
-            PeriodicDigestScreen(vm, onBack = { nav.popBackStack() }, onOpenDiagnostics = { nav.navigate("diagnostics") })
+            PeriodicDigestScreen(
+                vm,
+                onBack = { nav.popBackStack() },
+                onOpenDiagnostics = { nav.navigate("diagnostics") },
+                onOpenArticle = openArticle,
+            )
+        }
+        composable("article/{link}") { entry ->
+            val link = Uri.decode(entry.arguments?.getString("link").orEmpty())
+            val vm: ArticleDetailViewModel = viewModel(key = "article-$link", factory = viewModelFactory {
+                ArticleDetailViewModel(container.articleRepository, container.favoriteRepository, link)
+            })
+            ArticleDetailScreen(
+                vm,
+                onBack = { nav.popBackStack() },
+                onOpenInBrowser = { target -> CustomTabsIntent.Builder().build().launchUrl(context, target.toUri()) },
+                onShare = { text -> shareText(context, text) },
+            )
         }
         composable("story/{eventKey}") { entry ->
             val eventKey = Uri.decode(entry.arguments?.getString("eventKey").orEmpty())
@@ -193,7 +218,7 @@ private fun AppNavHost(
             StoryScreen(
                 vm,
                 onBack = { nav.popBackStack() },
-                onOpen = { link -> CustomTabsIntent.Builder().build().launchUrl(context, link.toUri()) },
+                onOpen = openArticle,
             )
         }
         composable("history") {
@@ -209,7 +234,12 @@ private fun AppNavHost(
         }
         composable("report/{date}") { entry ->
             val date = entry.arguments?.getString("date").orEmpty()
-            ReportScreen(date, reportViewModel(container, date), onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") })
+            ReportScreen(
+                date,
+                reportViewModel(container, date),
+                onOpenStory = { key -> nav.navigate("story/${Uri.encode(key)}") },
+                onOpenArticle = openArticle,
+            )
         }
         composable("feeds") {
             val vm: FeedsViewModel = viewModel(factory = savedStateViewModelFactory { savedState -> FeedsViewModel(container.feedRepository, savedState) })
@@ -217,13 +247,13 @@ private fun AppNavHost(
         }
         composable("favorites") {
             val vm: FavoritesViewModel = viewModel(factory = viewModelFactory { FavoritesViewModel(container.favoriteRepository) })
-            FavoritesScreen(vm)
+            FavoritesScreen(vm, onOpenArticle = openArticle)
         }
         composable("reader") {
             val vm: ReaderViewModel = viewModel(factory = viewModelFactory {
                 ReaderViewModel(container.articleRepository, container.feedRepository, container.favoriteRepository, sweepWorkInfos)
             })
-            ReaderScreen(vm, onSweep = { SweepWorker.enqueueRefresh(context) })
+            ReaderScreen(vm, onSweep = { SweepWorker.enqueueRefresh(context) }, onOpenArticle = openArticle)
         }
         composable("settings") {
             val vm: SettingsViewModel = viewModel(factory = savedStateViewModelFactory { savedState ->

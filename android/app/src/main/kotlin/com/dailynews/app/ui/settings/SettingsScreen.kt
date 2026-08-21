@@ -45,6 +45,7 @@ import com.dailynews.app.BuildConfig
 import com.dailynews.app.R
 import com.dailynews.app.ui.common.InfoCard
 import com.dailynews.app.ui.theme.DailyNewsSpacing
+import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
 import com.dailynews.llm.StructuredMode
 
@@ -63,7 +64,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
         uri?.let { viewModel.importCache { context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() } } }
     }
     val stateImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { viewModel.importDeviceState { context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() } } }
+        uri?.let { viewModel.importDeviceState { readBoundedBytes(context, it) } }
     }
     val stateExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri?.let {
@@ -156,6 +157,47 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
             viewModel.update { it.copy(structuredMode = StructuredMode.valueOf(value)) }
         }
     }
+    // OpenRouter 专有的路由字段。全默认时一个字段都不会发出去，所以其他 OpenAI
+    // 兼容端点（它们看到未知顶层字段可能直接 400）保持默认即可。
+    if (form.providerType == ProviderType.OPENAI_COMPAT) {
+        item { Text("OpenRouter 路由（其他兼容端点请保持默认）", style = MaterialTheme.typography.titleMedium) }
+        item {
+            EnumDropdown("提供商排序", form.routingSort.name, ProviderSort.entries.map(ProviderSort::name)) { value ->
+                viewModel.update { it.copy(routingSort = ProviderSort.valueOf(value)) }
+            }
+        }
+        item {
+            OutlinedTextField(
+                form.routingFallbacks,
+                { value -> viewModel.update { it.copy(routingFallbacks = value) } },
+                label = { Text("备选模型（逗号分隔；主模型超时或不可用时依次尝试）") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            Row {
+                Checkbox(form.routingRequireParameters, { value -> viewModel.update { it.copy(routingRequireParameters = value) } })
+                Text("只路由到支持 response_format 的提供商", Modifier.padding(top = 12.dp))
+            }
+        }
+        // 表单不回填已保存的 provider（Base URL / API key 同理），所以再次保存会用当前
+        // 表单值整体覆盖。路由不像空 Base URL 那样有保存按钮兜着，静默丢掉的恰好是
+        // 治超时的那几个字段——所以至少要让用户看见自己将要覆盖什么。
+        item {
+            state.savedProviders?.providers
+                ?.firstOrNull { it.id == form.providerId.trim() }
+                ?.routing
+                ?.takeIf { !it.isDefault }
+                ?.let { saved ->
+                    Text(
+                        "已保存的路由：排序 ${saved.sort.name}、备选 ${saved.modelFallbacks.size} 个、" +
+                            "require_parameters=${saved.requireParameters}。再次「保存 Provider」会用上面的表单值覆盖它。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+        }
+    }
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
             Button(onClick = viewModel::saveProvider, enabled = !state.busy && form.providerId.isNotBlank() && form.baseUrl.isNotBlank()) { Text("保存 Provider") }
@@ -230,6 +272,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pipelineItems(state: 
     item { NumberField("Top N", form.topN, state.validationErrors["topN"]) { value -> viewModel.update { it.copy(topN = value) } } }
     item { NumberField("调试产物保留天数", form.retention, state.validationErrors["retention"]) { value -> viewModel.update { it.copy(retention = value) } } }
     item { NumberField("文章池保留天数", form.articleRetention, state.validationErrors["articleRetention"]) { value -> viewModel.update { it.copy(articleRetention = value) } } }
+    item { NumberField("Part 2 报告条目保留天数", form.reportRetention, state.validationErrors["reportRetention"]) { value -> viewModel.update { it.copy(reportRetention = value) } } }
     item { NumberField("月度 token 预算", form.tokenBudget, state.validationErrors["tokenBudget"]) { value -> viewModel.update { it.copy(tokenBudget = value) } } }
     item { NumberField("每次运行 LLM 调用上限", form.maxLlmCalls, state.validationErrors["maxLlmCalls"]) { value -> viewModel.update { it.copy(maxLlmCalls = value) } } }
     item { Text("LLM 正式生成", style = MaterialTheme.typography.titleLarge) }
@@ -291,3 +334,22 @@ private fun EnumDropdown(label: String, selected: String, options: List<String>,
         }
     }
 }
+
+/**
+ * 先量后读。
+ *
+ * 此前是裸 `readBytes()`，而大小检查在 `importZip` 里——也就是说数组已经分配完了
+ * 才去判断它是不是太大。选错文件（或选到一个几百 MB 的东西）会在校验发生之前就
+ * 把进程推到内存压力下。SAF 能在不读内容的情况下给出大小，那就先问它。
+ */
+private fun readBoundedBytes(context: android.content.Context, uri: android.net.Uri): ByteArray? {
+    val size = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)
+        ?.use { cursor -> if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null }
+    require(size == null || size <= MAX_IMPORT_BYTES) {
+        "所选文件 ${size?.div(1_048_576)} MB，超过 ${MAX_IMPORT_BYTES / 1_048_576} MB 上限"
+    }
+    return context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+}
+
+/** 手机堆放得下的上限，远低于 StateBackupRepository 名义上的 64 MiB。 */
+private const val MAX_IMPORT_BYTES = 48L * 1_048_576

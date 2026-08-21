@@ -18,6 +18,23 @@ class DiagnosticsAdvisorTest {
         evidence: String = "",
     ) = DiagnosticsAdviceInput(hasRuns, status, classification, stage, exit, warningCount, errorFeedCount, evidence)
 
+    /**
+     * 每一个已登记的 stage 都必须命中一条**专属**规则，而不是落进最后的兜底。
+     *
+     * `success_branch` 曾经就在兜底里：它包含全部装配/审校契约失败，而兜底给的建议是
+     * "未预期错误，重跑一次"——这类失败重跑必然精确复现。stage 表和规则表分处两地，
+     * 加了前者忘了后者不会有任何东西变红，除非有这条断言。
+     */
+    @Test fun everyKnownStageHasADedicatedRule() {
+        val fallback = advise(input(stage = "definitely-not-a-registered-stage"))
+        val uncovered = KNOWN_DIAGNOSTIC_STAGES.filter { stage ->
+            // classification 保持中性，才不会有别的规则先于 stage 规则命中。
+            advise(input(stage = stage, classification = "FAILED")) == fallback
+        }
+
+        assertEquals(emptyList(), uncovered, "这些 stage 只能拿到兜底建议，等于没有诊断")
+    }
+
     @Test fun r0NoRunsOffersFirstGeneration() {
         val advice = advise(input(hasRuns = false))
         assertEquals(DiagnosticsAction.RUN_NOW, advice.action)

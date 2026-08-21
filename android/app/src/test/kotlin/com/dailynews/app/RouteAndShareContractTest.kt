@@ -45,6 +45,10 @@ class RouteAndShareContractTest {
         // 新增路由必须同步进守卫，否则深链与路由恢复会被静默丢弃、不报任何错。
         assertEquals("story/openai-funding", com.dailynews.app.ui.canonicalRoute("story/openai-funding"))
         assertEquals("periodic/2026-W32", com.dailynews.app.ui.canonicalRoute("periodic/2026-W32"))
+        assertEquals(
+            "article/https%3A%2F%2Fexample.com%2Fa",
+            com.dailynews.app.ui.canonicalRoute("article/https%3A%2F%2Fexample.com%2Fa"),
+        )
         assertEquals(null, com.dailynews.app.ui.canonicalRoute(null))
         assertEquals(null, com.dailynews.app.ui.canonicalRoute("  "))
         assertEquals(null, com.dailynews.app.ui.canonicalRoute("not-a-route"))

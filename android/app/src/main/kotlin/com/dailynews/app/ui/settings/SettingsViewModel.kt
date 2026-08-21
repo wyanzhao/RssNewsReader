@@ -11,7 +11,10 @@ import com.dailynews.data.repo.LlmCallRepository
 import com.dailynews.data.repo.StateImporter
 import com.dailynews.data.repo.StateBackupRepository
 import java.io.OutputStream
+import com.dailynews.llm.ProviderRouting
+import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.llm.StructuredMode
 import com.dailynews.model.PipelineConfig
 import com.dailynews.model.Part2Mode
@@ -34,17 +37,21 @@ data class SettingsFormState(
     val apiKey: String = "",
     val supportsJsonMode: Boolean = true,
     val structuredMode: StructuredMode = StructuredMode.AUTO,
+    val routingSort: ProviderSort = ProviderSort.DEFAULT,
+    val routingFallbacks: String = "",
+    val routingRequireParameters: Boolean = false,
     val editorProviderId: String = "default",
     val editorModel: String = "",
     val drafterProviderId: String = "default",
     val drafterModel: String = "",
-    val editorMaxTokens: String = "65536",
-    val drafterMaxTokens: String = "65536",
+    val editorMaxTokens: String = DEFAULT_EDITOR_MAX_TOKENS,
+    val drafterMaxTokens: String = DEFAULT_DRAFTER_MAX_TOKENS,
     val topN: String = "30",
     val schedule: String = "10:00",
     val wifiOnly: Boolean = false,
     val retention: String = "14",
     val articleRetention: String = "30",
+    val reportRetention: String = "45",
     val sweepInterval: String = "120",
     val useLegacySingleShotFetch: Boolean = false,
     val part2Mode: Part2Mode = Part2Mode.FULL,
@@ -55,6 +62,9 @@ data class SettingsFormState(
     val llmCallTimeoutSeconds: String = "1200",
     val feedbackText: String = "",
 ) : java.io.Serializable
+
+private val DEFAULT_EDITOR_MAX_TOKENS = RoleModelDefaults.EDITOR_MAX_TOKENS.toString()
+private val DEFAULT_DRAFTER_MAX_TOKENS = RoleModelDefaults.DRAFTER_MAX_TOKENS.toString()
 
 enum class SettingsSection { OVERVIEW, PROVIDERS, SCHEDULE, PIPELINE, DATA }
 
@@ -134,6 +144,7 @@ class SettingsViewModel(
                         wifiOnly = config.wifiOnlyPageEnrichment,
                         retention = config.artifactRetentionDays.toString(),
                         articleRetention = config.articleRetentionDays.toString(),
+                        reportRetention = config.reportRetentionDays.toString(),
                         sweepInterval = config.sweepIntervalMinutes.toString(),
                         useLegacySingleShotFetch = config.useLegacySingleShotFetch,
                         part2Mode = config.part2Mode,
@@ -168,6 +179,11 @@ class SettingsViewModel(
             value.supportsJsonMode,
             vault,
             value.structuredMode,
+            ProviderRouting(
+                modelFallbacks = value.routingFallbacks.split(',', '\n'),
+                sort = value.routingSort,
+                requireParameters = value.routingRequireParameters,
+            ),
         )
         setForm(value.copy(apiKey = ""))
         providerMessage.value = "Provider ${value.providerId.trim()} 已保存；API key 不会进入日志或导出。"
@@ -181,15 +197,15 @@ class SettingsViewModel(
 
     fun saveRoleMapping() = launchOperation {
         val value = form.value
-        require(value.editorMaxTokens.toIntOrNull() in 512..65_536) { "EDITOR maxTokens 必须在 512–65536 之间" }
-        require(value.drafterMaxTokens.toIntOrNull() in 512..65_536) { "DRAFTER maxTokens 必须在 512–65536 之间" }
+        require(value.editorMaxTokens.toIntOrNull() in MAX_TOKENS_RANGE) { "EDITOR maxTokens 必须在 $MAX_TOKENS_HINT 之间" }
+        require(value.drafterMaxTokens.toIntOrNull() in MAX_TOKENS_RANGE) { "DRAFTER maxTokens 必须在 $MAX_TOKENS_HINT 之间" }
         providerSettings.updateRoleMapping(
             value.editorProviderId,
             value.editorModel,
             value.drafterProviderId,
             value.drafterModel,
-            value.editorMaxTokens.toIntOrNull() ?: 65_536,
-            value.drafterMaxTokens.toIntOrNull() ?: 65_536,
+            value.editorMaxTokens.toIntOrNull() ?: RoleModelDefaults.EDITOR_MAX_TOKENS,
+            value.drafterMaxTokens.toIntOrNull() ?: RoleModelDefaults.DRAFTER_MAX_TOKENS,
         )
         providerMessage.value = "EDITOR / DRAFTER 映射已保存"
     }
@@ -269,6 +285,7 @@ internal fun settingsValidationErrors(value: SettingsFormState): Map<String, Str
     if (value.topN.toIntOrNull() !in 10..50) put("topN", "请输入 10–50")
     if (value.retention.toIntOrNull() !in 1..365) put("retention", "请输入 1–365 天")
     if (value.articleRetention.toIntOrNull() !in 1..365) put("articleRetention", "请输入 1–365 天")
+    if (value.reportRetention.toIntOrNull() !in 7..365) put("reportRetention", "请输入 7–365 天")
     if (value.sweepInterval.toIntOrNull() !in 15..360) put("sweepInterval", "请输入 15–360 分钟")
     if (value.tokenBudget.toLongOrNull()?.let { it >= 0 } != true) put("tokenBudget", "请输入 0 或更大的整数")
     if (value.maxLlmCalls.toIntOrNull() !in 4..100) put("maxLlmCalls", "请输入 4–100")
@@ -279,9 +296,12 @@ internal fun settingsValidationErrors(value: SettingsFormState): Map<String, Str
     if (callTimeout !in 60..1_200 || (readTimeout != null && callTimeout != null && callTimeout < readTimeout)) {
         put("llmCallTimeoutSeconds", "请输入 60–1200 秒，且不得小于 read timeout")
     }
-    if (value.editorMaxTokens.toIntOrNull() !in 512..65_536) put("editorMaxTokens", "请输入 512–65536")
-    if (value.drafterMaxTokens.toIntOrNull() !in 512..65_536) put("drafterMaxTokens", "请输入 512–65536")
+    if (value.editorMaxTokens.toIntOrNull() !in MAX_TOKENS_RANGE) put("editorMaxTokens", "请输入 $MAX_TOKENS_HINT")
+    if (value.drafterMaxTokens.toIntOrNull() !in MAX_TOKENS_RANGE) put("drafterMaxTokens", "请输入 $MAX_TOKENS_HINT")
 }
+
+private val MAX_TOKENS_RANGE = RoleModelDefaults.MIN_MAX_TOKENS..RoleModelDefaults.MAX_MAX_TOKENS
+private const val MAX_TOKENS_HINT = "512–65536"
 
 internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
     require(isValidScheduleTime(schedule)) { "计划时间必须使用 HH:mm 格式（00:00–23:59）" }
@@ -291,6 +311,7 @@ internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
         wifiOnlyPageEnrichment = wifiOnly,
         artifactRetentionDays = retention.toIntOrNull() ?: 14,
         articleRetentionDays = articleRetention.toIntOrNull() ?: 30,
+        reportRetentionDays = reportRetention.toIntOrNull() ?: 45,
         sweepIntervalMinutes = sweepInterval.toIntOrNull() ?: 120,
         useLegacySingleShotFetch = useLegacySingleShotFetch,
         part2Mode = part2Mode,

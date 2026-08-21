@@ -17,6 +17,14 @@ data class PeriodicDigestItem(
     val link: String,
     @SerialName("summary_zh") val summaryZh: String,
     @SerialName("event_key") val eventKey: String,
+    /**
+     * 短引用 id（`a1`、`a2`…）。段落只写这个，不回显 link。
+     *
+     * 采集端（`collectInput`）不需要关心编号，所以这里有默认值并排在最后：
+     * `LlmEditorialEngine.digest` 在发出请求之前统一盖上 id，负载与解析索引出自
+     * 同一次赋值，不可能失步。未盖 id 的输入会在引用解析处 fail closed，不会静默出错。
+     */
+    val id: String = "",
 )
 
 @Serializable

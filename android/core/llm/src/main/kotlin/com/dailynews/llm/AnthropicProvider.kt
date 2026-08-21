@@ -67,6 +67,7 @@ class AnthropicProvider(
                 throw LlmTransportException(
                     "Anthropic HTTP ${response.code}: $safeBody",
                     retryable = response.code == 429 || response.code in 500..599,
+                    retryAfterMillis = response.retryAfterMillis,
                 )
         }
         val decoded = try {

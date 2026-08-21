@@ -448,13 +448,20 @@ fun LazyListScope.diagnosticsContent(
         if (state.artifactsLoading) {
             item(key = "advanced-loading") { InlineProgress() }
         } else {
+            // 契约违规排在最前：一旦这次运行被打回过，这就是唯一能说清"错在哪"的
+            // 东西。此前它只存在于导出 ZIP 里，于是排查必须离开手机。
+            state.contractViolations.forEach { (name, body) ->
+                item(key = "advanced-violation-$name") {
+                    RawJsonBlock(name.removePrefix("contract_violations/"), ArtifactPayload(raw = body, status = ArtifactStatus.PARSED))
+                }
+            }
             if (state.validationArtifact.raw != null) {
                 item(key = "advanced-validation") { RawJsonBlock("validation.json", state.validationArtifact) }
             }
             if (state.budgetArtifact.raw != null) {
                 item(key = "advanced-budget") { RawJsonBlock("context_budget.json", state.budgetArtifact) }
             }
-            if (state.validationArtifact.raw == null && state.budgetArtifact.raw == null) {
+            if (state.validationArtifact.raw == null && state.budgetArtifact.raw == null && state.contractViolations.isEmpty()) {
                 item(key = "advanced-missing") {
                     Text("产物不存在或已按保留期清理", diagnosticsItemWidth, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

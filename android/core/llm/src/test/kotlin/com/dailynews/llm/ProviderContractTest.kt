@@ -4,10 +4,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
+import kotlin.system.measureTimeMillis
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.jupiter.api.Test
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -103,6 +109,111 @@ class ProviderContractTest {
         val safe = redactProviderText("server echoed sk-super-secret and literal-value", "literal-value")
         assertFalse("super-secret" in safe)
         assertFalse("literal-value" in safe)
+    }
+
+    /**
+     * 429 曾经用 250ms 退避——对限流等于立刻再撞一次窗口，三次尝试在不到一秒内烧光。
+     * 服务端说了等多久就等多久。
+     */
+    @Test
+    fun `429 backoff honours Retry-After instead of the local curve`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "7").setBody("slow down"))
+            server.enqueue(MockResponse().setResponseCode(429).setBody("slow down"))
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}]}"""))
+            server.start()
+            val provider = OpenAiCompatProvider(
+                ProviderConfig("p", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+            val waits = mutableListOf<Long>()
+
+            StructuredLlm(provider, retryDelay = { waits += it }).completeObject(LlmRequest("m", "s", "u", 32))
+
+            // 第一次照服务端的 7 秒；第二次没有 Retry-After，退回本地曲线的第二档。
+            assertEquals(listOf(7_000L, 2_000L), waits)
+        }
+    }
+
+    @Test
+    fun `retry after longer than the cap is truncated`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "86400").setBody("come back tomorrow"))
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}]}"""))
+            server.start()
+            val provider = OpenAiCompatProvider(
+                ProviderConfig("p", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+            val waits = mutableListOf<Long>()
+
+            StructuredLlm(provider, retryDelay = { waits += it }).completeObject(LlmRequest("m", "s", "u", 32))
+
+            assertEquals(listOf(MAX_RETRY_AFTER_MILLIS), waits)
+        }
+    }
+
+    @Test
+    fun `openrouter routing fields ship only when configured`() = runBlocking {
+        MockWebServer().use { server ->
+            val body = """{"choices":[{"message":{"role":"assistant","content":"{\"x\":1}"},"finish_reason":"stop"}]}"""
+            server.enqueue(MockResponse().setBody(body))
+            server.enqueue(MockResponse().setBody(body))
+            server.start()
+            val url = server.url("/v1").toString()
+            fun provider(routing: ProviderRouting) = OpenAiCompatProvider(
+                ProviderConfig("p", ProviderType.OPENAI_COMPAT, url, "alias", true, routing = routing),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+
+            // 默认：一个扩展字段都不发。非 OpenRouter 的兼容端点看到未知顶层字段会 400。
+            provider(ProviderRouting()).complete(LlmRequest("model-a", "s", "u", 32))
+            val plain = server.takeRequest().body.readUtf8()
+            assertFalse("\"models\"" in plain)
+            assertFalse("\"provider\"" in plain)
+
+            provider(
+                ProviderRouting(listOf(" backup-a ", "", "backup-b"), ProviderSort.THROUGHPUT, requireParameters = true),
+            ).complete(LlmRequest("model-a", "s", "u", 32))
+            val routed = server.takeRequest().body.readUtf8()
+
+            // 主模型必须排在备选列表第一位，空白项被清掉。
+            assertTrue("\"models\":[\"model-a\",\"backup-a\",\"backup-b\"]" in routed, routed)
+            assertTrue("\"sort\":\"throughput\"" in routed, routed)
+            assertTrue("\"require_parameters\":true" in routed, routed)
+        }
+    }
+
+    /**
+     * 看门狗与 WorkManager 的停止都靠协程取消。此前 provider 用阻塞的 `execute()`，
+     * 于是取消要等 socket 自己返回（最长 callTimeout，默认 1200 秒）——20 分钟的
+     * 看门狗实际上停不掉任何东西。这条断言的是「取消在 socket 超时之前就生效」。
+     */
+    @Test
+    fun `cancelling the caller aborts an in-flight provider call`() = runBlocking {
+        MockWebServer().use { server ->
+            // 收下请求但永不回应：客户端会一直挂在 socket 上，正是"慢供应商"的形状。
+            // 用 NO_RESPONSE 而不是 setBodyDelay，否则 MockWebServer 关不掉挂起的响应体。
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+            server.start()
+            val provider = OpenAiCompatProvider(
+                ProviderConfig("slow", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                // 读超时远长于我们等待的时间：如果取消无效，这个测试只能靠超时收场。
+                OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).callTimeout(60, TimeUnit.SECONDS).build(),
+            )
+
+            val elapsed = measureTimeMillis {
+                val job = launch(Dispatchers.IO) { provider.complete(LlmRequest("m", "s", "u", 32)) }
+                while (server.requestCount == 0) delay(10)
+                job.cancelAndJoin()
+            }
+
+            assertTrue(elapsed < 10_000, "取消应立即生效，实际耗时 ${elapsed}ms —— 说明调用仍不可中断")
+        }
     }
 
     @Test
