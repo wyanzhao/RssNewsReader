@@ -37,13 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dailynews.app.BuildConfig
-import com.dailynews.app.R
 import com.dailynews.app.ui.common.InfoCard
+import com.dailynews.app.ui.common.ProviderTypePicker
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
@@ -118,7 +117,7 @@ private fun sectionTitle(section: SettingsSection): String = when (section) {
 }
 
 private fun providerSummary(state: SettingsUiState): String = state.savedProviders?.providers?.takeIf(List<*>::isNotEmpty)
-    ?.joinToString { "${it.id} (${it.type})" } ?: "尚未配置；编辑分支会 fail closed"
+    ?.joinToString { "${it.id} (${it.type.displayLabel})" } ?: "尚未配置；编辑分支会 fail closed"
 
 @Composable
 private fun SettingsEntry(title: String, summary: String, onClick: () -> Unit) {
@@ -132,13 +131,18 @@ private fun SettingsEntry(title: String, summary: String, onClick: () -> Unit) {
 
 private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: SettingsUiState, viewModel: SettingsViewModel) {
     val form = state.form
-    item {
-        Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
-            ProviderType.entries.forEach { type -> OutlinedButton(onClick = { viewModel.update { it.copy(providerType = type) } }) { Text(type.name) } }
-        }
-    }
+    item { ProviderTypePicker(form.providerType, viewModel::selectProviderType) }
     item { OutlinedTextField(form.providerId, { value -> viewModel.update { it.copy(providerId = value) } }, label = { Text("Provider ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-    item { OutlinedTextField(form.baseUrl, { value -> viewModel.update { it.copy(baseUrl = value) } }, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+    item {
+        OutlinedTextField(
+            form.baseUrl,
+            { value -> viewModel.update { it.copy(baseUrl = value) } },
+            label = { Text(baseUrlLabel(form.providerType)) },
+            supportingText = { Text(baseUrlSupporting(form.providerType)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     item {
         OutlinedTextField(
             form.apiKey,
@@ -149,7 +153,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
             modifier = Modifier.fillMaxWidth(),
         )
     }
-    if (form.providerType == ProviderType.OPENAI_COMPAT) item {
+    if (form.providerType.usesOpenAiCompatApi) item {
         Row { Checkbox(form.supportsJsonMode, { value -> viewModel.update { it.copy(supportsJsonMode = value) } }); Text("支持 response_format=json_object", Modifier.padding(top = 12.dp)) }
     }
     item {
@@ -157,10 +161,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
             viewModel.update { it.copy(structuredMode = StructuredMode.valueOf(value)) }
         }
     }
-    // OpenRouter 专有的路由字段。全默认时一个字段都不会发出去，所以其他 OpenAI
-    // 兼容端点（它们看到未知顶层字段可能直接 400）保持默认即可。
-    if (form.providerType == ProviderType.OPENAI_COMPAT) {
-        item { Text("OpenRouter 路由（其他兼容端点请保持默认）", style = MaterialTheme.typography.titleMedium) }
+    if (form.providerType == ProviderType.OPENROUTER) {
+        item { Text("OpenRouter 路由", style = MaterialTheme.typography.titleMedium) }
         item {
             EnumDropdown("提供商排序", form.routingSort.name, ProviderSort.entries.map(ProviderSort::name)) { value ->
                 viewModel.update { it.copy(routingSort = ProviderSort.valueOf(value)) }
@@ -171,6 +173,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
                 form.routingFallbacks,
                 { value -> viewModel.update { it.copy(routingFallbacks = value) } },
                 label = { Text("备选模型（逗号分隔；主模型超时或不可用时依次尝试）") },
+                supportingText = { Text("同样需要厂商前缀。主模型不可用时按这个列表依次换模型。") },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -186,8 +189,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
         item {
             state.savedProviders?.providers
                 ?.firstOrNull { it.id == form.providerId.trim() }
+                ?.takeIf { it.type == ProviderType.OPENROUTER }
                 ?.routing
-                ?.takeIf { !it.isDefault }
                 ?.let { saved ->
                     Text(
                         "已保存的路由：排序 ${saved.sort.name}、备选 ${saved.modelFallbacks.size} 个、" +
@@ -199,21 +202,50 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
         }
     }
     item {
+        val canSaveUrl = form.baseUrl.isNotBlank() || form.providerType == ProviderType.OPENROUTER
         Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
-            Button(onClick = viewModel::saveProvider, enabled = !state.busy && form.providerId.isNotBlank() && form.baseUrl.isNotBlank()) { Text("保存 Provider") }
+            Button(onClick = viewModel::saveProvider, enabled = !state.busy && form.providerId.isNotBlank() && canSaveUrl) { Text("保存 Provider") }
             OutlinedButton(onClick = viewModel::testProvider, enabled = !state.busy && form.providerId.isNotBlank()) { Text("测试连接") }
         }
     }
     val providerIds = state.savedProviders?.providers?.map { it.id }.orEmpty().ifEmpty { listOf(form.providerId.ifBlank { "default" }) }
     item { Text("角色映射", style = MaterialTheme.typography.titleLarge) }
     item { EnumDropdown("Part 1 Provider", form.editorProviderId, providerIds) { value -> viewModel.update { it.copy(editorProviderId = value) } } }
-    item { OutlinedTextField(form.editorModel, { value -> viewModel.update { it.copy(editorModel = value) } }, label = { Text("Part 1 强模型") }, modifier = Modifier.fillMaxWidth()) }
+    item {
+        OutlinedTextField(
+            form.editorModel,
+            { value -> viewModel.update { it.copy(editorModel = value) } },
+            label = { Text("Part 1 强模型") },
+            supportingText = { if (form.providerType == ProviderType.OPENROUTER) Text("OpenRouter 须带前缀，例如 anthropic/claude-sonnet-4") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     item { NumberField("EDITOR maxTokens", form.editorMaxTokens, state.validationErrors["editorMaxTokens"]) { value -> viewModel.update { it.copy(editorMaxTokens = value) } } }
     item { EnumDropdown("Part 2 Provider", form.drafterProviderId, providerIds) { value -> viewModel.update { it.copy(drafterProviderId = value) } } }
-    item { OutlinedTextField(form.drafterModel, { value -> viewModel.update { it.copy(drafterModel = value) } }, label = { Text("Part 2 经济模型") }, modifier = Modifier.fillMaxWidth()) }
+    item {
+        OutlinedTextField(
+            form.drafterModel,
+            { value -> viewModel.update { it.copy(drafterModel = value) } },
+            label = { Text("Part 2 经济模型") },
+            supportingText = { if (form.providerType == ProviderType.OPENROUTER) Text("OpenRouter 须带前缀，例如 openai/gpt-4o-mini") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     item { NumberField("DRAFTER maxTokens", form.drafterMaxTokens, state.validationErrors["drafterMaxTokens"]) { value -> viewModel.update { it.copy(drafterMaxTokens = value) } } }
     item { Button(onClick = viewModel::saveRoleMapping, enabled = !state.busy && state.validationErrors.keys.none { it.endsWith("MaxTokens") }) { Text("保存角色映射") } }
     state.providerMessage?.let { item { Text(it) } }
+}
+
+private fun baseUrlLabel(type: ProviderType): String = when (type) {
+    ProviderType.OPENROUTER -> "Base URL（可留空，默认 OpenRouter 官方）"
+    ProviderType.OPENAI_COMPAT -> "Base URL"
+    ProviderType.ANTHROPIC -> "Base URL"
+}
+
+private fun baseUrlSupporting(type: ProviderType): String = when (type) {
+    ProviderType.OPENROUTER -> "默认 https://openrouter.ai/api/v1，只有走代理时才需要改。"
+    ProviderType.OPENAI_COMPAT -> "OpenAI 官方为 https://api.openai.com/v1；兼容端点填它们自己的地址。"
+    ProviderType.ANTHROPIC -> "Anthropic 官方为 https://api.anthropic.com。"
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.scheduleItems(state: SettingsUiState, viewModel: SettingsViewModel, context: android.content.Context) {

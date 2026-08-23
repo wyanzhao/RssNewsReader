@@ -156,7 +156,34 @@ class ProviderContractTest {
     }
 
     @Test
-    fun `openrouter routing fields ship only when configured`() = runBlocking {
+    fun `openai compatible never ships openrouter routing or attribution headers`() = runBlocking {
+        MockWebServer().use { server ->
+            val body = """{"choices":[{"message":{"role":"assistant","content":"{\"x\":1}"},"finish_reason":"stop"}]}"""
+            server.enqueue(MockResponse().setBody(body))
+            server.start()
+            OpenAiCompatProvider(
+                ProviderConfig(
+                    "p",
+                    ProviderType.OPENAI_COMPAT,
+                    server.url("/v1").toString(),
+                    "alias",
+                    true,
+                    routing = ProviderRouting(listOf("backup"), ProviderSort.THROUGHPUT, requireParameters = true),
+                ),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            ).complete(LlmRequest("model-a", "s", "u", 32))
+            val recorded = server.takeRequest()
+            val payload = recorded.body.readUtf8()
+            assertFalse("\"models\"" in payload)
+            assertFalse("\"provider\"" in payload)
+            assertEquals(null, recorded.getHeader("HTTP-Referer"))
+            assertEquals(null, recorded.getHeader("X-Title"))
+        }
+    }
+
+    @Test
+    fun `openrouter ships default routing headers and explicit fallbacks`() = runBlocking {
         MockWebServer().use { server ->
             val body = """{"choices":[{"message":{"role":"assistant","content":"{\"x\":1}"},"finish_reason":"stop"}]}"""
             server.enqueue(MockResponse().setBody(body))
@@ -164,16 +191,20 @@ class ProviderContractTest {
             server.start()
             val url = server.url("/v1").toString()
             fun provider(routing: ProviderRouting) = OpenAiCompatProvider(
-                ProviderConfig("p", ProviderType.OPENAI_COMPAT, url, "alias", true, routing = routing),
+                ProviderConfig("p", ProviderType.OPENROUTER, url, "alias", true, routing = routing),
                 ApiKeySource { "secret" },
                 OkHttpClient(),
             )
 
-            // 默认：一个扩展字段都不发。非 OpenRouter 的兼容端点看到未知顶层字段会 400。
             provider(ProviderRouting()).complete(LlmRequest("model-a", "s", "u", 32))
-            val plain = server.takeRequest().body.readUtf8()
-            assertFalse("\"models\"" in plain)
-            assertFalse("\"provider\"" in plain)
+            val defaults = server.takeRequest()
+            val defaultBody = defaults.body.readUtf8()
+            assertEquals(OpenRouterDefaults.HTTP_REFERER, defaults.getHeader("HTTP-Referer"))
+            assertEquals(OpenRouterDefaults.APP_TITLE, defaults.getHeader("X-Title"))
+            assertEquals(OpenRouterDefaults.APP_TITLE, defaults.getHeader("X-OpenRouter-Title"))
+            assertFalse("\"models\"" in defaultBody)
+            assertTrue("\"sort\":\"throughput\"" in defaultBody, defaultBody)
+            assertTrue("\"require_parameters\":true" in defaultBody, defaultBody)
 
             provider(
                 ProviderRouting(listOf(" backup-a ", "", "backup-b"), ProviderSort.THROUGHPUT, requireParameters = true),

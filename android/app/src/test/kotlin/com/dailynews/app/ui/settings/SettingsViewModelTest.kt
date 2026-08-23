@@ -1,5 +1,8 @@
 package com.dailynews.app.ui.settings
 
+import com.dailynews.llm.OpenRouterDefaults
+import com.dailynews.llm.ProviderSort
+import com.dailynews.llm.ProviderType
 import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.model.ContextBudgetConfig
 import com.dailynews.model.FetchConfig
@@ -103,6 +106,28 @@ class SettingsViewModelTest {
         ).applyTo(PipelineConfig())
 
         assertEquals(LlmExecutionConfig(25, 240, 480), updated.llmExecution)
+    }
+
+    @Test
+    fun switchingProviderTypePrefillsOfficialUrlAndOpenRouterRouting() {
+        val openRouter = SettingsFormState().withProviderType(ProviderType.OPENROUTER)
+        assertEquals(ProviderType.OPENROUTER, openRouter.providerType)
+        assertEquals(OpenRouterDefaults.BASE_URL, openRouter.baseUrl)
+        assertEquals(ProviderSort.THROUGHPUT, openRouter.routingSort)
+        assertTrue(openRouter.routingRequireParameters)
+
+        val openai = openRouter.withProviderType(ProviderType.OPENAI_COMPAT)
+        assertEquals(ProviderType.OPENAI_COMPAT, openai.providerType)
+        assertEquals("https://api.openai.com/v1", openai.baseUrl)
+        assertEquals(ProviderSort.DEFAULT, openai.routingSort)
+        assertFalse(openai.routingRequireParameters)
+
+        val anthropic = openai.withProviderType(ProviderType.ANTHROPIC)
+        assertEquals("https://api.anthropic.com", anthropic.baseUrl)
+        assertFalse(anthropic.supportsJsonMode)
+
+        val proxy = SettingsFormState(baseUrl = "https://proxy.example/v1").withProviderType(ProviderType.ANTHROPIC)
+        assertEquals("https://proxy.example/v1", proxy.baseUrl)
     }
 
     @Test

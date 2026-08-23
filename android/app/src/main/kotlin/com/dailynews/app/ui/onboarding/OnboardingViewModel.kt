@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.dailynews.data.config.ApiKeyVault
 import com.dailynews.data.config.PipelineConfigRepository
 import com.dailynews.data.config.ProviderSettingsRepository
+import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderType
 import com.dailynews.model.isValidScheduleTime
 import kotlinx.coroutines.Dispatchers
@@ -19,8 +20,8 @@ enum class OnboardingStep { WELCOME, NOTIFICATIONS, PROVIDER, SCHEDULE, COMPLETE
 
 data class OnboardingUiState(
     val step: OnboardingStep = OnboardingStep.WELCOME,
-    val type: ProviderType = ProviderType.OPENAI_COMPAT,
-    val baseUrl: String = "https://api.openai.com/v1",
+    val type: ProviderType = ProviderType.OPENROUTER,
+    val baseUrl: String = OpenRouterDefaults.BASE_URL,
     val model: String = "",
     val apiKey: String = "",
     val schedule: String = "10:00",
@@ -43,12 +44,13 @@ class OnboardingViewModel(
     val state: StateFlow<OnboardingUiState> = mutableState.asStateFlow()
 
     fun update(transform: (OnboardingUiState) -> OnboardingUiState) = setState(transform(mutableState.value))
+    fun selectProviderType(type: ProviderType) = update { it.withProviderType(type) }
     fun start() = setState(mutableState.value.copy(step = OnboardingStep.NOTIFICATIONS))
     fun notificationsDone() = setState(mutableState.value.copy(step = OnboardingStep.PROVIDER))
 
     fun saveProvider() {
         val form = mutableState.value
-        if (form.baseUrl.isBlank() || form.model.isBlank() || form.apiKey.isBlank()) return
+        if ((form.baseUrl.isBlank() && form.type != ProviderType.OPENROUTER) || form.model.isBlank() || form.apiKey.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             setState(form.copy(busy = true, message = null))
             runCatching { providers.configureSingleProvider(form.type, form.baseUrl, form.model, form.apiKey, vault) }
@@ -99,3 +101,11 @@ class OnboardingViewModel(
 }
 
 internal fun OnboardingUiState.forSavedState(): OnboardingUiState = copy(apiKey = "")
+
+internal fun OnboardingUiState.withProviderType(type: ProviderType): OnboardingUiState {
+    if (type == this.type) return this
+    return copy(
+        type = type,
+        baseUrl = type.adjustedBaseUrl(this.type, baseUrl),
+    )
+}

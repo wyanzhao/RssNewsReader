@@ -156,7 +156,7 @@ class AppContainer(context: Context) {
     }
 
     private fun buildProvider(config: ProviderConfig, client: OkHttpClient): LlmProvider = when (config.type) {
-        ProviderType.OPENAI_COMPAT -> OpenAiCompatProvider(config, apiKeyVault, client)
+        ProviderType.OPENROUTER, ProviderType.OPENAI_COMPAT -> OpenAiCompatProvider(config, apiKeyVault, client)
         ProviderType.ANTHROPIC -> AnthropicProvider(config, apiKeyVault, client)
     }
 

@@ -14,9 +14,12 @@
   stage packages (fetch, parse, editorial, context, flow, validate, text).
   Stages communicate only through `ports/` interfaces and `core:model`
   types; they never reference each other directly.
-- `:core:llm` — provider abstraction (`OpenAiCompatProvider`,
-  `AnthropicProvider`), HTTP transport, and `StructuredLlm` structured
-  output with auto-fallback. No pipeline semantics live here.
+- `:core:llm` — provider abstraction (`OpenAiCompatProvider` for OpenRouter
+  and OpenAI-compatible APIs, `AnthropicProvider`), HTTP transport, and
+  `StructuredLlm` structured output with auto-fallback. No pipeline
+  semantics live here. OpenRouter is a first-class `ProviderType`; routing
+  extras and attribution headers are type-gated so official OpenAI /
+  Anthropic endpoints never see unknown fields.
 - `:core:data` — Room/DataStore/file persistence. Repositories implement
   the ports defined in `:core:pipeline`; storage details never leak above.
 - Allowed dependency direction: `pipeline -> model, llm`;

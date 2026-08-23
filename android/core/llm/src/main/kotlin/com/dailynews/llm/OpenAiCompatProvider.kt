@@ -28,7 +28,7 @@ class OpenAiCompatProvider(
             ?: throw LlmTransportException("missing API key for provider ${config.id}")
         val mode = effectiveMode(request)
         val responseFormat = responseFormat(mode, request.responseSchema)
-        val routing = config.routing.normalized()
+        val routing = config.routing.forTransport(config.type)
         val payload = OpenAiRequest(
             model = request.model,
             messages = buildList {
@@ -47,9 +47,21 @@ class OpenAiCompatProvider(
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
+            .apply {
+                if (config.type.usesOpenRouterProtocol) {
+                    header("HTTP-Referer", OpenRouterDefaults.HTTP_REFERER)
+                    header("X-Title", OpenRouterDefaults.APP_TITLE)
+                    header("X-OpenRouter-Title", OpenRouterDefaults.APP_TITLE)
+                }
+            }
             .post(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        val response = executeLlmHttp(client, httpRequest, "OpenAI-compatible provider ${config.id}")
+        val providerLabel = if (config.type.usesOpenRouterProtocol) {
+            "OpenRouter provider ${config.id}"
+        } else {
+            "OpenAI-compatible provider ${config.id}"
+        }
+        val response = executeLlmHttp(client, httpRequest, providerLabel)
         val body = response.body
         if (!response.isSuccessful) {
                 val safeBody = redactProviderText(body.take(500), apiKey)

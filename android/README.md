@@ -35,7 +35,7 @@ re-align them.
 ## Modules
 
 - `core:model` — serializable artifact and configuration contracts (pure JVM)
-- `core:llm` — provider-neutral LLM API plus OpenAI-compatible and Anthropic clients (pure JVM)
+- `core:llm` — provider-neutral LLM API plus OpenRouter, OpenAI-compatible, and Anthropic clients (pure JVM)
 - `core:pipeline` — deterministic pipeline/editorial state machine behind ports (pure JVM)
 - `core:data` — Room, DataStore, encrypted API keys, and artifact files (Android library)
 - `app` — Compose UI, WorkManager/AlarmManager scheduling, notifications, and navigation
@@ -66,7 +66,13 @@ installed directly with `adb install -r app/build/outputs/apk/debug/app-debug.ap
 
 ## Release signing
 
-Release signing is opt-in and local-only. Copy `keystore.properties.example` to
+Canonical credentials live in 1Password (vault `Development`). The full
+sign-and-publish procedure — restore the keystore, materialize
+`keystore.properties` via `op read`, `assembleRelease`, `apksigner verify`,
+`git push`, and `gh release create` with `app-release.apk` — is in
+[`AGENTS.md`](../AGENTS.md#release-signing-and-github-publish).
+
+A local fallback is to copy `keystore.properties.example` to
 `keystore.properties` (gitignored) and fill in the passwords, or export the
 equivalent `DAILYNEWS_STORE_FILE` / `DAILYNEWS_STORE_PASSWORD` /
 `DAILYNEWS_KEY_ALIAS` / `DAILYNEWS_KEY_PASSWORD` env vars. Then:
@@ -80,7 +86,8 @@ With credentials configured the output is
 With nothing configured the build still succeeds and yields
 `app-release-unsigned.apk` — as its name states, that artifact carries no
 certificate and cannot be installed. A *partially* filled `keystore.properties`
-is a hard build failure rather than a silent downgrade to unsigned.
+is a hard build failure rather than a silent downgrade to unsigned. Never
+publish the unsigned artifact.
 
 Two things the signed APK changes:
 
@@ -109,15 +116,30 @@ digest stay link-keyed on disk. Copying an 80-character URL verbatim is a task
 cheap models fail at — a two-character id is not — and a rewritten link now has
 no path through the contract at all.
 
+### Providers
+
+Settings and onboarding expose three provider types:
+
+- **OpenRouter** — first-class. Prefills `https://openrouter.ai/api/v1`,
+  always sends `HTTP-Referer` / `X-Title` / `X-OpenRouter-Title`, and
+  defaults routing to `sort=throughput` plus `require_parameters` so cheap
+  models land on backends that actually support structured output and are
+  not the lowest-TPS replica. Model ids need the org prefix
+  (`anthropic/claude-sonnet-4`, `openai/gpt-4o-mini`). Older installs that
+  saved OpenRouter as a generic OpenAI-compatible URL are rewritten to this
+  type on load.
+- **OpenAI** — the official API or any other OpenAI-compatible endpoint
+  (DeepSeek, Kimi, …). OpenRouter routing fields are never sent.
+- **Anthropic** — the official Messages API.
+
 ### OpenRouter routing
 
-The provider form exposes OpenRouter's routing controls for OpenAI-compatible
-providers: a provider `sort` (`throughput` directly targets the low
-tokens-per-second routing that makes cheap models time out), a model fallback
-list, and `require_parameters` (route only to providers that really support
-`response_format`). All three ship only when set to something other than their
-defaults — a non-OpenRouter compatible endpoint would reject the unknown
-top-level fields.
+The OpenRouter provider form exposes a provider `sort` (`throughput`
+directly targets the low tokens-per-second routing that makes cheap models
+time out), a model fallback list, and `require_parameters` (route only to
+providers that really support `response_format`). These fields are omitted
+entirely for OpenAI and Anthropic, whose official APIs reject unknown
+top-level keys.
 
 Role token caps default to 16384 (EDITOR) and 8192 (DRAFTER). Truncation is a
 hard failure with no retry, so these are estimated generously, but not so

@@ -1,14 +1,16 @@
 package com.dailynews.data.config
 
 import android.content.Context
+import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderConfig
-import com.dailynews.llm.ProviderEndpoints
 import com.dailynews.llm.ProviderType
 import com.dailynews.llm.ProviderRouting
 import com.dailynews.llm.RoleModel
 import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.llm.RoleModelMapping
 import com.dailynews.llm.StructuredMode
+import com.dailynews.llm.canonicalize
+import com.dailynews.llm.canonicalizeProviders
 import com.dailynews.model.ArtifactJson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,8 +57,13 @@ class ProviderSettingsRepository(context: Context) {
 
     private fun readFromDisk(): ProviderSettings {
         val saved = preferences.getString("settings", null)
-        return saved?.let { runCatching { ArtifactJson.codec.decodeFromString<ProviderSettings>(it) }.getOrNull() }
-            ?: defaultSettings()
+        val parsed = saved?.let { runCatching { ArtifactJson.codec.decodeFromString<ProviderSettings>(it) }.getOrNull() }
+            ?: return defaultSettings()
+        val canonical = parsed.copy(providers = parsed.providers.canonicalizeProviders())
+        if (canonical != parsed) {
+            preferences.edit().putString("settings", ArtifactJson.compact.encodeToString(canonical)).apply()
+        }
+        return canonical
     }
 
     private fun defaultSettings() = ProviderSettings(
@@ -91,10 +98,11 @@ class ProviderSettingsRepository(context: Context) {
                     ProviderConfig(
                         id,
                         type,
-                        if (type == ProviderType.OPENAI_COMPAT) ProviderEndpoints.openAi(baseUrl) else ProviderEndpoints.anthropic(baseUrl),
+                        type.chatEndpoint(baseUrl),
                         alias,
-                        supportsJsonMode = type == ProviderType.OPENAI_COMPAT,
-                    ),
+                        supportsJsonMode = type.defaultSupportsJsonMode(),
+                        routing = type.defaultRouting(),
+                    ).canonicalize(),
                 ),
                 RoleModelMapping(
                     RoleModel(id, model.trim(), RoleModelDefaults.EDITOR_MAX_TOKENS),
@@ -118,11 +126,21 @@ class ProviderSettingsRepository(context: Context) {
         val alias = "provider-$cleanId"
         if (key.isNotBlank()) vault.write(alias, key)
         val current = load()
-        val normalizedUrl = when (type) {
-            ProviderType.OPENAI_COMPAT -> ProviderEndpoints.openAi(baseUrl)
-            ProviderType.ANTHROPIC -> ProviderEndpoints.anthropic(baseUrl)
+        val storedRouting = if (type == ProviderType.OPENROUTER) {
+            val normalized = routing.normalized()
+            if (normalized.isDefault) OpenRouterDefaults.ROUTING else normalized
+        } else {
+            ProviderRouting()
         }
-        val provider = ProviderConfig(cleanId, type, normalizedUrl, alias, supportsJsonMode, structuredMode, routing.normalized())
+        val provider = ProviderConfig(
+            cleanId,
+            type,
+            type.chatEndpoint(baseUrl),
+            alias,
+            supportsJsonMode = type.usesOpenAiCompatApi && supportsJsonMode,
+            structuredMode,
+            storedRouting,
+        ).canonicalize()
         val updated = current.copy(providers = (current.providers.filterNot { it.id == cleanId } + provider).sortedBy { it.id })
         save(updated)
         return updated

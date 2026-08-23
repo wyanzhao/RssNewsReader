@@ -29,7 +29,51 @@ data class LlmResponse(
     val stopReason: String? = null,
 )
 
-enum class ProviderType { OPENAI_COMPAT, ANTHROPIC }
+enum class ProviderType {
+    OPENROUTER,
+    OPENAI_COMPAT,
+    ANTHROPIC,
+    ;
+
+    val displayLabel: String get() = when (this) {
+        OPENROUTER -> "OpenRouter"
+        OPENAI_COMPAT -> "OpenAI"
+        ANTHROPIC -> "Anthropic"
+    }
+
+    val defaultBaseUrl: String get() = when (this) {
+        OPENROUTER -> OpenRouterDefaults.BASE_URL
+        OPENAI_COMPAT -> "https://api.openai.com/v1"
+        ANTHROPIC -> "https://api.anthropic.com"
+    }
+
+    val usesOpenAiCompatApi: Boolean get() = this != ANTHROPIC
+    val usesOpenRouterProtocol: Boolean get() = this == OPENROUTER
+
+    fun chatEndpoint(baseUrl: String): String {
+        val resolved = baseUrl.trim().ifBlank { defaultBaseUrl }
+        return if (usesOpenAiCompatApi) ProviderEndpoints.openAi(resolved) else ProviderEndpoints.anthropic(resolved)
+    }
+
+    /**
+     * 切换类型时：若当前 URL 为空或仍是上一种类型的官方默认地址，就换成新类型的默认；
+     * 自定义代理地址保持不动。
+     */
+    fun adjustedBaseUrl(previousType: ProviderType, currentBaseUrl: String): String {
+        val trimmed = currentBaseUrl.trim()
+        return if (trimmed.isEmpty() || trimmed.trimEnd('/') == previousType.defaultBaseUrl.trimEnd('/')) {
+            defaultBaseUrl
+        } else {
+            trimmed
+        }
+    }
+
+    fun defaultRouting(): ProviderRouting =
+        if (this == OPENROUTER) OpenRouterDefaults.ROUTING else ProviderRouting()
+
+    fun defaultSupportsJsonMode(): Boolean = this != ANTHROPIC
+}
+
 enum class StructuredMode { AUTO, JSON_SCHEMA, JSON_OBJECT, TOOL_USE, PREFILL }
 enum class EditorialRole { EDITOR, DRAFTER }
 
@@ -51,8 +95,8 @@ enum class ProviderSort {
  * 秒——本地把超时调大救不回来，中间网关对非流式长请求还有它自己的超时。这些字段
  * 把选择权交回给我们：按吞吐排序、给主模型备选、只落到真正支持结构化输出的提供商。
  *
- * 全默认时一个字段都不会发出去：非 OpenRouter 的 OpenAI 兼容端点收到未知顶层字段
- * 可能直接 400，所以这必须是显式开启的东西。
+ * 只有 [ProviderType.OPENROUTER] 才会把这些字段写进请求体。OpenAI / Anthropic
+ * 官方 API 看到未知顶层字段会 400，所以类型本身就是开关。
  */
 @Serializable
 data class ProviderRouting(

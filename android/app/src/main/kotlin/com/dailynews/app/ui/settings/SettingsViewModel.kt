@@ -11,6 +11,7 @@ import com.dailynews.data.repo.LlmCallRepository
 import com.dailynews.data.repo.StateImporter
 import com.dailynews.data.repo.StateBackupRepository
 import java.io.OutputStream
+import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderRouting
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
@@ -31,15 +32,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SettingsFormState(
-    val providerType: ProviderType = ProviderType.OPENAI_COMPAT,
+    val providerType: ProviderType = ProviderType.OPENROUTER,
     val providerId: String = "default",
-    val baseUrl: String = "",
+    val baseUrl: String = OpenRouterDefaults.BASE_URL,
     val apiKey: String = "",
     val supportsJsonMode: Boolean = true,
     val structuredMode: StructuredMode = StructuredMode.AUTO,
-    val routingSort: ProviderSort = ProviderSort.DEFAULT,
+    val routingSort: ProviderSort = OpenRouterDefaults.ROUTING.sort,
     val routingFallbacks: String = "",
-    val routingRequireParameters: Boolean = false,
+    val routingRequireParameters: Boolean = OpenRouterDefaults.ROUTING.requireParameters,
     val editorProviderId: String = "default",
     val editorModel: String = "",
     val drafterProviderId: String = "default",
@@ -164,6 +165,8 @@ class SettingsViewModel(
 
     fun update(transform: (SettingsFormState) -> SettingsFormState) { setForm(transform(form.value)) }
 
+    fun selectProviderType(type: ProviderType) = update { it.withProviderType(type) }
+
     fun selectSection(value: SettingsSection) {
         section.value = value
         savedState[SECTION_KEY] = value
@@ -279,6 +282,19 @@ class SettingsViewModel(
 }
 
 internal fun SettingsFormState.forSavedState(): SettingsFormState = copy(apiKey = "")
+
+internal fun SettingsFormState.withProviderType(type: ProviderType): SettingsFormState {
+    if (type == providerType) return this
+    val routing = type.defaultRouting()
+    return copy(
+        providerType = type,
+        baseUrl = type.adjustedBaseUrl(providerType, baseUrl),
+        supportsJsonMode = type.defaultSupportsJsonMode(),
+        routingSort = routing.sort,
+        routingFallbacks = if (type == ProviderType.OPENROUTER) routingFallbacks else "",
+        routingRequireParameters = routing.requireParameters,
+    )
+}
 
 internal fun settingsValidationErrors(value: SettingsFormState): Map<String, String> = buildMap {
     if (!isValidScheduleTime(value.schedule)) put("schedule", "请输入 00:00–23:59 的 HH:mm 时间")

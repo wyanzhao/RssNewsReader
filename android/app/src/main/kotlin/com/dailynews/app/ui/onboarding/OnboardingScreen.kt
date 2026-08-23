@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import com.dailynews.app.R
 import com.dailynews.app.ui.common.EmptyState
+import com.dailynews.app.ui.common.ProviderTypePicker
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.llm.ProviderType
 import com.dailynews.model.isValidScheduleTime
@@ -74,13 +75,39 @@ fun OnboardingScreen(viewModel: OnboardingViewModel) {
                 OnboardingStep.PROVIDER -> {
                     item { Text("配置 LLM Provider", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("密钥只保存在 Android 加密存储中。跳过后确定性抓取仍可运行，但编辑分支会明确 fail closed。") }
+                    item { ProviderTypePicker(state.type, viewModel::selectProviderType) }
                     item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
-                            ProviderType.entries.forEach { type -> OutlinedButton(onClick = { viewModel.update { it.copy(type = type) } }) { Text(type.name) } }
-                        }
+                        OutlinedTextField(
+                            state.baseUrl,
+                            { value -> viewModel.update { it.copy(baseUrl = value) } },
+                            label = { Text(stringResource(R.string.base_url)) },
+                            supportingText = {
+                                Text(
+                                    when (state.type) {
+                                        ProviderType.OPENROUTER -> "可留空，默认 OpenRouter 官方地址。"
+                                        ProviderType.OPENAI_COMPAT -> "OpenAI 官方或 DeepSeek / Kimi 等兼容端点。"
+                                        ProviderType.ANTHROPIC -> "Anthropic 官方 Messages API。"
+                                    },
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
-                    item { OutlinedTextField(state.baseUrl, { value -> viewModel.update { it.copy(baseUrl = value) } }, label = { Text(stringResource(R.string.base_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-                    item { OutlinedTextField(state.model, { value -> viewModel.update { it.copy(model = value) } }, label = { Text(stringResource(R.string.model)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                    item {
+                        OutlinedTextField(
+                            state.model,
+                            { value -> viewModel.update { it.copy(model = value) } },
+                            label = { Text(stringResource(R.string.model)) },
+                            supportingText = {
+                                if (state.type == ProviderType.OPENROUTER) {
+                                    Text("须带厂商前缀，例如 anthropic/claude-sonnet-4")
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     item {
                         OutlinedTextField(
                             state.apiKey,
@@ -94,7 +121,10 @@ fun OnboardingScreen(viewModel: OnboardingViewModel) {
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
                             Button(
-                                enabled = !state.busy && state.baseUrl.isNotBlank() && state.model.isNotBlank() && state.apiKey.isNotBlank(),
+                                enabled = !state.busy &&
+                                    (state.baseUrl.isNotBlank() || state.type == ProviderType.OPENROUTER) &&
+                                    state.model.isNotBlank() &&
+                                    state.apiKey.isNotBlank(),
                                 onClick = viewModel::saveProvider,
                             ) { Text("保存 Provider") }
                             OutlinedButton(onClick = viewModel::skipProvider, enabled = !state.busy) { Text("跳过并保持 fail closed") }

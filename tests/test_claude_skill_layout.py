@@ -52,6 +52,14 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn(".claude/agents/", text)
         self.assertNotIn(REMOVED_RUNTIME_DOC, text)
 
+    def test_agents_documents_onepassword_github_apk_release(self):
+        text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("op://Development/DailyNews Android Release Signing/keyAlias", text)
+        self.assertIn("DailyNews Android Release Keystore", text)
+        self.assertIn("gh release create", text)
+        self.assertIn("app-release.apk", text)
+        self.assertIn("never publish that", text)
+
     def test_shared_skill_file_has_expected_frontmatter(self):
         self.assertTrue(SKILL_MD.exists())
 

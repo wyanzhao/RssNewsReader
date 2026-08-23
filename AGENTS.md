@@ -70,27 +70,85 @@ drift is silent.
   iteration just completed. The version printed in the delivery message must be
   read back from the build, not from memory.
 
-## Release Signing
+## Release Signing And GitHub Publish
 
-Release APKs are signed with the keystore at `android/.signing/dailynews-release.jks`.
-The signing credentials live in 1Password and must never be committed, printed,
-or written anywhere except the gitignored `android/keystore.properties`.
+Release APKs are signed with the keystore at
+`android/.signing/dailynews-release.jks`. The keystore file and the three
+signing fields live in 1Password (vault `Development`) and must never be
+committed, printed, or written anywhere except the gitignored
+`android/.signing/` directory and `android/keystore.properties`.
 
-To build a signed release, fetch them through the `op` CLI and materialize
-`android/keystore.properties` in one shot (the passwords stay out of shell
-history and terminal output):
+1Password items:
+
+- Document `DailyNews Android Release Keystore` — the `.jks` file
+- Secure note `DailyNews Android Release Signing` — fields `keyAlias`,
+  `storePassword`, `keyPassword`
+
+Publishable artifact is always `app-release.apk` (v2/v3 signed).
+`app-release-unsigned.apk` must never be tagged, attached, or handed over.
+
+### Sign a release APK
+
+From the repo root, with `op` signed in:
 
 ```sh
+mkdir -p android/.signing
+if [ ! -f android/.signing/dailynews-release.jks ]; then
+  op document get 'DailyNews Android Release Keystore' --vault Development \
+    --out-file android/.signing/dailynews-release.jks --file-mode 0600
+fi
 printf 'storeFile=.signing/dailynews-release.jks\nkeyAlias=%s\nstorePassword=%s\nkeyPassword=%s\n' \
   "$(op read 'op://Development/DailyNews Android Release Signing/keyAlias')" \
   "$(op read 'op://Development/DailyNews Android Release Signing/storePassword')" \
   "$(op read 'op://Development/DailyNews Android Release Signing/keyPassword')" \
   > android/keystore.properties && chmod 600 android/keystore.properties
+( cd android && ./gradlew :app:assembleRelease )
 ```
 
-Then run `./gradlew :app:assembleRelease`. With neither `keystore.properties`
-nor the `DAILYNEWS_*` env vars configured the release variant stays unsigned
-(`app-release-unsigned.apk`) — never publish that.
+Then verify, reading `versionName` back from the APK rather than from memory:
+
+```sh
+APK=android/app/build/outputs/apk/release/app-release.apk
+test -f "$APK"
+"$ANDROID_SDK/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+"$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E 'package:|application-label'
+shasum -a 256 "$APK"
+```
+
+`$ANDROID_SDK` is `sdk.dir` in `android/local.properties`. With neither
+`keystore.properties` nor the `DAILYNEWS_*` env vars configured, the release
+variant stays unsigned — never publish that. A half-filled
+`keystore.properties` is a hard build failure.
+
+Archive `android/app/build/outputs/mapping/release/mapping.txt` next to the
+APK locally (needed to deobfuscate release crashes). Do not attach the mapping
+to the public GitHub release.
+
+### Push the sources and publish the APK on GitHub
+
+The signed APK is a GitHub Release asset, not a git blob. Tag name is
+`v<versionName>` and must match the APK's `versionName` / `versionCode`.
+
+```sh
+git push origin main
+VERSION="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
+  | sed -n 's/.*versionName='\''\([^'\'']*\)'\''.*/\1/p' )"
+CODE="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
+  | sed -n 's/.*versionCode='\''\([^'\'']*\)'\''.*/\1/p' )"
+SHA="$(shasum -a 256 "$APK" | awk '{print $1}')"
+gh release create "v${VERSION}" "$APK" \
+  --title "DailyNews ${VERSION}" \
+  --notes "$(printf '%s\n' \
+    "Signed Android release APK for DailyNews." \
+    "" \
+    "- Package: \`com.dailynews.app\`" \
+    "- Version: \`${VERSION}\` (\`versionCode\` ${CODE})" \
+    "- Signing: APK Signature Scheme v2 / v3" \
+    "- APK SHA-256: \`${SHA}\`")"
+```
+
+The release certificate is not the debug certificate: a device with a debug
+install must `adb uninstall com.dailynews.app` before installing this APK.
 
 ## Claude Code Usage
 
@@ -535,7 +593,7 @@ config files.
 - Keep deterministic rules in code and semantic judgment in the Claude Code runtime layer.
 - Do not move validation logic back into the orchestrator skill or subagents.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/skills/dailynews-report/SKILL.md`, `.claude/skills/dailynews-report/agents/openai.yaml`, the `.agents/skills/dailynews-report/SKILL.md` / `.agents/skills/dailynews-report/agents` symlinks, and the relevant `.claude/agents/*.md` files aligned.
+- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `.claude/skills/dailynews-report/SKILL.md`, `.claude/skills/dailynews-report/agents/openai.yaml`, the `.agents/skills/dailynews-report/SKILL.md` / `.agents/skills/dailynews-report/agents` symlinks, and the relevant `.claude/agents/*.md` files aligned. `CLAUDE.md` is a symlink to `AGENTS.md` — edit `AGENTS.md` only.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json`, `pipeline_config_fixture.json`, and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make
