@@ -3,6 +3,9 @@
 DailyNewsAgent is a two-stage RSS workflow that turns a curated feed list into a
 daily Chinese-language Markdown report.
 
+The project intentionally remains RSS-only. Weibo integration is not supported
+or planned because the required SDK / API access is unavailable.
+
 You can use it in two ways:
 
 1. **Deterministic Python pipeline**: fetch RSS feeds, deduplicate links,
