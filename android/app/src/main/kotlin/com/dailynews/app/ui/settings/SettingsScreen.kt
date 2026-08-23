@@ -46,6 +46,7 @@ import com.dailynews.app.ui.common.ProviderTypePicker
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.StructuredMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -221,6 +222,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
         )
     }
     item { NumberField("EDITOR maxTokens", form.editorMaxTokens, state.validationErrors["editorMaxTokens"]) { value -> viewModel.update { it.copy(editorMaxTokens = value) } } }
+    item {
+        ReasoningEffortPicker("EDITOR reasoning", form.editorReasoningEffort) { value ->
+            viewModel.update { it.copy(editorReasoningEffort = value) }
+        }
+    }
     item { EnumDropdown("Part 2 Provider", form.drafterProviderId, providerIds) { value -> viewModel.update { it.copy(drafterProviderId = value) } } }
     item {
         OutlinedTextField(
@@ -232,6 +238,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
         )
     }
     item { NumberField("DRAFTER maxTokens", form.drafterMaxTokens, state.validationErrors["drafterMaxTokens"]) { value -> viewModel.update { it.copy(drafterMaxTokens = value) } } }
+    item {
+        ReasoningEffortPicker("DRAFTER reasoning", form.drafterReasoningEffort) { value ->
+            viewModel.update { it.copy(drafterReasoningEffort = value) }
+        }
+    }
+    item {
+        Text(
+            "推理力度默认低。关闭则不发送该参数；不支持 reasoning 的模型请选关闭，否则可能被接口拒绝。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     item { Button(onClick = viewModel::saveRoleMapping, enabled = !state.busy && state.validationErrors.keys.none { it.endsWith("MaxTokens") }) { Text("保存角色映射") } }
     state.providerMessage?.let { item { Text(it) } }
 }
@@ -352,6 +370,13 @@ private fun NumberField(label: String, value: String, error: String?, onValue: (
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun ReasoningEffortPicker(label: String, selected: ReasoningEffort, onSelect: (ReasoningEffort) -> Unit) {
+    EnumDropdown(label, selected.menuLabel, ReasoningEffort.entries.map(ReasoningEffort::menuLabel)) { value ->
+        onSelect(ReasoningEffort.entries.first { it.menuLabel == value })
+    }
 }
 
 @Composable

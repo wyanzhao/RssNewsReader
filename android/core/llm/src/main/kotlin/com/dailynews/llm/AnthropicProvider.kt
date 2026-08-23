@@ -30,17 +30,14 @@ class AnthropicProvider(
         val schema = request.responseSchema
         val usesNativeSchema = mode == StructuredMode.JSON_SCHEMA && schema != null
         val usesTool = mode == StructuredMode.TOOL_USE && schema != null
+        val effort = request.reasoningEffort.wire
         val payload = AnthropicRequest(
             model = request.model,
             system = request.system,
             messages = listOf(AnthropicMessage("user", request.userContent)),
             maxTokens = request.maxTokens,
             temperature = request.temperature,
-            outputConfig = if (usesNativeSchema) {
-                AnthropicOutputConfig(AnthropicJsonFormat(type = "json_schema", schema = schema.schema))
-            } else {
-                null
-            },
+            outputConfig = anthropicOutputConfig(usesNativeSchema, schema, effort),
             tools = if (usesTool) listOf(AnthropicTool(TOOL_NAME, "Return the requested JSON object.", schema.schema)) else null,
             toolChoice = if (usesTool) buildJsonObject { put("type", "tool"); put("name", TOOL_NAME) } else null,
         )
@@ -50,6 +47,7 @@ class AnthropicProvider(
             .header("x-api-key", apiKey)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
+            .apply { if (effort != null) header("anthropic-beta", ANTHROPIC_EFFORT_BETA) }
             .post(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
             .build()
         val response = executeLlmHttp(client, httpRequest, "Anthropic provider ${config.id}")
@@ -93,6 +91,21 @@ class AnthropicProvider(
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         const val TOOL_NAME = "emit_json"
+        const val ANTHROPIC_EFFORT_BETA = "effort-2025-11-24"
+    }
+
+    private fun anthropicOutputConfig(
+        usesNativeSchema: Boolean,
+        schema: StructuredOutputSchema?,
+        effort: String?,
+    ): AnthropicOutputConfig? {
+        val format = if (usesNativeSchema && schema != null) {
+            AnthropicJsonFormat(type = "json_schema", schema = schema.schema)
+        } else {
+            null
+        }
+        if (format == null && effort == null) return null
+        return AnthropicOutputConfig(format = format, effort = effort)
     }
 
     private fun effectiveMode(request: LlmRequest): StructuredMode {
@@ -145,7 +158,10 @@ private data class AnthropicRequest(
 )
 
 @Serializable
-private data class AnthropicOutputConfig(val format: AnthropicJsonFormat)
+private data class AnthropicOutputConfig(
+    val format: AnthropicJsonFormat? = null,
+    val effort: String? = null,
+)
 
 @Serializable
 private data class AnthropicJsonFormat(

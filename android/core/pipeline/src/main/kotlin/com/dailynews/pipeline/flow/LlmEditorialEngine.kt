@@ -583,6 +583,7 @@ class LlmEditorialEngine(
             userContent = user + "\n\nReturn exactly one JSON object and no Markdown fencing.",
             maxTokens = maxTokens,
             responseSchema = schema,
+            reasoningEffort = binding.roleModel.reasoningEffort,
         )
         var lastTransportAttempt = 0
         return try {

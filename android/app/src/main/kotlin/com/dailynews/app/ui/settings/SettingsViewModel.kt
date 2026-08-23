@@ -15,6 +15,7 @@ import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderRouting
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.llm.StructuredMode
 import com.dailynews.model.PipelineConfig
@@ -47,6 +48,8 @@ data class SettingsFormState(
     val drafterModel: String = "",
     val editorMaxTokens: String = DEFAULT_EDITOR_MAX_TOKENS,
     val drafterMaxTokens: String = DEFAULT_DRAFTER_MAX_TOKENS,
+    val editorReasoningEffort: ReasoningEffort = RoleModelDefaults.REASONING_EFFORT,
+    val drafterReasoningEffort: ReasoningEffort = RoleModelDefaults.REASONING_EFFORT,
     val topN: String = "30",
     val schedule: String = "10:00",
     val wifiOnly: Boolean = false,
@@ -140,6 +143,8 @@ class SettingsViewModel(
                         drafterModel = providers.mapping.drafter.model,
                         editorMaxTokens = providers.mapping.editor.maxTokens.toString(),
                         drafterMaxTokens = providers.mapping.drafter.maxTokens.toString(),
+                        editorReasoningEffort = providers.mapping.editor.reasoningEffort,
+                        drafterReasoningEffort = providers.mapping.drafter.reasoningEffort,
                         topN = config.part1MaxItems.toString(),
                         schedule = config.scheduleTime,
                         wifiOnly = config.wifiOnlyPageEnrichment,
@@ -209,6 +214,8 @@ class SettingsViewModel(
             value.drafterModel,
             value.editorMaxTokens.toIntOrNull() ?: RoleModelDefaults.EDITOR_MAX_TOKENS,
             value.drafterMaxTokens.toIntOrNull() ?: RoleModelDefaults.DRAFTER_MAX_TOKENS,
+            value.editorReasoningEffort,
+            value.drafterReasoningEffort,
         )
         providerMessage.value = "EDITOR / DRAFTER 映射已保存"
     }

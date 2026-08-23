@@ -3,6 +3,7 @@ package com.dailynews.app.ui.settings
 import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.model.ContextBudgetConfig
 import com.dailynews.model.FetchConfig
@@ -29,6 +30,9 @@ class SettingsViewModelTest {
         // 用户一打开设置页就会看到一条无法保存的报错，而不是任何有用的提示。
         assertEquals(RoleModelDefaults.EDITOR_MAX_TOKENS, form.editorMaxTokens.toInt())
         assertEquals(RoleModelDefaults.DRAFTER_MAX_TOKENS, form.drafterMaxTokens.toInt())
+        assertEquals(ReasoningEffort.LOW, form.editorReasoningEffort)
+        assertEquals(ReasoningEffort.LOW, form.drafterReasoningEffort)
+        assertEquals(RoleModelDefaults.REASONING_EFFORT, ReasoningEffort.LOW)
         assertTrue(settingsValidationErrors(form).isEmpty(), settingsValidationErrors(form).toString())
         // 截断是硬失败（不重试），两个角色的默认上限都取允许区间顶部。
         assertEquals(RoleModelDefaults.MAX_MAX_TOKENS, RoleModelDefaults.EDITOR_MAX_TOKENS)

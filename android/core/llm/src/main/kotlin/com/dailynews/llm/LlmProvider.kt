@@ -19,6 +19,7 @@ data class LlmRequest(
     val assistantPrefill: String? = null,
     val structuredMode: StructuredMode = StructuredMode.AUTO,
     val responseSchema: StructuredOutputSchema? = null,
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.NONE,
 )
 
 @Serializable
@@ -123,11 +124,39 @@ data class ProviderConfig(
     val routing: ProviderRouting = ProviderRouting(),
 )
 
+/**
+ * 推理力度挡位。
+ *
+ * 线上取值对齐 OpenRouter 的统一集合：`minimal` / `low` / `medium` / `high` /
+ * `xhigh` / `max`。[NONE] 不把该字段写入请求体，给不支持 reasoning 的模型用。
+ * 用户可见的角色默认是 [LOW]。
+ */
+@Serializable
+enum class ReasoningEffort {
+    NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX;
+
+    /** 写入请求体的小写取值；[NONE] 为 null，表示省略该字段。 */
+    val wire: String? get() = if (this == NONE) null else name.lowercase()
+
+    val displayLabel: String get() = when (this) {
+        NONE -> "关闭"
+        MINIMAL -> "最低"
+        LOW -> "低"
+        MEDIUM -> "中"
+        HIGH -> "高"
+        XHIGH -> "极高"
+        MAX -> "最大"
+    }
+
+    val menuLabel: String get() = "${displayLabel}（${wire ?: "none"}）"
+}
+
 @Serializable
 data class RoleModel(
     val providerId: String,
     val model: String,
     val maxTokens: Int,
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.LOW,
 )
 
 /**
@@ -142,6 +171,7 @@ object RoleModelDefaults {
     const val MAX_MAX_TOKENS = 65_536
     const val EDITOR_MAX_TOKENS = MAX_MAX_TOKENS
     const val DRAFTER_MAX_TOKENS = MAX_MAX_TOKENS
+    val REASONING_EFFORT = ReasoningEffort.LOW
 }
 
 @Serializable

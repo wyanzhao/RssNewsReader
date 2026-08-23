@@ -606,6 +606,93 @@ class ProviderContractTest {
         }
     }
 
+    @Test
+    fun `openai compatible ships reasoning_effort and omits none`() = runBlocking {
+        MockWebServer().use { server ->
+            val body = """{"choices":[{"message":{"role":"assistant","content":"{\"x\":1}"},"finish_reason":"stop"}]}"""
+            server.enqueue(MockResponse().setBody(body))
+            server.enqueue(MockResponse().setBody(body))
+            server.start()
+            val provider = OpenAiCompatProvider(
+                ProviderConfig("p", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+
+            provider.complete(LlmRequest("model-a", "s", "u", 32, reasoningEffort = ReasoningEffort.LOW))
+            val withEffort = server.takeRequest().body.readUtf8()
+            assertTrue("\"reasoning_effort\":\"low\"" in withEffort, withEffort)
+            assertFalse("\"reasoning\":" in withEffort, withEffort)
+
+            provider.complete(LlmRequest("model-a", "s", "u", 32, reasoningEffort = ReasoningEffort.NONE))
+            val omitted = server.takeRequest().body.readUtf8()
+            assertFalse("reasoning" in omitted, omitted)
+        }
+    }
+
+    @Test
+    fun `openrouter ships reasoning object not top-level reasoning_effort`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"role":"assistant","content":"{\"x\":1}"},"finish_reason":"stop"}]}"""))
+            server.start()
+            OpenAiCompatProvider(
+                ProviderConfig("p", ProviderType.OPENROUTER, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            ).complete(LlmRequest("model-a", "s", "u", 32, reasoningEffort = ReasoningEffort.MEDIUM))
+            val payload = server.takeRequest().body.readUtf8()
+
+            assertTrue("\"reasoning\":{\"effort\":\"medium\"}" in payload, payload)
+            assertFalse("reasoning_effort" in payload, payload)
+        }
+    }
+
+    @Test
+    fun `anthropic ships output_config effort and beta header`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"content":[{"type":"text","text":"{\"x\":1}"}],"stop_reason":"end_turn"}"""))
+            server.enqueue(MockResponse().setBody("""{"content":[{"type":"text","text":"{\"x\":1}"}],"stop_reason":"end_turn"}"""))
+            server.start()
+            val provider = AnthropicProvider(
+                ProviderConfig("a", ProviderType.ANTHROPIC, server.url("").toString(), "alias", false),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+
+            provider.complete(LlmRequest("claude-test", "system", "user", 123, reasoningEffort = ReasoningEffort.LOW))
+            val withEffort = server.takeRequest()
+            val withEffortBody = withEffort.body.readUtf8()
+            assertEquals("effort-2025-11-24", withEffort.getHeader("anthropic-beta"))
+            assertTrue("\"effort\":\"low\"" in withEffortBody, withEffortBody)
+            assertTrue("\"output_config\"" in withEffortBody, withEffortBody)
+
+            provider.complete(LlmRequest("claude-test", "system", "user", 123, reasoningEffort = ReasoningEffort.NONE))
+            val omitted = server.takeRequest()
+            val omittedBody = omitted.body.readUtf8()
+            assertEquals(null, omitted.getHeader("anthropic-beta"))
+            assertFalse("\"effort\"" in omittedBody, omittedBody)
+            assertFalse("\"output_config\"" in omittedBody, omittedBody)
+        }
+    }
+
+    @Test
+    fun `anthropic keeps json schema format when effort is set`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"content":[{"type":"text","text":"{\"x\":1}"}],"stop_reason":"end_turn"}"""))
+            server.start()
+            AnthropicProvider(
+                ProviderConfig("a", ProviderType.ANTHROPIC, server.url("").toString(), "alias", true, StructuredMode.JSON_SCHEMA),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            ).complete(structuredRequest().copy(reasoningEffort = ReasoningEffort.HIGH))
+            val body = server.takeRequest().body.readUtf8()
+
+            assertTrue("\"output_config\"" in body, body)
+            assertTrue("\"type\":\"json_schema\"" in body, body)
+            assertTrue("\"effort\":\"high\"" in body, body)
+        }
+    }
+
     private fun structuredRequest() = LlmRequest(
         "model",
         "system",

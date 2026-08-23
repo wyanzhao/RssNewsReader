@@ -5,6 +5,7 @@ import com.dailynews.llm.LlmProvider
 import com.dailynews.llm.LlmRequest
 import com.dailynews.llm.LlmResponse
 import com.dailynews.llm.LlmTransportException
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.RoleModel
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.PeriodicDigestDraft
@@ -296,6 +297,38 @@ class LlmEditorialEngineTest {
         assertEquals(requests.map { it.link }, generated.map { it.link })
         // 每个操作都直接采用用户配置的角色上限，不再按操作隐式收窄。
         assertEquals(8_192, observedMaxTokens)
+    }
+
+    @Test
+    fun `editorial calls inherit the role reasoning effort`() = runBlocking {
+        var observed: ReasoningEffort? = null
+        val provider = object : LlmProvider {
+            override suspend fun complete(request: LlmRequest): LlmResponse {
+                observed = request.reasoningEffort
+                return LlmResponse(
+                    ArtifactJson.compact.encodeToString(
+                        MissingPart2Draft(listOf(MissingPart2DraftItem("a1", "中文摘要"))),
+                    ),
+                    stopReason = "stop",
+                )
+            }
+        }
+        val engine = LlmEditorialEngine(
+            ProviderResolver { _, _ ->
+                ProviderBinding("test", provider, RoleModel("test", "model", 8_192, ReasoningEffort.HIGH))
+            },
+            TestPrompts,
+        )
+
+        engine.generate(
+            "effort-run",
+            listOf(Part2SummaryRequest("Source", "Title", "https://one", "2026-08-04T00:00:00Z", "material")),
+            maxCalls = 1,
+            LlmExecutionConfig(),
+        )
+
+        assertEquals(ReasoningEffort.HIGH, observed)
+        assertEquals(ReasoningEffort.LOW, RoleModel("test", "model", 8_192).reasoningEffort)
     }
 
     @Test

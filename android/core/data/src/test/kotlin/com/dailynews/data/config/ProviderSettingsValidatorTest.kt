@@ -2,11 +2,14 @@ package com.dailynews.data.config
 
 import com.dailynews.llm.ProviderConfig
 import com.dailynews.llm.ProviderType
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.RoleModel
 import com.dailynews.llm.RoleModelMapping
+import com.dailynews.model.ArtifactJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlinx.serialization.decodeFromString
 
 class ProviderSettingsValidatorTest {
     @Test
@@ -29,5 +32,24 @@ class ProviderSettingsValidatorTest {
         assertFailsWith<IllegalArgumentException> {
             ProviderSettingsValidator.requireMapping(settings, "known", "known", "", "drafter")
         }
+    }
+
+    @Test
+    fun missingReasoningEffortDecodesAsLow() {
+        val json = """
+            {
+              "providers": [],
+              "mapping": {
+                "editor": {"providerId": "default", "model": "editor-model", "maxTokens": 8192},
+                "drafter": {"providerId": "default", "model": "drafter-model", "maxTokens": 4096}
+              }
+            }
+        """.trimIndent()
+
+        val decoded = ArtifactJson.codec.decodeFromString<ProviderSettings>(json)
+
+        assertEquals(ReasoningEffort.LOW, decoded.mapping.editor.reasoningEffort)
+        assertEquals(ReasoningEffort.LOW, decoded.mapping.drafter.reasoningEffort)
+        assertEquals(ReasoningEffort.LOW, RoleModel("default", "model", 8_192).reasoningEffort)
     }
 }

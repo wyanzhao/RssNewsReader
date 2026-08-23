@@ -5,6 +5,7 @@ import com.dailynews.llm.OpenRouterDefaults
 import com.dailynews.llm.ProviderConfig
 import com.dailynews.llm.ProviderType
 import com.dailynews.llm.ProviderRouting
+import com.dailynews.llm.ReasoningEffort
 import com.dailynews.llm.RoleModel
 import com.dailynews.llm.RoleModelDefaults
 import com.dailynews.llm.RoleModelMapping
@@ -153,13 +154,15 @@ class ProviderSettingsRepository(context: Context) {
         drafterModel: String,
         editorMaxTokens: Int,
         drafterMaxTokens: Int,
+        editorReasoningEffort: ReasoningEffort = RoleModelDefaults.REASONING_EFFORT,
+        drafterReasoningEffort: ReasoningEffort = RoleModelDefaults.REASONING_EFFORT,
     ): ProviderSettings {
         val current = load()
         ProviderSettingsValidator.requireMapping(current, editorProviderId, drafterProviderId, editorModel, drafterModel)
         val updated = current.copy(
             mapping = RoleModelMapping(
-                RoleModel(editorProviderId, editorModel.trim(), clampMaxTokens(editorMaxTokens)),
-                RoleModel(drafterProviderId, drafterModel.trim(), clampMaxTokens(drafterMaxTokens)),
+                RoleModel(editorProviderId, editorModel.trim(), clampMaxTokens(editorMaxTokens), editorReasoningEffort),
+                RoleModel(drafterProviderId, drafterModel.trim(), clampMaxTokens(drafterMaxTokens), drafterReasoningEffort),
             ),
         )
         save(updated)

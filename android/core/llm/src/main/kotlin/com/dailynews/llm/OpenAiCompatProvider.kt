@@ -29,6 +29,7 @@ class OpenAiCompatProvider(
         val mode = effectiveMode(request)
         val responseFormat = responseFormat(mode, request.responseSchema)
         val routing = config.routing.forTransport(config.type)
+        val effort = request.reasoningEffort.wire
         val payload = OpenAiRequest(
             model = request.model,
             messages = buildList {
@@ -41,6 +42,10 @@ class OpenAiCompatProvider(
             // OpenRouter 要求备选列表把主模型放在第一位。
             models = routing.modelFallbacks.takeIf { it.isNotEmpty() }?.let { listOf(request.model) + it },
             provider = openRouterPreferences(routing),
+            // OpenRouter 用统一的 `reasoning.effort`；官方 OpenAI / xAI 兼容端点用顶层
+            // `reasoning_effort`。两种形态互发都会被对方当成未知字段。
+            reasoning = if (config.type.usesOpenRouterProtocol) effort?.let(::OpenAiReasoning) else null,
+            reasoningEffort = if (!config.type.usesOpenRouterProtocol) effort else null,
         )
         val endpoint = ProviderEndpoints.openAi(config.baseUrl)
         val httpRequest = Request.Builder()
@@ -178,7 +183,12 @@ private data class OpenAiRequest(
     /** OpenRouter 扩展；null 时不进入请求体，兼容端点不会看到未知字段。 */
     val models: List<String>? = null,
     val provider: OpenRouterPreferences? = null,
+    val reasoning: OpenAiReasoning? = null,
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
 )
+
+@Serializable
+private data class OpenAiReasoning(val effort: String)
 
 @Serializable
 private data class OpenRouterPreferences(
