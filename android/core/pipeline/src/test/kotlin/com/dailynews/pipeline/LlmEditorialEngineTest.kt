@@ -294,14 +294,12 @@ class LlmEditorialEngineTest {
         )
 
         assertEquals(requests.map { it.link }, generated.map { it.link })
-        // 批量摘要按操作收窄，而不是照搬角色上限：max_tokens 是预留，供应商按
-        // 「输入 + 预留」判断能否受理，一批 25 条短摘要没有理由预留 8K。
-        assertTrue(observedMaxTokens < 8_192, "expected a per-operation cap, got $observedMaxTokens")
-        assertTrue(observedMaxTokens >= 2_048, "cap must stay clear of truncation, got $observedMaxTokens")
+        // 每个操作都直接采用用户配置的角色上限，不再按操作隐式收窄。
+        assertEquals(8_192, observedMaxTokens)
     }
 
     @Test
-    fun `shortlist reserves far less than the plan, and never more than the role cap`() = runBlocking {
+    fun `shortlist and plan both reserve the user configured role cap`() = runBlocking {
         val artifacts = lowVolumeArtifacts(cachedPart2 = false)
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
         val responses = ArrayDeque(
@@ -340,11 +338,9 @@ class LlmEditorialEngineTest {
         )
 
         val (shortlistCap, planCap) = observed
-        // 短名单只吐几十个 `a12` 形状的 id；照搬 12288 会在 32K 上下文的便宜模型上
-        // 变成「26K 输入 + 12K 预留」直接 400。计划确实要写满，保持角色上限。
+        // 短名单与计划都直接采用用户配置的角色上限，不再按操作隐式收窄。
         assertEquals(12_288, planCap)
-        assertTrue(shortlistCap < planCap, "shortlist should reserve less than the plan, got $shortlistCap")
-        assertTrue(shortlistCap <= 12_288, "never exceed the user's role cap")
+        assertEquals(12_288, shortlistCap)
     }
 
     @Test

@@ -230,7 +230,7 @@ class LlmEditorialEngine(
                 codec.encodeToString(brief) + shortlistFeedback,
                 retryIndex,
                 counter,
-                outputCap(binding, OutputCaps.SHORTLIST),
+                binding.roleModel.maxTokens,
                 operation = "part1_shortlist",
             )
             val decodedShortlist = runCatching { codec.decodeFromJsonElement<Part1ShortlistDraft>(shortlistObject) }
@@ -480,7 +480,7 @@ class LlmEditorialEngine(
                 codec.encodeToString(input) + feedback,
                 retryIndex,
                 counter,
-                outputCap(binding, OutputCaps.PART2_BATCH),
+                binding.roleModel.maxTokens,
                 operation = "part2_batch",
                 batch = (batchIndex + 1).toString(),
                 auditIndexBase = batchIndex * 100,
@@ -617,27 +617,8 @@ class LlmEditorialEngine(
     }
 }
 
-/**
- * 每个操作实际需要的输出上限。
- *
- * `max_tokens` 是**预留**，不是计费——但供应商按"输入 + 预留"判断能否受理。角色级的
- * 16384 让只需吐几百个 token 的短名单在 32K 上下文的便宜模型上直接 400（26K 输入 +
- * 16K 预留），并且会收窄 OpenRouter `require_parameters` 能接受的提供商池。
- *
- * 截断是硬失败（不重试），所以每个值都往宽里估：短名单 45 个 `a12` 形状的 id 约 300
- * token，批量摘要 25 条 × 60 字约 2.5K。计划与周报保持角色级上限——它们确实要写满。
- */
-private object OutputCaps {
-    const val SHORTLIST = 2_048
-    const val PART2_BATCH = 4_096
-}
-
 /** 实测正常日约 114 KB。超出这个数就值得在日志里留一行，因为它每轮重试都重发。 */
 private const val SHORTLIST_CONTEXT_WARN_BYTES = 200_000
-
-/** 永不超过用户配置的角色上限：这是他们为自己的模型选的天花板。 */
-private fun outputCap(binding: ProviderBinding, operationCap: Int) =
-    minOf(binding.roleModel.maxTokens, operationCap)
 
 private class CallCounter(private val maximum: Int) {
     private var count = 0
