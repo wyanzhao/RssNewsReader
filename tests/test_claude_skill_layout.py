@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -39,12 +40,11 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 
 class ClaudeSkillLayoutTests(unittest.TestCase):
-    def test_claude_md_is_regular_file_and_points_to_skill(self):
-        self.assertTrue(CLAUDE_MD.exists())
-        self.assertFalse(CLAUDE_MD.is_symlink(), "CLAUDE.md should be a regular file")
+    def test_claude_md_is_symlink_to_agents_and_points_to_skill(self):
+        self.assertTrue(CLAUDE_MD.is_symlink(), "CLAUDE.md must be a symlink to AGENTS.md")
+        self.assertEqual(os.readlink(CLAUDE_MD), "AGENTS.md")
 
         text = CLAUDE_MD.read_text(encoding="utf-8")
-        self.assertIn("@AGENTS.md", text)
         self.assertIn("TASKS.md", text)
         self.assertIn("/dailynews-report", text)
         self.assertIn(".claude/skills/dailynews-report/SKILL.md", text)

@@ -1,7 +1,7 @@
 # DailyNewsAgent Guide
 
-> `CLAUDE.md` is the Claude Code entrypoint and imports `AGENTS.md`.
 > `AGENTS.md` is the source of truth for the repo contract and maintainer guidance.
+> `CLAUDE.md` is a symlink to `AGENTS.md`, so the Claude Code entrypoint reads this same file.
 > `.claude/skills/dailynews-report/SKILL.md` is the shared Claude Code / Codex skill file.
 > `.agents/skills/dailynews-report/SKILL.md` is a symlink to the same file.
 
@@ -25,7 +25,7 @@ them; the divergence is a product decision, not a bug.
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
-- `CLAUDE.md` is the Claude Code entrypoint for this repo. It imports `AGENTS.md`, points task-style work to the shared project skill, and owns the version bump rule (see `Versioning` below).
+- `CLAUDE.md` is the Claude Code entrypoint for this repo and must remain a symlink to `AGENTS.md`, so both entrypoints read one file. Task-style work goes to the shared project skill; the version bump rule lives in `Versioning` below.
 - `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
 - `pipeline_config.json` is the repo-level deterministic pipeline config for fetch defaults (time window, summary cap), summary-enrichment, and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
@@ -41,15 +41,65 @@ The app version lives in exactly one place — `versionCode` / `versionName` in
 `android/app/build.gradle.kts`. There is no second version string in this repo,
 and `scripts/` (the Python pipeline) is deliberately versionless.
 
-**The bump rule itself is defined in `CLAUDE.md` under `Version Bump Rule`, and
-that file is the single source of truth for it.** It binds every agent working
-in this repo, Codex included — read it before changing anything under
-`android/`. It is stated there rather than restated here on purpose: two copies
-of a numeric policy drift, and the drift is silent.
+The bump rule below binds every agent working in this repo, Codex included —
+read it before changing anything under `android/`. It lives here, in the single
+source-of-truth file, because two copies of a numeric policy drift, and the
+drift is silent.
 
-Note the direction of the reference. `CLAUDE.md` imports `AGENTS.md` with
-`@AGENTS.md`; this section is a plain pointer back, never an `@`-import, so the
-two files do not form an import cycle.
+### Version Bump Rule
+
+- **Every iteration bumps `versionName` by 0.01.** Read `0.M.P` as the decimal
+  `0.MP`: `0.2.0` → `0.2.1` → `0.2.2` → … The patch component therefore never
+  exceeds `9`; `0.2.9 + 0.01` carries into `0.3.0`.
+- **A major iteration bumps by 0.1 instead**: `0.2.x` → `0.3.0`, and `0.9.x` →
+  `1.0.0`. Major means a whole Epic, a Room schema migration, a new top-level
+  screen, or any user-visible change big enough to deserve its own release
+  note. When in doubt, ask rather than guessing — a version is a promise to the
+  device that already has the old APK installed.
+- **`versionCode` is +1 on every bump, without exception.** Android refuses to
+  install an APK whose `versionCode` is not strictly greater than the installed
+  one, so a forgotten bump does not fail the build — it fails silently on the
+  user's phone during upgrade testing.
+- **The bump ships in the same commit as the work it versions**, never as a
+  separate "bump version" commit. Reviewing a diff should show what changed and
+  which version carries it, together.
+- **What does not bump:** doc-only, test-only, or tooling-only changes, and
+  anything confined to `scripts/` (the Python pipeline is versionless and does
+  not share this number).
+- Before handing over an APK, confirm the built `versionName` matches the
+  iteration just completed. The version printed in the delivery message must be
+  read back from the build, not from memory.
+
+## Release Signing
+
+Release APKs are signed with the keystore at `android/.signing/dailynews-release.jks`.
+The signing credentials live in 1Password and must never be committed, printed,
+or written anywhere except the gitignored `android/keystore.properties`.
+
+To build a signed release, fetch them through the `op` CLI and materialize
+`android/keystore.properties` in one shot (the passwords stay out of shell
+history and terminal output):
+
+```sh
+printf 'storeFile=.signing/dailynews-release.jks\nkeyAlias=%s\nstorePassword=%s\nkeyPassword=%s\n' \
+  "$(op read 'op://Development/DailyNews Android Release Signing/keyAlias')" \
+  "$(op read 'op://Development/DailyNews Android Release Signing/storePassword')" \
+  "$(op read 'op://Development/DailyNews Android Release Signing/keyPassword')" \
+  > android/keystore.properties && chmod 600 android/keystore.properties
+```
+
+Then run `./gradlew :app:assembleRelease`. With neither `keystore.properties`
+nor the `DAILYNEWS_*` env vars configured the release variant stays unsigned
+(`app-release-unsigned.apk`) — never publish that.
+
+## Claude Code Usage
+
+- `AGENTS.md` remains the source of truth for the repository contract and maintainer guidance. `CLAUDE.md` is a symlink to this file, so there is nothing left to `@`-import.
+- `TASKS.md` is the long-running tracker for Claude Code architecture changes in this repo.
+- For the full report workflow, use the project-local orchestrator skill `/dailynews-report` at `.claude/skills/dailynews-report/SKILL.md`; Codex reaches the same file through `.agents/skills/dailynews-report/SKILL.md` (entry: `$dailynews-report`).
+- Codex Skill UI metadata lives at `.claude/skills/dailynews-report/agents/openai.yaml`; `.agents/skills/dailynews-report/agents` is a symlink to the same metadata directory.
+- `.claude/agents/*.md` defines the subagents used by the orchestrator skill.
+- The skill is intentionally manual-only because it runs a heavy, write-producing workflow that can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
 
 ## Entry Points
 

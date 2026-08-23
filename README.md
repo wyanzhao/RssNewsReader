@@ -239,7 +239,7 @@ network-debug helper behavior, and the Claude Code repo layout.
 
 If you use Claude Code or Codex in this repo:
 
-- [`CLAUDE.md`](CLAUDE.md) is the project entrypoint and imports [`AGENTS.md`](AGENTS.md)
+- [`CLAUDE.md`](CLAUDE.md) is the project entrypoint; it is a symlink to [`AGENTS.md`](AGENTS.md)
 - the shared project-local orchestrator skill lives at [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md)
 - the Codex / agent skill path [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md) is a symlink to the same file
 - Codex Skill UI metadata lives at [`.claude/skills/dailynews-report/agents/openai.yaml`](.claude/skills/dailynews-report/agents/openai.yaml), with [`.agents/skills/dailynews-report/agents`](.agents/skills/dailynews-report/agents) symlinked to the same directory
@@ -294,7 +294,7 @@ tests/
 feeds.json                 user-editable RSS source list
 pipeline_config.json       user-editable summary fallback / render settings
 AGENTS.md                  pipeline contract and maintainer guide
-CLAUDE.md                  Claude Code entrypoint; imports AGENTS.md
+CLAUDE.md                  Claude Code entrypoint; symlink to AGENTS.md
 TASKS.md                   maintainer tracker for architecture work
 .claude/skills/dailynews-report/
   SKILL.md                 shared Claude Code / Codex orchestrator skill
@@ -310,7 +310,7 @@ TASKS.md                   maintainer tracker for architecture work
 
 - [`AGENTS.md`](AGENTS.md): repository contract, artifact schemas, runtime boundaries,
   and shared-module guidance
-- [`CLAUDE.md`](CLAUDE.md): Claude Code entrypoint for this repo
+- [`CLAUDE.md`](CLAUDE.md): Claude Code entrypoint for this repo (symlink to `AGENTS.md`)
 - [`.claude/skills/dailynews-report/SKILL.md`](.claude/skills/dailynews-report/SKILL.md):
   shared manual Claude Code / Codex orchestrator workflow
 - [`.agents/skills/dailynews-report/SKILL.md`](.agents/skills/dailynews-report/SKILL.md):
