@@ -16,6 +16,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from _common.fsio import LockTimeoutError, file_lock  # noqa: E402
 from _common.paths import (  # noqa: E402
     report_path as build_report_path,
     runs_dir_for,
@@ -56,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "days (default: 90). Pass 0 to keep nothing past today.")
     parser.add_argument("--no-cleanup", action="store_true",
                         help="Skip the runs/ directory cleanup pass.")
+    parser.add_argument("--lock-wait-seconds", type=float, default=120.0,
+                        help="Max seconds to wait for the report-date run lock when "
+                             "another same-date run is in progress (default: 120). "
+                             "On timeout the run aborts with exit 40 before writing "
+                             "any artifact, leaving the in-progress run's evidence "
+                             "untouched. Pass 0 to fail immediately instead of waiting.")
     return parser
 
 
@@ -203,6 +210,53 @@ def main() -> int:
         return 10
     runs_root = Path(args.runs_dir).expanduser().resolve()
     runs_dir = runs_dir_for(runs_root, report_date)
+
+    # Serialize each report date before any raw / validation / context /
+    # stderr artifact is written. An overlapping same-date invocation waits up
+    # to --lock-wait-seconds for the lock and then aborts with exit 40, so it
+    # can never overwrite or mismatch the in-progress run's evidence.
+    lock_path = runs_dir / "run"
+    try:
+        with file_lock(lock_path, timeout=args.lock_wait_seconds):
+            return _run_locked(args, report_date, runs_root, runs_dir,
+                               hours, max_summary)
+    except LockTimeoutError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        print(
+            "Another same-date run holds the date lock; this invocation wrote "
+            "no artifacts. Wait for it to finish and re-run, or raise "
+            "--lock-wait-seconds.",
+            file=sys.stderr,
+        )
+        if args.json_output:
+            # Keep the control-plane contract well-formed for --json-output
+            # callers even on abort. Deliberately no *.failed.md is written:
+            # the date is owned by the in-progress run, and writing any
+            # date-keyed output here could clobber that run's evidence.
+            failed_report = infer_report_path(
+                build_report_path(ROOT_DIR, report_date), None,
+            )
+            print(json.dumps({
+                "report_date": report_date,
+                "run_dir": str(runs_dir),
+                "raw_path": str(runs_dir / "raw.json"),
+                "validation_path": str(runs_dir / "validation.json"),
+                "llm_context_path": str(runs_dir / "llm_context.json"),
+                "report_path": str(failed_report),
+                "validation_passed": False,
+                "validator_exit_code": 40,
+            }, ensure_ascii=False, indent=2))
+        return 40
+
+
+def _run_locked(args: argparse.Namespace, report_date: str, runs_root: Path,
+                runs_dir: Path, hours: int, max_summary: int) -> int:
+    """The fetch -> validate -> llm_context -> render pipeline for one date.
+
+    Runs entirely under the report-date lock acquired in :func:`main`, so a
+    concurrent same-date invocation cannot interleave with these artifact
+    writes.
+    """
     raw_path = runs_dir / "raw.json"
     validation_path = runs_dir / "validation.json"
     llm_context_path = runs_dir / "llm_context.json"

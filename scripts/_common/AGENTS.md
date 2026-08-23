@@ -34,6 +34,14 @@
   cross-run ledgers additionally serialize read-modify-write cycles with
   `fsio.file_lock` (`<file>.lock` sidecars). Never bypass them for ledger
   files (`runs/_seen_links.json`, `runs/_cache/editorial_cache.json`).
+  `file_lock` also accepts a bounded `timeout`; `rss_daily_report.py` uses
+  that to serialize each report date on `runs/<date>/run.lock` so a second
+  overlapping same-date run aborts before writing shared artifacts.
+- **Untrusted-URL policy is hop-and-connect scoped.** `feed_fetch.py`
+  applies the denylist to the original URL, every redirect destination, and
+  the address actually dialed. DNS is an injectable `resolve_fn` boundary;
+  do not call `socket.getaddrinfo` from the fetch path except through
+  `default_resolve`.
 - **Seen-links semantics.** `seen_links.py` entries are recorded only by
   `editorial_runtime.py assemble` (published success reports); entries with
   the same run date never filter, keeping same-day re-runs idempotent.

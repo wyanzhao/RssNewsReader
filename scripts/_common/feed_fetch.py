@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import errno
+import http.client
 import ipaddress
 import socket
 import sys
 import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from .feed_parse import extract_html_summary, parse_feed
 from .runtime_config import (
@@ -80,7 +83,67 @@ def _is_blocked_address(address) -> bool:
     return any(address in network for network in networks)
 
 
-def validate_fetch_url(url: str) -> None:
+# ---------------------------------------------------------------------------
+# Untrusted-URL policy enforcement
+# ---------------------------------------------------------------------------
+#
+# Feed and article URLs are untrusted input, so the policy is enforced at
+# three layers that all share the same denylist:
+#
+# 1. ``validate_fetch_url`` — pre-flight scheme/host check on the original URL
+#    (and, via the redirect handler, on every redirect hop);
+# 2. ``_GuardedRedirectHandler`` — re-applies that check to each redirect
+#    destination *before* a follow-up request is built, so a public URL cannot
+#    302 the fetch onto a forbidden network;
+# 3. ``_resolve_and_pin`` — re-resolves the host at connect time, validates the
+#    actual DNS answer, and the connection dials exactly the validated address.
+#    Because nothing re-resolves after that, a DNS answer that changes between
+#    any earlier check and the connection (rebinding) cannot smuggle the fetch
+#    onto a forbidden network.
+#
+# Name resolution is an explicit injectable boundary (``resolver``): the
+# production default wraps ``socket.getaddrinfo``, while the offline test
+# suite supplies deterministic public / private / failure / multi-address
+# answers, so the focused fetch tests behave identically with or without host
+# DNS access.
+
+#: Injectable resolver: host name -> list of IP-literal strings.
+ResolveFn = Callable[[str], List[str]]
+
+
+def default_resolve(host: str) -> List[str]:
+    """Production resolver: all TCP addresses for ``host``, deduplicated.
+
+    Raises ``OSError`` (e.g. ``socket.gaierror``) when the name does not
+    resolve; callers let that surface as the fetch's own connection error
+    rather than treating it as a policy block.
+    """
+    infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    addresses: List[str] = []
+    for info in infos:
+        addr = info[4][0].split("%")[0]
+        if addr not in addresses:
+            addresses.append(addr)
+    return addresses
+
+
+def _check_resolved_addresses(host: str, addresses: List[str], url: str) -> None:
+    """Reject a DNS answer containing any denylisted address.
+
+    A mixed public/internal answer is refused outright: round-robin between a
+    legitimate record and an internal one is exactly how a poisoned answer
+    slips past a check that only looked at the first record.
+    """
+    for addr in addresses:
+        address = ipaddress.ip_address(addr.split("%")[0])
+        if _is_blocked_address(address):
+            raise BlockedUrlError(
+                f"fetch URL host {host!r} resolves to an internal address "
+                f"({addr}): {url!r}"
+            )
+
+
+def validate_fetch_url(url: str, resolver: Optional[ResolveFn] = None) -> None:
     """Reject non-http(s) schemes and hosts that are (or resolve to) internal.
 
     Article links come from feed content, which is untrusted input. ``urlopen``
@@ -95,8 +158,13 @@ def validate_fetch_url(url: str) -> None:
 
     DNS resolution failures are let through: the fetch itself will then fail
     with the real name-resolution error, keeping failure modes distinguishable
-    from a deliberate block. Resolution results are not pinned, so this stays
-    a best-effort filter rather than a DNS-rebinding-proof guarantee.
+    from a deliberate block. This pre-flight check is best-effort on hostnames
+    (the authoritative bind to a policy-checked address happens at connect
+    time in ``_resolve_and_pin``); on redirect hops it runs inside
+    ``_GuardedRedirectHandler`` before the follow-up request is built.
+
+    ``resolver`` is the injectable DNS boundary; it defaults to
+    :func:`default_resolve`.
     """
     try:
         parsed = urlparse(url)
@@ -117,16 +185,144 @@ def validate_fetch_url(url: str) -> None:
         if _is_blocked_address(literal):
             raise BlockedUrlError(f"fetch URL host is an internal address: {url!r}")
         return
+    resolve = resolver or default_resolve
     try:
-        infos = socket.getaddrinfo(host, None)
+        addresses = resolve(host)
     except (OSError, UnicodeError):
         return
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0].split("%")[0])
-        if _is_blocked_address(address):
-            raise BlockedUrlError(
-                f"fetch URL host resolves to an internal address: {url!r}"
-            )
+    _check_resolved_addresses(host, addresses, url)
+
+
+def _resolve_and_pin(host: str, port: int,
+                     resolver: ResolveFn) -> str:
+    """Connect-time gate: resolve ``host``, apply the denylist, return the
+    address the socket must dial.
+
+    The caller connects to exactly the returned address and never re-resolves,
+    so the destination actually reached is one this gate just validated.
+    Resolution failures propagate unchanged (the fetch then reports the real
+    name-resolution error instead of a policy block).
+    """
+    addresses = resolver(host)
+    if not addresses:
+        raise URLError(socket.gaierror(f"no addresses found for host {host!r}"))
+    _check_resolved_addresses(host, addresses, f"{host}:{port}")
+    return addresses[0].split("%")[0]
+
+
+def _dial(address: Tuple[str, int], timeout, source_address):
+    """socket.create_connection seam (patch target for offline tests)."""
+    return socket.create_connection(address, timeout, source_address)
+
+
+class _GuardedHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that only ever dials a denylist-validated address."""
+
+    def __init__(self, host, port=None, *, resolve_fn: Optional[ResolveFn] = None,
+                 **kwargs):
+        super().__init__(host, port, **kwargs)
+        self._resolve_fn = resolve_fn or default_resolve
+
+    def connect(self) -> None:
+        target = _resolve_and_pin(self.host, self.port, self._resolve_fn)
+        self.sock = _dial((target, self.port), self.timeout, self.source_address)
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError as exc:
+            if exc.errno != errno.ENOPROTOOPT:
+                raise
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection that only ever dials a denylist-validated address.
+
+    SNI and certificate verification keep using the original hostname even
+    though the socket is dialed by IP.
+    """
+
+    def __init__(self, host, port=None, *, resolve_fn: Optional[ResolveFn] = None,
+                 **kwargs):
+        super().__init__(host, port, **kwargs)
+        self._resolve_fn = resolve_fn or default_resolve
+
+    def connect(self) -> None:
+        target = _resolve_and_pin(self.host, self.port, self._resolve_fn)
+        sock = _dial((target, self.port), self.timeout, self.source_address)
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError as exc:
+            if exc.errno != errno.ENOPROTOOPT:
+                raise
+        server_hostname = self._tunnel_host or self.host
+        self.sock = self._context.wrap_socket(sock, server_hostname=server_hostname)
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, resolve_fn: Optional[ResolveFn] = None):
+        super().__init__()
+        self._resolve_fn = resolve_fn
+
+    def http_open(self, req):
+        return self.do_open(_GuardedHTTPConnection, req, resolve_fn=self._resolve_fn)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, resolve_fn: Optional[ResolveFn] = None):
+        super().__init__()
+        self._resolve_fn = resolve_fn
+
+    def https_open(self, req):
+        return self.do_open(_GuardedHTTPSConnection, req,
+                            context=self._context, resolve_fn=self._resolve_fn)
+
+
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-applies the untrusted-URL policy to every redirect destination.
+
+    Without this, ``validate_fetch_url`` only ever saw the original URL and
+    urllib followed 3xx hops unchecked — a feed URL that resolves publicly
+    could redirect to loopback / RFC 1918 / link-local / metadata hosts. The
+    block raises before the follow-up request is built, so the forbidden
+    destination is never connected to and its body is never read.
+    """
+
+    def __init__(self, resolve_fn: Optional[ResolveFn] = None):
+        self._resolve_fn = resolve_fn
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_fetch_url(newurl, resolver=self._resolve_fn)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def build_guarded_opener(resolve_fn: Optional[ResolveFn] = None):
+    """Opener whose every request and redirect hop goes through the URL policy.
+
+    Proxies are disabled (``ProxyHandler({})``): an environment-configured HTTP
+    proxy would otherwise become an unchecked intermediate destination (and a
+    route around the guard). The documented local-proxy setups for this repo
+    (Clash / Surge fake-IP mode) operate at the DNS layer and work unchanged.
+    """
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _GuardedHTTPHandler(resolve_fn),
+        _GuardedHTTPSHandler(resolve_fn),
+        _GuardedRedirectHandler(resolve_fn),
+    )
+
+
+def guarded_urlopen(request, timeout=None,
+                    resolve_fn: Optional[ResolveFn] = None):
+    """urlopen replacement that routes through :func:`build_guarded_opener`.
+
+    This is the seam the offline retry tests patch; production code reaches it
+    only via :func:`fetch_url`.
+    """
+    opener = build_guarded_opener(resolve_fn)
+    if timeout is None:
+        return opener.open(request)
+    return opener.open(request, timeout=timeout)
 
 
 def _read_capped(response, max_bytes: int) -> bytes:
@@ -162,8 +358,16 @@ def _is_retryable(exc: BaseException) -> bool:
 
 def fetch_url(url: str, timeout: int = 30, retries: int = 2,
               headers: Optional[Dict[str, str]] = None,
-              user_agent: str = "") -> Tuple[bytes, Optional[str]]:
-    """Fetch URL content with retry on transient errors."""
+              user_agent: str = "",
+              resolve_fn: Optional[ResolveFn] = None) -> Tuple[bytes, Optional[str]]:
+    """Fetch URL content with retry on transient errors.
+
+    The untrusted-URL policy is enforced on every destination this fetch can
+    reach: the original URL up front, every redirect hop before it is
+    followed, and the address actually dialed at connect time (see the
+    module-level policy note). ``resolve_fn`` is the injectable DNS boundary;
+    it defaults to :func:`default_resolve`.
+    """
     request_headers = {
         "User-Agent": user_agent or DEFAULT_USER_AGENT,
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
@@ -171,16 +375,22 @@ def fetch_url(url: str, timeout: int = 30, retries: int = 2,
     if headers:
         request_headers.update(headers)
 
+    resolve = resolve_fn or default_resolve
+
     # Deliberately outside the retry loop: a blocked URL is a policy decision,
     # and retrying it byte for byte cannot change the answer.
-    validate_fetch_url(url)
+    validate_fetch_url(url, resolver=resolve)
 
     last_error: Optional[BaseException] = None
     for attempt in range(retries + 1):
         try:
             req = Request(url, headers=request_headers)
-            # Scheme/host allow-list enforced by validate_fetch_url above.
-            with urlopen(req, timeout=timeout) as response:  # nosec B310
+            # Scheme/host policy is enforced above for the original URL; the
+            # guarded opener re-checks every redirect hop and binds each
+            # connection to a policy-validated address. BlockedUrlError is a
+            # ValueError, so it deliberately bypasses the retry tuple below.
+            with guarded_urlopen(req, timeout=timeout,
+                                 resolve_fn=resolve) as response:  # nosec B310
                 raw = _read_capped(response, MAX_RESPONSE_BYTES)
                 charset = response.headers.get_content_charset()
                 return raw, charset

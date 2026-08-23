@@ -26,14 +26,14 @@ from pathlib import Path
 from typing import Dict, List
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from _common.feed_fetch import validate_fetch_url  # noqa: E402
+from _common.feed_fetch import guarded_urlopen, validate_fetch_url  # noqa: E402
 
 FEEDS_FILE = SCRIPT_DIR.parent / "feeds.json"
 ENV_KEYS = [
@@ -108,7 +108,9 @@ def http_check(url: str, timeout: float) -> Dict[str, object]:
     )
     try:
         validate_fetch_url(url)
-        with urlopen(req, timeout=timeout) as response:  # nosec B310 - guarded above
+        # Guarded opener: enforces the URL policy on redirect hops and binds
+        # the connection to a policy-validated address, matching the pipeline.
+        with guarded_urlopen(req, timeout=timeout) as response:  # nosec B310 - guarded
             result.update({
                 "ok": True,
                 "status": getattr(response, "status", None),

@@ -65,6 +65,9 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
             text,
         )
         self.assertIn("every `git push` of this repo to GitHub", text)
+        self.assertIn("scripts/publish_release.py", text)
+        self.assertIn("scripts/check_version_bump.py", text)
+        self.assertIn("--authorize", text)
 
     def test_shared_skill_file_has_expected_frontmatter(self):
         self.assertTrue(SKILL_MD.exists())

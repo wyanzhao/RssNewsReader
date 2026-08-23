@@ -67,9 +67,17 @@ drift is silent.
 - **What does not bump:** doc-only, test-only, or tooling-only changes, and
   anything confined to `scripts/` (the Python pipeline is versionless and does
   not share this number).
+- **The repository check is `python3 scripts/check_version_bump.py --base-rev
+  <base>`.** Given a base revision (or an explicit fixture diff), it rejects a
+  bump-required Android change when `versionCode` is not +1 or `versionName`
+  is not an allowed iteration step. Ambiguous major-vs-patch classification is
+  not guessed: both legal steps pass. Doc-only, test-only, tooling-only, and
+  `scripts/`-only diffs are excluded.
 - Before handing over an APK, confirm the built `versionName` matches the
   iteration just completed. The version printed in the delivery message must be
-  read back from the build, not from memory.
+  read back from the build, not from memory. Run the bump gate against the
+  delivery base revision first; a missing required bump fails that check
+  before APK handoff.
 - Pushing to GitHub also requires publishing that APK. The rule and commands
   are in `Release Signing And GitHub Publish` below.
 
@@ -81,6 +89,23 @@ also produce a signed release APK and attach it to the GitHub Release for
 the APK's `versionName`. A `git push` to GitHub is incomplete until a signed `app-release.apk` is
 on a GitHub Release for that `versionName`. Do not push and leave the APK
 for later.
+
+The one repository-local command that joins signature verification, APK
+version read-back, source push, release upload, and post-upload confirmation
+is `scripts/publish_release.py`. It refuses a missing or unsigned APK, reads
+`versionName` / `versionCode` from the artifact, requires the tag
+`v<versionName>` to match, and will not push or mutate GitHub without
+`--authorize`:
+
+```sh
+python3 scripts/publish_release.py --verify-only
+python3 scripts/publish_release.py --authorize
+```
+
+Signing itself is still the 1Password + `assembleRelease` recipe below; this
+command consumes the already-signed `app-release.apk` and is the completion
+gate for a GitHub push. Do not `git push` to GitHub by hand and leave the
+release step for later.
 
 This does not change the version bump rule. Doc-only / test-only / `scripts/`
 pushes still do not bump `versionName`. They still build and publish: if
@@ -173,7 +198,9 @@ install must `adb uninstall com.dailynews.app` before installing this APK.
 
 ## Entry Points
 
-- Main pipeline: `python3 scripts/rss_daily_report.py --json-output [--hours N] [--max-summary N] [--config pipeline_config.json] [--retain-days 90] [--no-cleanup]` — the time window and summary cap default from `pipeline_config.json.fetch` (`hours: 24`, `max_summary: 300`); explicit CLI flags override the config
+- Main pipeline: `python3 scripts/rss_daily_report.py --json-output [--hours N] [--max-summary N] [--config pipeline_config.json] [--retain-days 90] [--no-cleanup] [--lock-wait-seconds 120]` — the time window and summary cap default from `pipeline_config.json.fetch` (`hours: 24`, `max_summary: 300`); explicit CLI flags override the config. Same-date invocations serialize on `runs/<date>/run.lock`; a second overlapping run waits then exits 40 without writing artifacts.
+- Android version-bump gate: `python3 scripts/check_version_bump.py --base-rev origin/main`
+- Signed APK publish+verify: `python3 scripts/publish_release.py [--verify-only|--authorize]` — refuses a missing or unsigned APK; `--authorize` is required for `git push` and GitHub release mutation
 - Fetch only: `python3 scripts/rss_news_monitor.py --json --max-summary 300 --hours 24 [--config pipeline_config.json]`
 - Validate only: `python3 scripts/qc_validate.py --input runs/<date>/raw.json --feeds feeds.json`
 - Build LLM context: `python3 scripts/build_llm_context.py --input runs/<date>/raw.json --validation runs/<date>/validation.json --output runs/<date>/llm_context.json --report-path $REPO_ROOT/rss-report-<date>.md`
@@ -238,9 +265,13 @@ for the chat-facing final reply.
 Both ledgers are written via atomic temp-file replace, and their
 read-modify-write cycles are serialized with `<file>.lock` sidecar files
 (`_common/fsio.py`), so concurrent same-date runs can neither tear a ledger
-nor silently drop each other's updates. `rss_daily_report.py` additionally
-logs a `WARN` when a same-date run dir already contains success-path handoff
-artifacts — the signature of a duplicate scheduler trigger.
+nor silently drop each other's updates. `rss_daily_report.py` also serializes
+each report date on `runs/<date>/run.lock` before writing `raw.json`,
+validation, context, or stderr; a second overlapping same-date invocation
+waits up to `--lock-wait-seconds` (default 120) and then exits 40 without
+writing those artifacts. It additionally logs a `WARN` when a same-date run
+dir already contains success-path handoff artifacts — the signature of a
+duplicate scheduler trigger.
 
 `raw.json` may additionally carry a top-level `runtime_config` snapshot with the
 effective summary-enrichment and render-threshold values used for that run.
@@ -421,14 +452,18 @@ import-safe and has dedicated unit tests.
 - `_common/feed_parse.py` — RSS/Atom XML parsing plus HTML meta-summary
   fallback extraction.
 - `_common/feed_fetch.py` — network fetch, decode, summary backfill, and
-  concurrent feed retrieval helpers.
+  concurrent feed retrieval helpers. The untrusted-URL policy is applied to
+  the original URL, every redirect hop, and the address actually dialed;
+  DNS resolution is an injectable `resolve_fn` boundary so tests do not
+  touch the host resolver.
 - `_common/feed_output.py` — monitor-side dedup plus JSON / grouped text /
   summary output formatters.
 - `_common/runtime_config.py` — repo-level `pipeline_config.json` loader plus
   raw-artifact config snapshot helpers for fetch and render settings.
 - `_common/fsio.py` — `atomic_write_text` (same-directory temp file +
-  `os.replace`) and `file_lock` (advisory `<path>.lock` sidecar locking) used
-  by runtime artifact writes and the cross-run ledgers.
+  `os.replace`) and `file_lock` (advisory `<path>.lock` sidecar locking, with
+  an optional bounded wait) used by runtime artifact writes, the cross-run
+  ledgers, and the per-date pipeline lock.
 - `_common/article_extract.py` — stdlib-only main-text extractor that
   prefers `<article>` / `<main>` / `role='main'` containers, drops
   script / style / nav / aside / footer / header / form regions, and
