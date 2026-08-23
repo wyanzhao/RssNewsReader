@@ -133,16 +133,15 @@ data class RoleModel(
 /**
  * 角色输出上限。
  *
- * 曾经默认 65536——多数便宜模型的 completion 上限远低于此，有的提供商会直接 400。
- * 现在按各角色**实际需要**的量给：EDITOR 一次要写 Top N 条中文摘要，DRAFTER 一批
- * 25 条短摘要。截断是硬失败（[wasTruncated] 不重试），所以这两个值只能往宽里估，
- * 但没有理由宽到让提供商拒收整个请求。
+ * 两个角色都默认取允许区间上限 [MAX_MAX_TOKENS]：截断是硬失败（[wasTruncated] 不重试），
+ * 上限只能往宽里估。注意部分便宜模型的 completion 上限远低于此，有的提供商会直接 400，
+ * 遇到时在设置里手动调低。
  */
 object RoleModelDefaults {
-    const val EDITOR_MAX_TOKENS = 16_384
-    const val DRAFTER_MAX_TOKENS = 8_192
     const val MIN_MAX_TOKENS = 512
     const val MAX_MAX_TOKENS = 65_536
+    const val EDITOR_MAX_TOKENS = MAX_MAX_TOKENS
+    const val DRAFTER_MAX_TOKENS = MAX_MAX_TOKENS
 }
 
 @Serializable

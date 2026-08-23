@@ -30,8 +30,9 @@ class SettingsViewModelTest {
         assertEquals(RoleModelDefaults.EDITOR_MAX_TOKENS, form.editorMaxTokens.toInt())
         assertEquals(RoleModelDefaults.DRAFTER_MAX_TOKENS, form.drafterMaxTokens.toInt())
         assertTrue(settingsValidationErrors(form).isEmpty(), settingsValidationErrors(form).toString())
-        // EDITOR 一次要写满 Top N 条中文摘要，DRAFTER 只写一批短摘要。
-        assertTrue(RoleModelDefaults.EDITOR_MAX_TOKENS > RoleModelDefaults.DRAFTER_MAX_TOKENS)
+        // 截断是硬失败（不重试），两个角色的默认上限都取允许区间顶部。
+        assertEquals(RoleModelDefaults.MAX_MAX_TOKENS, RoleModelDefaults.EDITOR_MAX_TOKENS)
+        assertEquals(RoleModelDefaults.MAX_MAX_TOKENS, RoleModelDefaults.DRAFTER_MAX_TOKENS)
         assertEquals(listOf(1_200, 1_200, 1_200), listOf(
             execution.connectTimeoutSeconds,
             execution.readTimeoutSeconds,

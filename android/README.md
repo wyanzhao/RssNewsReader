@@ -143,7 +143,8 @@ providers that really support `response_format`). These fields are omitted
 entirely for OpenAI and Anthropic, whose official APIs reject unknown
 top-level keys.
 
-Role token caps default to 16384 (EDITOR) and 8192 (DRAFTER). Truncation is a
-hard failure with no retry, so these are estimated generously, but not so
-generously that a provider rejects the request outright. Devices that already
-saved the old 65536 default keep it; change it in Settings.
+Role token caps default to 65536 for both EDITOR and DRAFTER — the top of the
+allowed range, because truncation is a hard failure with no retry and the caps
+are estimated generously. Models whose own completion cap is lower may reject
+or truncate the request; lower the cap in Settings. Devices that already saved
+a different value keep it; change it in Settings.
