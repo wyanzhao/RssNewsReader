@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .feed_parse import extract_html_summary, parse_feed
@@ -25,6 +28,122 @@ SHORT_SUMMARY_THRESHOLD = DEFAULT_SHORT_SUMMARY_THRESHOLD
 FALLBACK_SUMMARY_CAP = DEFAULT_PAGE_FALLBACK_CAP
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; RSS Monitor/3.0)"
+
+# Hard cap on any single response body (feed XML or article HTML). A hostile
+# or broken feed must not be able to exhaust memory via an unbounded read.
+MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
+
+
+class BlockedUrlError(ValueError):
+    """Raised when a fetch URL fails the scheme or internal-host checks."""
+
+
+class ResponseTooLargeError(ValueError):
+    """Raised when a response body exceeds ``MAX_RESPONSE_BYTES``."""
+
+
+# Explicit denylist instead of ``ipaddress.is_private``: that flag also covers
+# the benchmarking (198.18.0.0/15) and CGNAT (100.64.0.0/10) ranges, which
+# local fake-IP proxies (Clash, Surge) hand out for every DNS lookup. Blocking
+# those ranges made the pipeline unable to fetch any feed at all on machines
+# behind such a proxy. The ranges below are the ones that actually host
+# services a poisoned feed must not be able to probe — loopback, RFC 1918
+# LANs, and link-local, which includes the 169.254.169.254 cloud-metadata
+# endpoint.
+_BLOCKED_NETWORKS_V4 = (
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("255.255.255.255/32"),
+)
+_BLOCKED_NETWORKS_V6 = (
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("ff00::/8"),
+)
+
+
+def _is_blocked_address(address) -> bool:
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    networks = (
+        _BLOCKED_NETWORKS_V4
+        if isinstance(address, ipaddress.IPv4Address)
+        else _BLOCKED_NETWORKS_V6
+    )
+    return any(address in network for network in networks)
+
+
+def validate_fetch_url(url: str) -> None:
+    """Reject non-http(s) schemes and hosts that are (or resolve to) internal.
+
+    Article links come from feed content, which is untrusted input. ``urlopen``
+    reads ``file://`` URLs natively and follows whatever host it is given, so
+    without this check a poisoned feed could exfiltrate local files into
+    ``raw.json`` or probe localhost / cloud metadata endpoints.
+
+    "Internal" here is the explicit denylist in ``_BLOCKED_NETWORKS_*``
+    (loopback, RFC 1918, link-local incl. cloud metadata, multicast,
+    unspecified) — deliberately narrower than ``ipaddress.is_private`` so
+    fake-IP proxy ranges keep working; see the denylist comment.
+
+    DNS resolution failures are let through: the fetch itself will then fail
+    with the real name-resolution error, keeping failure modes distinguishable
+    from a deliberate block. Resolution results are not pinned, so this stays
+    a best-effort filter rather than a DNS-rebinding-proof guarantee.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        raise BlockedUrlError(f"unparseable fetch URL: {exc}") from exc
+    if parsed.scheme not in ("http", "https"):
+        raise BlockedUrlError(
+            f"fetch URL scheme must be http or https, got {parsed.scheme!r}: {url!r}"
+        )
+    host = parsed.hostname
+    if not host:
+        raise BlockedUrlError(f"fetch URL has no host: {url!r}")
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if _is_blocked_address(literal):
+            raise BlockedUrlError(f"fetch URL host is an internal address: {url!r}")
+        return
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (OSError, UnicodeError):
+        return
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0].split("%")[0])
+        if _is_blocked_address(address):
+            raise BlockedUrlError(
+                f"fetch URL host resolves to an internal address: {url!r}"
+            )
+
+
+def _read_capped(response, max_bytes: int) -> bytes:
+    """Read a response body in chunks, refusing to exceed ``max_bytes``."""
+    chunks: List[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise ResponseTooLargeError(
+                f"response body exceeded {max_bytes // (1024 * 1024)} MiB cap"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -52,12 +171,17 @@ def fetch_url(url: str, timeout: int = 30, retries: int = 2,
     if headers:
         request_headers.update(headers)
 
+    # Deliberately outside the retry loop: a blocked URL is a policy decision,
+    # and retrying it byte for byte cannot change the answer.
+    validate_fetch_url(url)
+
     last_error: Optional[BaseException] = None
     for attempt in range(retries + 1):
         try:
             req = Request(url, headers=request_headers)
-            with urlopen(req, timeout=timeout) as response:
-                raw = response.read()
+            # Scheme/host allow-list enforced by validate_fetch_url above.
+            with urlopen(req, timeout=timeout) as response:  # nosec B310
+                raw = _read_capped(response, MAX_RESPONSE_BYTES)
                 charset = response.headers.get_content_charset()
                 return raw, charset
         # HTTPException covers http.client.IncompleteRead — a mid-transfer

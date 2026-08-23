@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -20,6 +21,20 @@ CONTENT_NS = "{http://purl.org/rss/1.0/modules/content/}"
 
 class FeedParseError(ValueError):
     """Raised when fetched feed content cannot be parsed as RSS/Atom XML."""
+
+
+# ElementTree/expat does not fetch external entities, but it *does* expand
+# internal general entities, so a "billion laughs" DOCTYPE can amplify a tiny
+# payload into an unbounded expansion. Feed content is untrusted network input,
+# and no legitimate RSS/Atom document needs entity declarations, so reject any
+# document that carries one instead of parsing it.
+_ENTITY_DECLARATION = re.compile(rb"<!ENTITY", re.IGNORECASE)
+
+
+def contains_entity_declaration(raw) -> bool:
+    """Whether raw feed bytes/text declare an XML entity (expansion-DoS risk)."""
+    data = raw if isinstance(raw, (bytes, bytearray)) else str(raw).encode("utf-8", "replace")
+    return _ENTITY_DECLARATION.search(data) is not None
 
 
 class _MetaSummaryParser(HTMLParser):
@@ -95,8 +110,13 @@ def _find_atom_link(item: ET.Element) -> str:
 
 def parse_feed(content: str, max_summary: int = 0) -> List[Dict]:
     """Parse RSS 2.0 or Atom feed content using ElementTree."""
+    if contains_entity_declaration(content):
+        message = "XML entity declarations are not allowed (entity-expansion DoS)"
+        print(f"  [ERROR] {message}", file=sys.stderr)
+        raise FeedParseError(message)
     try:
-        root = ET.fromstring(content)
+        # Entity-expansion DoS guarded by contains_entity_declaration above.
+        root = ET.fromstring(content)  # nosec B314
     except ET.ParseError as exc:
         message = f"XML parse failed: {exc}"
         print(f"  [ERROR] {message}", file=sys.stderr)

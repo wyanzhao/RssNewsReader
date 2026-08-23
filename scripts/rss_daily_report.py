@@ -193,6 +193,14 @@ def main() -> int:
     )
 
     report_date = args.date or datetime.now().date().isoformat()
+    try:
+        datetime.strptime(report_date, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"[FATAL] --date must be YYYY-MM-DD, got: {report_date!r}",
+            file=sys.stderr,
+        )
+        return 10
     runs_root = Path(args.runs_dir).expanduser().resolve()
     runs_dir = runs_dir_for(runs_root, report_date)
     raw_path = runs_dir / "raw.json"

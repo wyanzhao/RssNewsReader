@@ -14,6 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List
 
+from .feed_parse import contains_entity_declaration
+
 
 DEFAULT_FEEDS_FILE = Path(__file__).resolve().parents[2] / "feeds.json"
 
@@ -100,7 +102,18 @@ def list_feeds(feeds_file: str | Path = DEFAULT_FEEDS_FILE) -> None:
 def import_opml(filepath: str, feeds_file: str | Path = DEFAULT_FEEDS_FILE) -> None:
     """Import feeds from an OPML file into feeds.json."""
     try:
-        tree = ET.parse(filepath)
+        raw = Path(filepath).read_bytes()
+    except OSError as exc:
+        print(f"Error reading OPML file: {exc}", file=sys.stderr)
+        return
+    if contains_entity_declaration(raw):
+        print(
+            "Error reading OPML file: XML entity declarations are not allowed",
+            file=sys.stderr,
+        )
+        return
+    try:
+        tree = ET.parse(filepath)  # nosec B314 - guarded by contains_entity_declaration
     except (ET.ParseError, FileNotFoundError) as exc:
         print(f"Error reading OPML file: {exc}", file=sys.stderr)
         return

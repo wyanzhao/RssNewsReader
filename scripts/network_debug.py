@@ -30,6 +30,11 @@ from urllib.request import Request, urlopen
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _common.feed_fetch import validate_fetch_url  # noqa: E402
+
 FEEDS_FILE = SCRIPT_DIR.parent / "feeds.json"
 ENV_KEYS = [
     "CODEX_CI",
@@ -102,7 +107,8 @@ def http_check(url: str, timeout: float) -> Dict[str, object]:
         },
     )
     try:
-        with urlopen(req, timeout=timeout) as response:
+        validate_fetch_url(url)
+        with urlopen(req, timeout=timeout) as response:  # nosec B310 - guarded above
             result.update({
                 "ok": True,
                 "status": getattr(response, "status", None),

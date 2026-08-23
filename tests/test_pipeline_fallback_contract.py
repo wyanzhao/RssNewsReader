@@ -322,5 +322,38 @@ class PipelineFallbackContractTests(unittest.TestCase):
                 self.assertEqual(validation["meta"]["validator_exit_code"], 40)
 
 
+class DateArgumentValidationTests(unittest.TestCase):
+    """--date flows straight into run-dir and report paths, so it must be a
+    strict YYYY-MM-DD before any path is built."""
+
+    def _run_with_date(self, date_value: str):
+        module = _import_pipeline_module()
+        argv = [
+            "rss_daily_report.py",
+            "--json-output",
+            "--date", date_value,
+            "--no-cleanup",
+        ]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with patch.object(sys, "argv", argv):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = module.main()
+        return exit_code, stderr.getvalue()
+
+    def test_malformed_date_is_rejected_before_any_step_runs(self):
+        exit_code, stderr_text = self._run_with_date("not-a-date")
+        self.assertEqual(exit_code, 10)
+        self.assertIn("--date must be YYYY-MM-DD", stderr_text)
+
+    def test_path_traversal_date_is_rejected(self):
+        exit_code, _ = self._run_with_date("../../tmp/evil")
+        self.assertEqual(exit_code, 10)
+
+    def test_invalid_calendar_date_is_rejected(self):
+        exit_code, _ = self._run_with_date("2026-02-30")
+        self.assertEqual(exit_code, 10)
+
+
 if __name__ == "__main__":
     unittest.main()

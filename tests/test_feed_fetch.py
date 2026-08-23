@@ -14,6 +14,7 @@ opens a socket.
 from __future__ import annotations
 
 import io
+import socket
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -70,10 +71,20 @@ class _Headers:
 class _FakeResponse:
     def __init__(self, body: bytes = b"<rss/>", charset: str | None = "utf-8") -> None:
         self._body = body
+        self._pos = 0
         self.headers = _Headers(charset)
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, size: int = -1) -> bytes:
+        # Stateful so chunked reads (the capped fetch path) terminate: the
+        # first chunked read yields up to ``size`` bytes, later ones the rest,
+        # and the final one the empty bytes that end the loop.
+        if size is None or size < 0:
+            data = self._body[self._pos:]
+            self._pos = len(self._body)
+            return data
+        data = self._body[self._pos:self._pos + size]
+        self._pos += len(data)
+        return data
 
     def __enter__(self):
         return self
@@ -97,7 +108,11 @@ class FetchUrlRetryTests(unittest.TestCase):
             attempts.append(req)
             return urlopen_fn(len(attempts), req)
 
+        # The retry tests target the retry predicate with the synthetic host
+        # "x"; the URL-policy guard would DNS-resolve it, so it is stubbed out
+        # here and pinned by its own dedicated tests below.
         with mock.patch.object(feed_fetch, "urlopen", counting), \
+                mock.patch.object(feed_fetch, "validate_fetch_url"), \
                 mock.patch.object(feed_fetch.time, "sleep"):
             try:
                 result = feed_fetch.fetch_url("https://x/feed.xml", **kwargs)
@@ -564,6 +579,152 @@ class EnrichArticlePagesTests(unittest.TestCase):
             [(a["summary_en"], a["article_text"]) for a in legacy],
             [(a["summary_en"], a["article_text"]) for a in merged],
         )
+
+
+class ValidateFetchUrlTests(unittest.TestCase):
+    """The URL policy guard: what fetch_url is allowed to touch.
+
+    Article links come from feed content — untrusted input — so the guard is
+    what keeps a poisoned feed from reading file:// URLs or probing internal
+    hosts. Hostname resolution is stubbed so the suite stays offline.
+    """
+
+    def _getaddrinfo(self, addresses):
+        def fake(host, port, *args, **kwargs):
+            if isinstance(addresses, Exception):
+                raise addresses
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", (addr, 0))
+                for addr in addresses
+            ]
+        return fake
+
+    def assert_blocked(self, url):
+        with self.assertRaises(feed_fetch.BlockedUrlError):
+            feed_fetch.validate_fetch_url(url)
+
+    def test_non_http_schemes_are_blocked(self):
+        self.assert_blocked("file:///etc/passwd")
+        self.assert_blocked("ftp://example.com/feed.xml")
+        self.assert_blocked("gopher://example.com/")
+        self.assert_blocked("javascript:alert(1)")
+        self.assert_blocked("")
+
+    def test_urls_without_host_are_blocked(self):
+        self.assert_blocked("http:///etc/passwd")
+        self.assert_blocked("https://")
+
+    def test_literal_internal_ipv4_hosts_are_blocked(self):
+        self.assert_blocked("http://127.0.0.1/feed.xml")
+        self.assert_blocked("http://10.1.2.3/feed.xml")
+        self.assert_blocked("http://192.168.0.10/feed.xml")
+        self.assert_blocked("http://172.16.5.5/feed.xml")
+        self.assert_blocked("http://169.254.169.254/latest/meta-data/")
+        self.assert_blocked("http://0.0.0.0/feed.xml")
+
+    def test_literal_internal_ipv6_hosts_are_blocked(self):
+        self.assert_blocked("http://[::1]/feed.xml")
+        self.assert_blocked("http://[fc00::1]/feed.xml")
+        self.assert_blocked("http://[fe80::1]/feed.xml")
+
+    def test_literal_public_hosts_are_allowed(self):
+        # Literal IPs need no resolution, so these stay valid offline.
+        feed_fetch.validate_fetch_url("https://93.184.216.34/feed.xml")
+        feed_fetch.validate_fetch_url("https://8.8.8.8/feed.xml")
+        feed_fetch.validate_fetch_url("http://[2606:2800:220:1:248:1893:25c8:1946]/x")
+
+    def test_fake_ip_proxy_ranges_are_allowed(self):
+        # Local fake-IP proxies (Clash, Surge) answer every DNS lookup from the
+        # benchmarking range, and some carriers use CGNAT. is_private covers
+        # both, but the guard must not — otherwise no feed fetches at all on
+        # machines behind such a proxy.
+        feed_fetch.validate_fetch_url("https://198.18.4.200/feed.xml")
+        feed_fetch.validate_fetch_url("https://100.64.0.1/feed.xml")
+
+    def test_ipv4_mapped_ipv6_is_checked_as_ipv4(self):
+        self.assert_blocked("http://[::ffff:127.0.0.1]/feed.xml")
+        self.assert_blocked("http://[::ffff:10.0.0.1]/feed.xml")
+        feed_fetch.validate_fetch_url("http://[::ffff:93.184.216.34]/feed.xml")
+
+    def test_hostname_resolving_to_internal_address_is_blocked(self):
+        with mock.patch.object(
+            feed_fetch.socket, "getaddrinfo",
+            self._getaddrinfo(["127.0.0.1"]),
+        ):
+            self.assert_blocked("https://internal.example/feed.xml")
+
+    def test_mixed_resolution_with_any_internal_address_is_blocked(self):
+        with mock.patch.object(
+            feed_fetch.socket, "getaddrinfo",
+            self._getaddrinfo(["93.184.216.34", "10.0.0.1"]),
+        ):
+            self.assert_blocked("https://dual.example/feed.xml")
+
+    def test_hostname_resolving_to_public_address_is_allowed(self):
+        with mock.patch.object(
+            feed_fetch.socket, "getaddrinfo",
+            self._getaddrinfo(["93.184.216.34"]),
+        ):
+            feed_fetch.validate_fetch_url("https://feed.example/feed.xml")
+
+    def test_dns_failure_is_left_to_the_fetch_itself(self):
+        with mock.patch.object(
+            feed_fetch.socket, "getaddrinfo",
+            self._getaddrinfo(OSError("name resolution failed")),
+        ):
+            feed_fetch.validate_fetch_url("https://unresolvable.example/feed.xml")
+
+    def test_scoped_ipv6_resolution_is_still_checked(self):
+        def fake(host, port, *args, **kwargs):
+            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fe80::1%en0", 0, 0, 0))]
+        with mock.patch.object(feed_fetch.socket, "getaddrinfo", fake):
+            self.assert_blocked("https://linklocal.example/feed.xml")
+
+
+class FetchUrlSecurityIntegrationTests(unittest.TestCase):
+    """The guard and the read cap exercised through the real fetch_url."""
+
+    def test_blocked_url_never_reaches_urlopen(self):
+        with mock.patch.object(feed_fetch, "urlopen") as urlopen_mock:
+            with self.assertRaises(feed_fetch.BlockedUrlError):
+                feed_fetch.fetch_url("file:///etc/passwd")
+        urlopen_mock.assert_not_called()
+
+    def test_blocked_url_is_not_retried(self):
+        attempts = []
+
+        def counting(req, timeout=None):
+            attempts.append(req)
+            return _FakeResponse()
+
+        with mock.patch.object(feed_fetch, "urlopen", counting), \
+                mock.patch.object(feed_fetch.time, "sleep"):
+            with self.assertRaises(feed_fetch.BlockedUrlError):
+                feed_fetch.fetch_url("http://169.254.169.254/latest/meta-data/")
+        self.assertEqual(attempts, [])
+
+    def test_oversized_response_is_rejected_without_retry(self):
+        attempts = []
+
+        def counting(req, timeout=None):
+            attempts.append(req)
+            return _FakeResponse(b"x" * 17)
+
+        # Literal public IP passes the URL guard without any DNS.
+        with mock.patch.object(feed_fetch, "urlopen", counting), \
+                mock.patch.object(feed_fetch, "MAX_RESPONSE_BYTES", 16), \
+                mock.patch.object(feed_fetch.time, "sleep"):
+            with self.assertRaises(feed_fetch.ResponseTooLargeError):
+                feed_fetch.fetch_url("https://93.184.216.34/feed.xml")
+        self.assertEqual(len(attempts), 1, "a size violation cannot shrink on retry")
+
+    def test_response_at_the_cap_is_accepted(self):
+        body = b"x" * 16
+        with mock.patch.object(feed_fetch, "urlopen", lambda req, timeout=None: _FakeResponse(body)), \
+                mock.patch.object(feed_fetch, "MAX_RESPONSE_BYTES", 16):
+            raw, charset = feed_fetch.fetch_url("https://93.184.216.34/feed.xml")
+        self.assertEqual(raw, body)
+        self.assertEqual(charset, "utf-8")
 
 
 if __name__ == "__main__":
