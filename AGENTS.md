@@ -12,7 +12,7 @@ This repository builds a daily RSS report in two stages:
 1. Deterministic pipeline in code: fetch, validate, artifact generation, failure-report rendering, and zero-article / contract gating.
 2. Claude Code post-processing in `skill + subagents`: Chinese summaries, event clustering, Top 30 selection, and content audit.
 
-`AGENTS.md` is the source of truth for contract boundaries and maintainer-facing behavior in this workspace. The step-by-step runtime procedure lives in the orchestrator skill and the subagent files.
+The step-by-step runtime procedure lives in the orchestrator skill and the subagent files.
 
 Since Epic U the Android app and the Python pipeline deliberately diverge in
 report shape: the Android app produces Part 1 only (Top N digest plus a native
@@ -25,8 +25,8 @@ them; the divergence is a product decision, not a bug.
 ## Document Roles
 
 - `README.md` is the public-facing entry point: project overview, quick start, and pointers into the rest of the docs.
-- `CLAUDE.md` is the Claude Code entrypoint for this repo and must remain a symlink to `AGENTS.md`, so both entrypoints read one file. Task-style work goes to the shared project skill; the version bump rule lives in `Versioning` below.
-- `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance.
+- `CLAUDE.md` is the Claude Code entrypoint and must remain a symlink to `AGENTS.md`. There is nothing left to `@`-import. Task-style work goes to the shared project skill; the version bump rule lives in `Versioning` below.
+- `AGENTS.md` defines repo-level contract rules, allowed inputs/outputs, agent boundaries, and maintainer guidance. Edit this file, not `CLAUDE.md`.
 - `pipeline_config.json` is the repo-level deterministic pipeline config for fetch defaults (time window, summary cap), summary-enrichment, and renderer truncation thresholds.
 - `TASKS.md` is the long-running tracker and planning panel for Claude Code architecture work in this repo. Update it before landing new execution-flow changes.
 - `.claude/skills/dailynews-report/SKILL.md` is the project-local orchestrator skill and the canonical runtime procedure file shared by Claude Code and Codex.
@@ -34,6 +34,7 @@ them; the divergence is a product decision, not a bug.
 - `.claude/skills/dailynews-report/agents/openai.yaml` is the Codex Skill UI metadata and must keep the workflow manual-only with `policy.allow_implicit_invocation: false`.
 - `.agents/skills/dailynews-report/agents` is the Codex / agent metadata path and must remain a symlink to `.claude/skills/dailynews-report/agents`.
 - `.claude/agents/*.md` defines the specialized LLM subagents used by the orchestrator skill.
+- `/dailynews-report` and `$dailynews-report` are intentionally manual-only: the skill is a heavy, write-producing workflow that can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
 
 ## Versioning
 
@@ -69,16 +70,17 @@ drift is silent.
 - Before handing over an APK, confirm the built `versionName` matches the
   iteration just completed. The version printed in the delivery message must be
   read back from the build, not from memory.
-- **A `git push` to GitHub is incomplete until a signed `app-release.apk` is
-  on a GitHub Release for that `versionName`.** Do not push and leave the APK
-  for later. The procedure is in `Release Signing And GitHub Publish` below.
+- Pushing to GitHub also requires publishing that APK. The rule and commands
+  are in `Release Signing And GitHub Publish` below.
 
 ## Release Signing And GitHub Publish
 
 **Hard rule for every agent:** every `git push` of this repo to GitHub
 (`origin/main`, and any other remote branch the user asked to publish) must
 also produce a signed release APK and attach it to the GitHub Release for
-the APK's `versionName`. A push without that APK is not done.
+the APK's `versionName`. A `git push` to GitHub is incomplete until a signed `app-release.apk` is
+on a GitHub Release for that `versionName`. Do not push and leave the APK
+for later.
 
 This does not change the version bump rule. Doc-only / test-only / `scripts/`
 pushes still do not bump `versionName`. They still build and publish: if
@@ -139,9 +141,6 @@ to the public GitHub release.
 
 ### Push the sources and publish the APK on GitHub
 
-These two steps are one unit of work. `git push` without the APK step below
-is a contract miss.
-
 The signed APK is a GitHub Release asset, not a git blob. Tag name is
 `v<versionName>` and must match the APK's `versionName` / `versionCode`.
 
@@ -171,15 +170,6 @@ fi
 
 The release certificate is not the debug certificate: a device with a debug
 install must `adb uninstall com.dailynews.app` before installing this APK.
-
-## Claude Code Usage
-
-- `AGENTS.md` remains the source of truth for the repository contract and maintainer guidance. `CLAUDE.md` is a symlink to this file, so there is nothing left to `@`-import.
-- `TASKS.md` is the long-running tracker for Claude Code architecture changes in this repo.
-- For the full report workflow, use the project-local orchestrator skill `/dailynews-report` at `.claude/skills/dailynews-report/SKILL.md`; Codex reaches the same file through `.agents/skills/dailynews-report/SKILL.md` (entry: `$dailynews-report`).
-- Codex Skill UI metadata lives at `.claude/skills/dailynews-report/agents/openai.yaml`; `.agents/skills/dailynews-report/agents` is a symlink to the same metadata directory.
-- `.claude/agents/*.md` defines the subagents used by the orchestrator skill.
-- The skill is intentionally manual-only because it runs a heavy, write-producing workflow that can update `rss-report-*.md` and `runs/YYYY-MM-DD/`.
 
 ## Entry Points
 
@@ -307,13 +297,14 @@ summary_en        string   # English summary, may be empty
 article_text      string   # extracted article main body (up to ~150 words), may be empty
 ```
 
-The deterministic pipeline no longer emits scoring metadata
+The deterministic pipeline does not emit scoring metadata
 (`heuristic_score`, `audit_flags`, `amount_millions`) or a pre-filtered
-`candidate_articles` list. Top 30 selection, clustering, de-noising, and
-priority ordering are the sole responsibility of the `part1-editor` subagent.
+`candidate_articles` list; do not add them back. Top 30 selection, clustering,
+de-noising, and priority ordering are the sole responsibility of the
+`part1-editor` subagent.
 
-`source_groups[]` no longer duplicates full article payloads. It carries
-`article_refs[]` only:
+`source_groups[]` carries `article_refs[]` only; do not put full article
+payloads back into that list:
 
 ```
 article_refs[]    [{ title, link, pub_date_iso }]
@@ -389,7 +380,7 @@ shape and policy key names as the normal validator output.
 - `part1-editor` is success-only. It performs Part 1 in two LLM passes: first read `part1_brief.json` to write `part1_shortlist.json`, then use `scripts/editorial_runtime.py shortlist-context` (which injects deterministic cache hits) to generate `part1_shortlist_context.json` and write the link-keyed `runs/<date>/part1_plan.json`. The deterministic pipeline contributes no scoring or filtering signals; editorial judgment lives entirely in the agent prompt at `.claude/agents/part1-editor.md`.
 - `part2-drafter` is success-only. It reads compact cache-aware `part2_context.json` and writes only `runs/<date>/part2_missing_summaries.json` for articles whose `needs_summary` is true. The orchestrator then runs `scripts/editorial_runtime.py merge-part2` to build the full `part2_draft.json`.
 - `items[]` stays the one container name `part2-drafter` is told to emit, but `merge-part2` also accepts `missing[]`, `articles[]`, `summaries[]`, and `groups[].articles[]`. `missing[]` is listed first because the file is named `part2_missing_summaries.json` and that is the name agents and third-party integrations reach for. When nothing matches and the payload holds exactly one unrecognized list, the error names that key — a container-name mismatch must not present as a wall of lost links.
-- `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly.
+- `part1-editor` and `part2-drafter` are independent and should be launched in parallel; both must complete before deterministic merge/assembly. They may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`).
 - `scripts/editorial_runtime.py assemble` is the only success-path writer of the final `report_path`. It validates handoff schemas, assembles the final Chinese report by joining `part1_plan.json` / `part2_draft.json` with the authoritative titles, sources, and timestamps from `llm_context.json`, and updates `runs/_cache/editorial_cache.json` without ever overwriting `*.failed.md`. Post-write cache and seen-links bookkeeping is best-effort: a corrupt or unwritable ledger logs a `WARN` to stderr and never fails a run whose report was already written.
 - `scripts/editorial_runtime.py review` runs after the write. It checks English titles, unchanged links, Part 2 counts, source order, error-group handling, and that no raw `article_text` / `summary_en` leaks into the final report.
 - `scripts/editorial_runtime.py top30` runs after review. It re-validates `part1_plan.json`, renders the fixed-format Top 30 digest (shared item renderer with `assemble`, so chat output and the report's Part 1 can never diverge), writes `runs/<date>/top30.md`, and prints the digest to stdout. The orchestrator's final success reply is that stdout verbatim — the LLM never composes or reformats the digest.
@@ -398,12 +389,7 @@ shape and policy key names as the normal validator output.
   - expected-block: `run pipeline -> keep failure report; return report_path`
   - unexpected-error: `run pipeline -> retry pipeline once -> network-debugger`
 - The unexpected-error retry is single and bounded: one re-run of the pipeline command, then diagnosis. A retry that classifies as `success` or `expected-block` continues on that branch normally.
-- `part1-editor` and `part2-drafter` may write only their own handoff artifacts (`part1_shortlist.json` / `part1_shortlist_context.json` / `part1_plan.json` / `part2_missing_summaries.json`) and must complete before deterministic merge/assembly.
 - `scripts/editorial_runtime.py assemble` and `network-debugger` must never run in parallel.
-- `scripts/editorial_runtime.py review` must always run after the final success-path write.
-- Use `rss_daily_report.py --json-output` stdout to decide whether to continue, stop, or diagnose.
-- Use `llm_context.json` for article-level semantics and editorial judgment.
-- Read `validation.json` only for gating metadata and per-feed error details that are not duplicated in `llm_context.json`.
 - Do not infer fetch-error details that are absent from the artifacts.
 
 ## Maintainer Notes
@@ -417,9 +403,7 @@ the runtime procedure for the scheduled LLM task.
 script. Prefer adding to it over duplicating logic. Each module is
 import-safe and has dedicated unit tests.
 
-- `_common/text.py` — `strip_html`, `parse_rss_date`, `dedup_link_key`
-  (migrated verbatim from `rss_news_monitor.py`; behaviour parity is
-  enforced by `tests/test_common_text.py` and the offline suite).
+- `_common/text.py` — `strip_html`, `parse_rss_date`, `dedup_link_key`.
 - `_common/pipeline.py` — `Step`, `StepResult`, `run_step` for
   consistent subprocess invocation, stdout/stderr persistence, and parent
   echo. Used by `rss_daily_report.py` to compose fetch → validate →
@@ -454,9 +438,14 @@ import-safe and has dedicated unit tests.
   `ValidationDocument`, `LlmContextDocument`, `PipelineOutput`, plus
   `STATUS_OK / STATUS_EMPTY / STATUS_ERROR` constants. Documentation-grade;
   the validator stays the source of truth for what is rejected.
-- `scripts/editorial_runtime.py` — deterministic runtime helper for artifact
-  audit, Part 1 shortlist context slicing, final assembly, final review, and
-  `runs/_cache/editorial_cache.json` updates.
+- `_common/editorial_cache.py` — `runs/_cache/editorial_cache.json` helpers
+  used by `editorial_runtime.py`.
+- `_common/seen_links.py` — `runs/_seen_links.json` ledger used by fetch and
+  `assemble`.
+
+`scripts/editorial_runtime.py` is the deterministic runtime helper for artifact
+audit, Part 1 shortlist context slicing, final assembly, final review, and
+cache / seen-links updates. It is not a `_common/` module.
 
 ## Division Of Responsibility
 
@@ -567,7 +556,7 @@ When `validation.passed` is true, the LLM should:
 ## Feed Policy
 
 - Feed-specific soft failures may be annotated in `feeds.json` with `"error_policy": "warn"`.
-- `error_policy: "warn"` now affects warning classification and operator expectations, not publishability by itself.
+- `error_policy: "warn"` affects warning classification and operator expectations, not publishability by itself.
 - Marked `warn` feeds should appear under `warn-only error feed(s)` warnings; unmarked fetch errors should appear under the general failed-feed warnings. Neither kind of fetch error should by itself block a publishable run when the workflow still has reportable articles.
 - Do not silently change a feed from `block` to `warn` without documenting the reason in the commit or change note.
 - A feed may carry an optional `"user_agent"` string. When present and
@@ -596,26 +585,29 @@ asserts anything about feed count, render thresholds, or the rendered Markdown
 shape, it derives it from fixtures — never hard-coded against the user's local
 config files.
 
-- `tests/test_qc_offline.py` — validator + renderer + dedup parity, fixture-driven.
-- `tests/test_contracts_snapshot.py` — locks the LLM-visible surface
-  (top-level keys, per-article fields, exit-code translation table,
-  `--json-output` schema). If this fails after a refactor, you changed a
-  contract; update both the golden fixture and the Claude Code runtime docs deliberately.
-- `tests/test_common_text.py` — `_common.text` byte-level behaviour plus a
-  `parse_feed` smoke that guards the fetch path against missing imports.
-- `tests/test_pipeline_step.py` — `_common.pipeline` subprocess wrapper.
-- `tests/test_network_debug.py` — offline coverage for the network diagnostic helper.
-- `tests/test_runs_cleanup.py` — `_common.paths` + `--retain-days`
-  retention policy.
-- `tests/test_claude_skill_layout.py` — repo-level checks for the Claude Code entrypoint, shared Claude/Codex skill file, tracker, and runtime-layout packaging.
-- `tests/test_claude_agent_layout.py` — repo-level checks for `.claude/agents/`, the runtime agent files, and the documented `skill + subagents` architecture.
+Run `python3 -m unittest discover -s tests -p 'test_*.py'`. The files that
+lock the agent-visible surface and layout are:
+
+- `tests/test_contracts_snapshot.py` — LLM-visible keys, per-article fields,
+  exit-code table, `--json-output` schema. A failure here is a contract
+  change: update the golden fixture and this file together.
+- `tests/test_qc_offline.py` — validator + renderer + dedup parity.
+- `tests/test_claude_skill_layout.py` — Claude Code entrypoint, shared
+  Claude/Codex skill file, tracker, and packaging.
+- `tests/test_claude_agent_layout.py` — `.claude/agents/` roster and the
+  documented `skill + subagents` architecture.
+
+The remaining `tests/test_*.py` files cover `_common/` modules and
+editorial_runtime helpers (`text`, `pipeline`, `fsio`, `article_extract`,
+`editorial_cache`, `seen_links`, `feed_fetch`, `stale_feeds`, and the
+runtime assemble/review path).
 
 ## Maintenance Notes
 
 - Keep deterministic rules in code and semantic judgment in the Claude Code runtime layer.
 - Do not move validation logic back into the orchestrator skill or subagents.
 - Do not hand-edit `raw.json`, `validation.json`, or `llm_context.json`.
-- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `.claude/skills/dailynews-report/SKILL.md`, `.claude/skills/dailynews-report/agents/openai.yaml`, the `.agents/skills/dailynews-report/SKILL.md` / `.agents/skills/dailynews-report/agents` symlinks, and the relevant `.claude/agents/*.md` files aligned. `CLAUDE.md` is a symlink to `AGENTS.md` — edit `AGENTS.md` only.
+- If the runtime procedure changes, keep `TASKS.md`, `README.md`, `AGENTS.md`, `.claude/skills/dailynews-report/SKILL.md`, `.claude/skills/dailynews-report/agents/openai.yaml`, the `.agents/skills/dailynews-report/SKILL.md` / `.agents/skills/dailynews-report/agents` symlinks, and the relevant `.claude/agents/*.md` files aligned. Edit `AGENTS.md` only; `CLAUDE.md` follows it.
 - If tests change, update the fixture set in `tests/fixtures/` — including
   `feeds_fixture.json`, `pipeline_config_fixture.json`, and the two golden artifacts
   (`markdown_render_golden.md`, `llm_context_golden.json`). Never make
