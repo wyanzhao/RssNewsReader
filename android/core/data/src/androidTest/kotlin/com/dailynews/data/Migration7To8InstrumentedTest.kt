@@ -12,7 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Epic V：report_items.eventKey（含回填）与 periodic_reports 建表。 */
+/** Epic V: report_items.eventKey (including backfill) and the periodic_reports table. */
 @RunWith(AndroidJUnit4::class)
 class Migration7To8InstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -40,7 +40,7 @@ class Migration7To8InstrumentedTest {
                 "INSERT INTO report_items(reportDate,part,position,link,title,source,pubDateUtc,pubDateIso,summaryEn,articleText,summaryZh,alsoLinksJson) " +
                     "VALUES('2026-08-04',1,1,'https://example/a','Title A','Source','2026-08-04 10:00 UTC','2026-08-04T10:00+00:00','','','中文摘要 A','[]')",
             )
-            // 第二条在缓存里没有对应 event key，迁移后应保持空串而不是继承上一条。
+            // The second row has no matching event key in cache; after migration it must stay empty, not inherit the previous row.
             execSQL(
                 "INSERT INTO report_items(reportDate,part,position,link,title,source,pubDateUtc,pubDateIso,summaryEn,articleText,summaryZh,alsoLinksJson) " +
                     "VALUES('2026-08-04',1,2,'https://example/b','Title B','Source','2026-08-04 11:00 UTC','2026-08-04T11:00+00:00','','','中文摘要 B','[]')",
@@ -52,7 +52,7 @@ class Migration7To8InstrumentedTest {
             close()
         }
 
-        // runMigrationsAndValidate 校验整个 v8 schema，包含索引的 Room 生成名。
+        // runMigrationsAndValidate checks the whole v8 schema, including Room-generated index names.
         val migrated = helper.runMigrationsAndValidate(databaseName, 8, true, DailyNewsDatabase.MIGRATION_7_8)
 
         migrated.query("SELECT link, eventKey FROM report_items ORDER BY position").use { cursor ->
@@ -97,7 +97,7 @@ class Migration7To8InstrumentedTest {
         migrated.close()
     }
 
-    /** 全链测试的终点始终是最新版本，这样一次覆盖安装的真实路径永远被验证。 */
+    /** The full-chain test's endpoint is always the latest version, so a real overwrite-install path is always covered. */
     @Test
     fun fullChainFromVersionThreeReachesLatestVersionWithFavoritesIntact() {
         helper.createDatabase(fullChainDatabaseName, 3).apply {

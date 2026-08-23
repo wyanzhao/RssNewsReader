@@ -11,18 +11,19 @@ import com.dailynews.model.PeriodicDigestSection
 import com.dailynews.pipeline.text.TextUtils
 
 /**
- * 短 id 引用层：模型写 `a7`，Kotlin 还原成权威 link。
+ * Short-id ref layer: the model writes `a7`, Kotlin restores it to the authoritative link.
  *
- * 2026-08-19 的三轮 part1_plan 契约失败不是抓取问题，是模型在**复制 URL** 这一步
- * 出错——按标题重造 slug、把标题撇号塞进 slug、超长 slug 丢词。要求便宜模型逐字
- * 复制 80 字符的字符串是一个它做不到的任务，而 `a7` 是它做得到的。这一层把那个
- * 任务从契约里删掉，而不是在它出错之后想办法猜回来。
+ * The three rounds of part1_plan contract failures on 2026-08-19 were not a fetch problem; the model was making
+ * mistakes at the **URL-copying** step — re-minting slugs from titles, stuffing title apostrophes into slugs,
+ * dropping words from over-long slugs. Asking a cheap model to copy an 80-character string verbatim is a task it
+ * cannot do, while `a7` is one it can. This layer removes that task from the contract instead of trying to guess
+ * things back after the model errs.
  *
- * link 依然留在发给模型的负载里（人读产物时需要，索引也从模型真正看到的那份负载
- * 构建），但 prompt 明确禁止回显。
+ * The link still stays in the payload sent to the model (humans need it when reading the artifact, and the index is
+ * built from the very payload the model actually sees), but the prompt explicitly forbids echoing it.
  */
 object EditorialRefs {
-    /** 输入文章的 id 方案。id 由位置生成，与负载数组顺序一一对应。 */
+    /** Id scheme for input articles. Ids are generated from position and correspond one-to-one with the payload array order. */
     fun articleId(index: Int): String = "a${index + 1}"
 
     fun resolvePart1(draft: Part1PlanDraft, refs: ArticleRefIndex): RefResolution<Part1Plan> {
@@ -67,28 +68,29 @@ object EditorialRefs {
         return resolution(PeriodicDigest(draft.period, sections, draft.notes), errors)
     }
 
-    // 解析失败就整份作废，而不是丢掉坏条目继续：一份少了三条的计划看起来完全正常，
-    // 而 shortfall 校验正是用来发现「悄悄丢条目」的。
+    // If resolution fails the whole draft is voided rather than dropping the bad items and continuing: a plan
+    // missing three items looks perfectly normal, and the shortfall check exists precisely to catch "silently dropped items".
     private fun <T> resolution(value: T, errors: List<String>) =
         RefResolution(value.takeIf { errors.isEmpty() }, errors)
 }
 
-/** 解析结果：`value` 非空即代表全部引用都落在素材内。 */
+/** Resolution result: a non-null `value` means every ref lands inside the source material. */
 data class RefResolution<T>(val value: T?, val errors: List<String>)
 
 /**
- * 一次调用的 id → link 索引。
+ * The id → link index for one call.
  *
- * 从模型实际收到的那份负载构建（而不是重新按顺序推导），所以负载与索引不可能失步。
+ * Built from the payload the model actually receives (rather than re-derived from order), so the payload and the
+ * index can never drift apart.
  */
 class ArticleRefIndex(entries: List<Pair<String, String>>) {
     private val byId = entries.associate { (id, link) -> normalizeId(id) to link }
     private val byLink = entries.associate { (_, link) -> TextUtils.cleanText(link) to link }
     private val ids = entries.map { it.first }
-    // 最长优先，否则一个是另一个前缀的链接会被截半替换。
+    // Longest first, otherwise a link that is a prefix of another is half-replaced.
     private val idByLink = entries.map { (id, link) -> link to id }.sortedByDescending { it.first.length }
 
-    /** 有效 id 区间，写进重试反馈里——模型需要知道它能选什么。 */
+    /** Valid id range, written into retry feedback so the model knows what it can pick. */
     val idRange: String = when {
         ids.isEmpty() -> "(none)"
         ids.size == 1 -> ids.single()
@@ -96,9 +98,10 @@ class ArticleRefIndex(entries: List<Pair<String, String>>) {
     }
 
     /**
-     * 宽进严出。接受 `a7` / `A7` / `7` / `a07` 这类同义写法，也接受**逐字正确**的原始
-     * link——模型偶尔仍会回显链接，抄对了就没有理由打回。被改写过的链接照样解析
-     * 失败，那正是这一层要挡的东西。
+     * Wide in, strict out. Accepts synonymous forms like `a7` / `A7` / `7` / `a07`,
+     * and also a **byte-for-byte correct** original link — the model still echoes
+     * links occasionally, and a correct copy is no reason to reject. Mutated links
+     * still fail to resolve, which is exactly what this layer is here to catch.
      */
     fun resolve(raw: String): String? {
         val cleaned = TextUtils.cleanText(raw)
@@ -107,10 +110,12 @@ class ArticleRefIndex(entries: List<Pair<String, String>>) {
     }
 
     /**
-     * 把要回传给模型的文字里的权威 link 换成它认识的 id。
+     * Replace authoritative links in text being sent back to the model with the ids
+     * it already knows.
      *
-     * 只用于重试反馈：契约违规产物里保留原始 link，那是给人排查用的。反馈里留着
-     * 80 字符的 URL 只会让模型重新面对它抄不对的那个字符串。
+     * Used only for retry feedback: contract-violation artifacts keep the original
+     * link, which is for human diagnosis. Leaving an 80-character URL in the feedback
+     * only puts the model back in front of the string it cannot copy.
      */
     fun toIdLanguage(text: String): String =
         idByLink.fold(text) { acc, (link, id) -> acc.replace(link, id) }

@@ -5,10 +5,13 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
 /**
- * 简报页的日期导航是纯函数，和 `ui/reader/ReaderFilters.kt` 一样可以直接 JVM 单测。
+ * Brief-page date navigation is a pure function, JVM-testable the same way as
+ * `ui/reader/ReaderFilters.kt`.
  *
- * 步进只在**有报告的日期之间**跳：按自然日 ±1 会让用户在断更期间连点好几下空白，
- * 而这个 app 本来就不保证每天都有报告（provider 未配置、抓取失败、手动跳过）。
+ * Stepping only jumps **between dates that have a report**: ±1 calendar day would
+ * make the user tap through several empty days during a coverage gap, and this app
+ * does not guarantee a report every day (provider unconfigured, fetch failure,
+ * manual skip).
  */
 internal fun previousReportDate(available: List<String>, current: String): String? =
     available.filter { it < current }.maxOrNull()
@@ -16,7 +19,7 @@ internal fun previousReportDate(available: List<String>, current: String): Strin
 internal fun nextReportDate(available: List<String>, current: String): String? =
     available.filter { it > current }.minOrNull()
 
-/** `2026-08-05 星期三`；当天再加「· 今天」。日期不可解析时原样回显，不抛。 */
+/** `2026-08-05 Wednesday` (localized day of week); today additionally gets the "· Today" suffix. Unparseable dates are echoed back as-is, no throw. */
 internal fun briefDateLabel(date: String, today: String): String {
     val parsed = runCatching { LocalDate.parse(date) }.getOrNull() ?: return date
     val weekday = when (parsed.dayOfWeek) {
@@ -32,8 +35,9 @@ internal fun briefDateLabel(date: String, today: String): String {
 }
 
 /**
- * 空态文案要区分「今天还没生成」和「那天就没有报告」——前者可以补跑，
- * 后者是既成历史，给出补跑按钮只会让人白等。
+ * Empty-state copy must distinguish "today has not been generated yet" from "that day has
+ * no report" — the former can still get a makeup run; the latter is settled history, and
+ * offering a makeup-run button would only make people wait for nothing.
  */
 internal fun briefEmptyTitle(isToday: Boolean): String = if (isToday) "今天还没有报告" else "这一天没有报告"
 
@@ -44,7 +48,7 @@ internal fun briefEmptyMessage(isToday: Boolean, date: String, nextScheduledAt: 
         else -> "$date 没有生成过报告。用上方箭头或日期列表切换到有报告的日子。"
     }
 
-/** 解析失败时返回 null，让调用方回退到「跟随当天」而不是崩在一个脏日期上。 */
+/** Returns null on parse failure, so callers fall back to "follow today" instead of crashing on a dirty date. */
 internal fun normalizeReportDate(value: String?): String? {
     val trimmed = value?.trim().orEmpty()
     if (trimmed.isEmpty()) return null

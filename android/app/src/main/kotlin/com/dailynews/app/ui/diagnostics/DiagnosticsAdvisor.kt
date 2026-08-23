@@ -88,7 +88,7 @@ fun advise(input: DiagnosticsAdviceInput): DiagnosticsAdvice = when {
         if (input.warningCount > 0) "这次运行正常，有 ${input.warningCount} 条警告，不影响出报" else "这次运行正常",
         DiagnosticsAction.NONE,
     )
-    // R4a: 预算闸门在花钱之前挡下了这次运行。这不是故障，改预算或等下个月。
+    // R4a: the budget guard stopped this run before it spent any money. This is not a fault; adjust the budget or wait for next month.
     input.stage == "cost_guard" ->
         DiagnosticsAdvice("本月 token 预算已用尽，本次未发起生成", DiagnosticsAction.OPEN_PIPELINE_SETTINGS)
     // R4: the app saw no network, which is not the same as the device having none —
@@ -112,8 +112,8 @@ fun advise(input: DiagnosticsAdviceInput): DiagnosticsAdvice = when {
     // R9
     input.stage == "editorial" || providerRegex.containsMatchIn(input.evidence) ->
         DiagnosticsAdvice("LLM provider 拒绝请求，多半是密钥或模型名", DiagnosticsAction.OPEN_PROVIDER_SETTINGS)
-    // R10：装配/审校/Top N 的确定性契约失败。`success_branch` 此前落进最后的兜底，
-    // 用户拿到的建议是"重跑一次"——而这类失败重跑必然精确复现。
+    // R10: deterministic contract failures in assemble/review/Top N. `success_branch` used to fall
+    // into the last fallback, advising the user to "rerun once" — yet rerunning this kind of failure always reproduces it exactly.
     input.stage == "artifact_audit" || input.stage == "review" ||
         input.stage == "report_contract" || input.stage == "success_branch" ->
         DiagnosticsAdvice("产物自检/审校未过，需产物定位", DiagnosticsAction.EXPORT_ZIP)
@@ -130,10 +130,10 @@ fun advise(input: DiagnosticsAdviceInput): DiagnosticsAdvice = when {
         DiagnosticsAdvice("输入产物损坏，重跑会重新抓取", DiagnosticsAction.RUN_NOW)
     // R15
     input.classification == "EXPECTED_BLOCK" -> DiagnosticsAdvice("系统按规则主动阻断，不是故障", DiagnosticsAction.NONE)
-    // R16：抓取阶段真的失败了。排在全部 EXPECTED_BLOCK 规则之后，所以"零文章"
-    // 与"订阅源报错"仍然走它们各自的解释；能到这里的是别的原因。
+    // R16: the fetch stage genuinely failed. Placed after all EXPECTED_BLOCK rules, so "zero articles"
+    // and "feed errors" still get their own explanations; whatever reaches here failed for some other reason.
     input.stage == "fetch" -> DiagnosticsAdvice("抓取阶段失败，先看订阅源状态", DiagnosticsAction.OPEN_FEEDS)
-    // R17：确定性流水线阶段失败意味着产物之间自相矛盾。重跑不会让它们变得一致。
+    // R17: a deterministic pipeline stage failure means the artifacts contradict each other. Rerunning will not make them consistent.
     input.stage == "validate" || input.stage == "classification" || input.stage == "pipeline" ->
         DiagnosticsAdvice("确定性流水线阶段失败，需导出产物定位", DiagnosticsAction.EXPORT_ZIP)
     // Fallback: rerun.

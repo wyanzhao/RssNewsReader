@@ -9,12 +9,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/** 一天一组的线索历史。 */
+/** Story history grouped by day. */
 data class StoryDay(val reportDate: String, val items: List<ReportItemEntity>)
 
 data class StoryUiState(
     val eventKey: String = "",
-    /** null = 首次发射之前，与 ReaderPhase 的三态思路一致，避免把加载中误显示成空。 */
+    /** null = before the first emission; consistent with ReaderPhase's three-state idea, so loading is never mis-displayed as empty. */
     val days: List<StoryDay>? = null,
     val headline: String = "",
 ) {
@@ -22,8 +22,9 @@ data class StoryUiState(
 }
 
 /**
- * 线索历史只消费 `report_items`（V4-D2 表面归属红线）。它刻意不碰文章池：
- * 池有留存期，而已发布报告的条目是永久快照。
+ * Story history consumes only `report_items` (the V4-D2 surface-attribution red line). It
+ * deliberately does not touch the article pool: the pool has a retention period, while the
+ * items of a published report are a permanent snapshot.
  */
 class StoryViewModel(
     reports: ReportRepository,
@@ -37,7 +38,7 @@ class StoryViewModel(
             StoryUiState(
                 eventKey = eventKey,
                 days = days,
-                // 用最早一条的标题当线索名：那是这条线索的起点，比最新一条更稳定。
+                // Use the earliest item's title as the story name: it is where this story started, and is more stable than the latest item.
                 headline = days.lastOrNull()?.items?.firstOrNull()?.title.orEmpty(),
             )
         }

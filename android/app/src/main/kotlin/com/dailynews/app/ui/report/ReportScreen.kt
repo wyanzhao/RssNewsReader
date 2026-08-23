@@ -157,12 +157,12 @@ fun LazyListScope.reportContent(
     onShare: (String) -> Unit,
     embedded: Boolean = false,
     onOpenDiagnostics: (() -> Unit)? = null,
-    /** null = 宿主没接线索历史（例如截图 fixture）；此时不显示入口。 */
+    /** null = the host does not wire up story history (e.g. screenshot fixtures); in that case no entry point is shown. */
     onOpenStory: ((String) -> Unit)? = null,
 ) {
     val entries = state.items
     val groups = state.groups
-    // Room 还没发第一帧：任何统计都会读成 0，渲染出来是一份假的空报告。
+    // Room has not emitted its first frame yet: any stats would read as 0, rendering a fake empty report.
     if (!state.loaded) {
         item(key = if (embedded) "embedded-loading" else "report-loading") {
             Box(Modifier.fillMaxWidth().padding(DailyNewsSpacing.roomy), contentAlignment = Alignment.Center) {
@@ -171,8 +171,8 @@ fun LazyListScope.reportContent(
         }
         return
     }
-    // 已加载但这一天没有报告——旧通知、旧小组件、被保留期清掉的日期都会走到这里。
-    // 此前没有这个分支，用户会永久停在 "UNKNOWN · Top 0" 的骨架上。
+    // Loaded but there is no report for this day — old notifications, stale widgets, and dates cleared by retention all land here.
+    // Before this branch existed, users would be stuck forever on the "UNKNOWN · Top 0" skeleton.
     if (state.report == null) {
         item(key = if (embedded) "embedded-absent" else "report-absent") {
             Column(
@@ -233,8 +233,8 @@ fun LazyListScope.reportContent(
             onToggleFavorite = { onToggleFavorite(article) },
             onShare = { onShare(articleShareText(article)) },
             onOpenRelated = onOpen,
-            // 只在这条线索确实跨了 >= 2 天时才给入口：点进去只有自己一篇
-            // 的「历史」是个空承诺。深度由 report_items 聚合得到。
+            // Only offer the entry point when this story actually spans >= 2 days: a "history"
+            // containing only its own single article is an empty promise. Depth is aggregated from report_items.
             onOpenStory = onOpenStory?.takeIf { (state.storyDepth[article.eventKey] ?: 0) >= 2 },
             storyDays = state.storyDepth[article.eventKey],
         )
@@ -268,8 +268,9 @@ fun LazyListScope.reportContent(
 }
 
 /**
- * Part 2（按来源分组）展示段。Epic U 起由 [PART2_SECTION_ENABLED] 门控停用，
- * 函数本体保留并由 ReportSemanticsTest 直接调用，保证折叠语义随时可恢复。
+ * Part 2 (grouped by source) display section. Disabled by the [PART2_SECTION_ENABLED]
+ * gate since Epic U; the function body is kept and invoked directly by
+ * ReportSemanticsTest so the collapsed semantics can be restored at any time.
  */
 internal fun LazyListScope.part2Section(
     state: ReportUiState,
@@ -330,9 +331,10 @@ internal fun LazyListScope.part2Section(
 }
 
 /**
- * 简报页「来源健康」卡。数据源是 reports.groupsJson（[ReportUiState.groups]），
- * 语义为「本次报告抓取时」的快照；与阅读页 chip 上「最近抓取」的
- * feedDisplayStatus 语义不同，文案必须显式区分。
+ * The "Source Health" card on the report page. Its data source is reports.groupsJson
+ * ([ReportUiState.groups]), semantically a snapshot taken "at this report's fetch time";
+ * that differs from the "most recent fetch" feedDisplayStatus semantics on the reader
+ * page's chip, so the copy must explicitly distinguish the two.
  */
 internal fun LazyListScope.sourceHealthItem(
     groups: List<ReportGroup>,

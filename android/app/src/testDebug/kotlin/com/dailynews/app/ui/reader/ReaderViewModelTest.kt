@@ -74,7 +74,7 @@ class ReaderViewModelTest {
     fun emptyDatabaseMovesFromExplicitLoadingToExplicitEmpty() = runTest {
         val vm = viewModel()
 
-        // stateIn 初值：articles 为 null，与空态显式可区分。
+        // stateIn initial value: articles is null, explicitly distinguishable from the empty state.
         assertEquals(ReaderPhase.LOADING, vm.state.value.phase)
         assertNull(vm.state.value.articles)
 

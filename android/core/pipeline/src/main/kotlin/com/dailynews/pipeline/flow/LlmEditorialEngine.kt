@@ -269,20 +269,21 @@ class LlmEditorialEngine(
         val shortlistContext = shortlistContexts.build(context, links)
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)
-        // 这是 Part 1 计划调用真正发出去的负载，也是整条链路上最大的一份，而
-        // context_budget 只记 llm_context / part1_brief / part2_context 三份——它在那里
-        // 计为零。条数由 shortlist 上限（topN + 15）结构性兜住，所以这里不硬拦，
-        // 只把尺寸变成可观测的：真出问题时日志里有数，而不是只能猜。
-        // 中文摘要缓存的命中率。
+        // This is the payload the Part 1 plan call actually sends, and the largest single piece on the whole chain,
+        // yet context_budget only accounts for llm_context / part1_brief / part2_context — it counts as zero there.
+        // The item count is structurally bounded by the shortlist cap (topN + 15), so there is no hard block here;
+        // the size is just made observable: if something really goes wrong, the log has a number instead of guesses.
+        // The hit rate of the Chinese-summary cache.
         //
-        // 目前这个分支**结构性**命中为零：cacheKey 纯按 link 取，而 RunOrchestrator 把
-        // 每一篇抓取到的文章（不只是被报道的）都记进 seen-links，于是任何链接都不会
-        // 在跨天时第二次进入缓存查询——只有同日重跑才可能命中。这在 Android 上是自洽的
-        // （阅读器本来就呈现整个文章池，所以"全部标记为已呈现"没错），但它让 prompt 里
-        // 那两句"可复用 cached_summary_zh"描述了一个不会执行的分支。
+        // This branch currently has **structurally** zero hits: cacheKey is keyed purely on link, and RunOrchestrator
+        // records every fetched article (not just the reported ones) into seen-links, so no link ever enters a cache
+        // lookup a second time across days — only same-day reruns can hit. That is self-consistent on Android (the
+        // reader presents the whole article pool anyway, so "mark everything as presented" is correct), but it
+        // leaves those two prompt lines about "reusable cached_summary_zh" describing a branch that never executes.
         //
-        // 不静默删掉这条路径：它的代价是存储与认知负担而不是 token，去留是产品决策。
-        // 但要让它可见——有了这行日志，决策就有数据而不是猜测。
+        // Do not silently delete this path: its cost is storage and cognitive burden rather than tokens, and keeping
+        // or removing it is a product decision. But make it visible — with this log line the decision has data
+        // instead of guesses.
         runCatching {
             logs.log(
                 runId,
@@ -365,14 +366,14 @@ class LlmEditorialEngine(
     }
 
     /**
-     * 周期简报（周报 / 月报）。素材是**已发布**的每日 Top N 条目，所以这里没有抓取、
-     * 没有 shortlist，只有一次二次编辑调用。
+     * Periodic digest (weekly / monthly report). The material is the daily Top N items that have already been
+     * **published**, so there is no fetch and no shortlist here — just a single secondary-editing call.
      *
-     * 复用 EDITOR 角色：工作性质（中文编辑判断）与 Part 1 同类，而新增一个
-     * EditorialRole 要改用户持久化的 RoleModelMapping——那条路径上任何解码意外
-     * 都会把用户的全部 provider 配置静默退回默认，代价与收益完全不成比例。
-     * DRAFTER 更不能用：它因 Part 2 停用而在主链路不可达，拿它跑周报等于
-     * 悄悄复活一个用户以为已关闭的角色。
+     * Reuses the EDITOR role: the nature of the work (Chinese editorial judgment) is the same kind as Part 1, and
+     * adding a new EditorialRole would require changing the user-persisted RoleModelMapping — any decoding mishap on
+     * that path would silently revert all of the user's provider configuration back to defaults, a cost entirely out
+     * of proportion to the benefit. DRAFTER is even less usable: it is unreachable from the main chain because Part 2
+     * is disabled, and running the weekly report on it would quietly resurrect a role the user believes is off.
      */
     suspend fun digest(
         runId: String,
@@ -618,7 +619,7 @@ class LlmEditorialEngine(
     }
 }
 
-/** 实测正常日约 114 KB。超出这个数就值得在日志里留一行，因为它每轮重试都重发。 */
+/** Measured at roughly 114 KB on a normal day. Exceeding this is worth a log line, because it is resent on every retry round. */
 private const val SHORTLIST_CONTEXT_WARN_BYTES = 200_000
 
 private class CallCounter(private val maximum: Int) {
@@ -634,7 +635,7 @@ private data class Part2BatchInput(val articles: List<Part2BatchArticle>)
 
 @Serializable
 private data class Part2BatchArticle(
-    /** 短引用 id（批次内编号）。摘要条目只写这个，不回显 link。 */
+    /** Short reference id (numbered within the batch). Summary entries write only this and never echo the link back. */
     val id: String,
     val source: String,
     val title: String,

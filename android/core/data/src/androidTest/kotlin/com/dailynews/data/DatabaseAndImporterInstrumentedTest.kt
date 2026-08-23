@@ -396,8 +396,9 @@ class DatabaseAndImporterInstrumentedTest {
         )
         ArtifactStore(database) { Instant.parse("2026-08-04T12:00:00Z") }
             .write("backup-run", "validation.json", "{\"passed\":true}".toByteArray())
-        // Epic V：周期简报是独立表，必须显式进备份信封。漏接不会编译错，
-        // 只会在用户恢复设备后发现周报凭空消失。
+        // Epic V: periodic digests are a separate table and must be in the backup
+        // envelope explicitly. Missing them will not fail the compile; the user
+        // only discovers weekly digests vanished after restoring a device.
         database.periodicReports().upsert(
             com.dailynews.data.db.PeriodicReportEntity(
                 periodKey = "2026-W32",
@@ -534,7 +535,7 @@ class DatabaseAndImporterInstrumentedTest {
         database.articles().insert(entity("https://example/a1", "Alpha", "2026-08-04T10:00+00:00"))
         database.articles().insert(entity("https://example/a2", "Alpha", "2026-08-04T09:00+00:00", readAtUtc = "2026-08-04T11:00:00Z"))
         database.articles().insert(entity("https://example/b1", "Beta", "2026-08-04T10:00:30+00:00"))
-        // FavoriteRepository.save 造的合成行：无日期，必须被阅读器挡在门外。
+        // Synthetic row from FavoriteRepository.save: no date, must be kept out of the reader.
         com.dailynews.data.repo.FavoriteRepository(database).save("https://example/favorite", "Favorite only", "Gamma", "中文摘要")
 
         val all = articles.observeTimeline(null, false, 100).first()
@@ -550,9 +551,10 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals(listOf("https://example/a1"), alphaUnread.map { it.linkKey })
 
         assertEquals(3, articles.observePoolCount().first())
-        // Gamma 是上面那条无日期的收藏合成行。observeUnreadCounts 与 observePoolCount
-        // 一样带 `pubDateIso <> ''` 守卫，所以它不该出现在源 chip 的未读计数里——
-        // 否则用户会看到一个永远点不开、也永远清不掉的未读数。
+        // Gamma is the dateless favorite synthetic row above. observeUnreadCounts
+        // has the same `pubDateIso <> ''` guard as observePoolCount, so it must
+        // not appear in the source-chip unread count — otherwise the user sees
+        // an unread number they can never open or clear.
         assertEquals(
             mapOf("Alpha" to 1, "Beta" to 1),
             articles.observeUnreadCounts().first().associate { it.feedName to it.unread },
@@ -578,27 +580,29 @@ class DatabaseAndImporterInstrumentedTest {
         database.articles().insert(entity("https://example/other", "Beta"))
 
         assertEquals(2, articles.markAllRead("Alpha", "2026-08-04T12:00:00Z"))
-        // 批次之后用户真正读过的文章用不同时间戳，不应被撤销误伤。
+        // Articles the user actually read after the batch use a different timestamp and must not be hurt by undo.
         articles.markRead("https://example/other", Instant.parse("2026-08-04T12:05:00Z"))
 
         assertTrue(articles.observeTimeline("Beta", true, 100).first().isEmpty())
-        // 该批次标了 2 行（batch1 + batch2），撤销就该退回 2 行——下面两条断言
-        // 期望的正是「两条都回到未读」，原来的 1 与它们自相矛盾。
+        // The batch marked 2 rows (batch1 + batch2), so undo must restore 2 —
+        // the next two assertions expect both back to unread; the original 1
+        // contradicted them.
         assertEquals(2, articles.undoMarkAllRead("2026-08-04T12:00:00Z"))
         assertEquals(
             listOf("https://example/batch1", "https://example/batch2"),
             articles.observeTimeline("Alpha", true, 100).first().map { it.linkKey },
         )
         assertTrue(articles.observeTimeline("Beta", true, 100).first().isEmpty())
-        // 单条标未读反向可用。
+        // Marking a single item unread must work in reverse too.
         articles.markUnread("https://example/other")
         assertEquals(listOf("https://example/other"), articles.observeTimeline("Beta", true, 100).first().map { it.linkKey })
     }
 
     @Test
     fun favoritesAndReaderStillFallBackToEnglishSummaryWhenPart2RowsAreBlank() = runBlocking {
-        // U1 回归锁：LAZY 下 part=2 行写入空串 summaryZh，COALESCE 只跳过 NULL
-        // 不跳过 ''；同日 part=1/part=2 之间 ORDER BY reportDate DESC LIMIT 1 未定序。
+        // U1 regression lock: under LAZY, part=2 rows write empty-string summaryZh;
+        // COALESCE skips NULL only, not ''. Same-day part=1/part=2 are unordered
+        // under ORDER BY reportDate DESC LIMIT 1.
         val link = "https://example/fallback"
         database.articles().insert(
             ArticleEntity(
@@ -624,7 +628,7 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals("精选中文摘要", database.articles().observeFavorites().first().single().summaryZh)
         assertEquals("精选中文摘要", ArticleRepository(database).observeTimeline(null, false, 100).first().single().summaryZh)
 
-        // 两行摘要都是空串时回落 summaryEn。
+        // When both summary rows are empty strings, fall back to summaryEn.
         database.reports().deleteItems("2026-08-04")
         database.reports().insertItems(
             listOf(ReportItemEntity("2026-08-04", 2, 1, link, "Fallback title", "Source", "", "", summaryZh = "")),

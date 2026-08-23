@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class ArticleDetailUiState(
-    /** 三态：未加载 / 已加载但不存在 / 已加载有内容。与 ReaderPhase 同一思路。 */
+    /** Three states: not loaded / loaded but absent / loaded with content. Same idea as ReaderPhase. */
     val loaded: Boolean = false,
     val article: ArticleDetail? = null,
 )
@@ -28,7 +28,7 @@ class ArticleDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ArticleDetailUiState())
 
     init {
-        // 打开即已读，与列表里点开的语义一致。
+        // Opening marks as read, matching the list-tap semantics.
         viewModelScope.launch(Dispatchers.IO) { articles.markRead(link) }
     }
 

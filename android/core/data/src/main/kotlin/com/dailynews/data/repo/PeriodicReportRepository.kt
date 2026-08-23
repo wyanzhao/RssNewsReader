@@ -18,11 +18,13 @@ import kotlinx.serialization.encodeToString
 enum class PeriodKind { WEEKLY, MONTHLY }
 
 /**
- * 周报 / 月报的存储与素材装配。
+ * Storage and material assembly for weekly / monthly reports.
  *
- * 存独立表而不是 `reports`：后者主键 `reportDate` 在极多处被当日期解析，
- * 而 `2026-W32` 字典序大于任何 `2026-08-xx`，塞进去第一个后果就是桌面 widget
- * 的 latestNow() 把周报当成「最新报告」。详见 PeriodicReportEntity 的注释。
+ * Kept in a separate table rather than `reports`: the latter's primary key `reportDate`
+ * is parsed as a date in many places, and `2026-W32` sorts lexicographically after any
+ * `2026-08-xx`, so the first consequence of stuffing them in would be the desktop
+ * widget's latestNow() treating a weekly report as the "latest report". See the
+ * PeriodicReportEntity comments for details.
  */
 class PeriodicReportRepository(private val database: DailyNewsDatabase) {
 
@@ -33,8 +35,9 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
     suspend fun find(periodKey: String): PeriodicReportEntity? = database.periodicReports().find(periodKey)
 
     /**
-     * 装配素材。只取 **status = SUCCESS** 那些天的 Part 1 条目：
-     * 被 markFailed 降级过的报告没通过审校，其内容不该被二次编辑重新流通。
+     * Assemble the material. Only takes Part 1 items from days with **status = SUCCESS**:
+     * reports downgraded by markFailed did not pass review, and their content must not be
+     * recirculated through a second round of editing.
      */
     suspend fun collectInput(kind: PeriodKind, start: LocalDate, end: LocalDate): PeriodicDigestInput {
         val rows = database.reports().publishedPart1Between(start.toString(), end.toString())
@@ -49,15 +52,20 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
     }
 
     /**
-     * 素材裁剪。此前是「整段时间的每一条 Part 1 原样送进一次调用」，月报实测约
-     * 900 条 × 451 字节 = 406 KB ≈ 15–20 万 token：在 32K 窗口的便宜模型上直接 400，
-     * 在宽窗口模型上一口气吃掉月度预算的约两成，契约重试再乘三。
+     * Material trimming. It used to be "every Part 1 item across the whole period,
+     * verbatim, into a single call"; a measured monthly report was about 900 items ×
+     * 451 bytes = 406 KB ≈ 150–200k tokens: an instant 400 on a cheap model with a 32K
+     * window, and on a wide-window model it devoured about a fifth of the monthly budget
+     * in one shot, times three again for contract retries.
      *
-     * 两步都保留信息量：
-     * 1. **按 event_key 去重，保留每条线索最新的一次报道。** 周报的产品定义本就是
-     *    「按事件主线归并」，同一条线索的七天流水对模型是负担不是信息；
-     *    `ShortlistContextBuilder` 对 recent_top30 早就是同一个做法。
-     * 2. 去重之后仍超上限时，按日期倒序保留最近的，让简报偏向本期后半段的进展。
+     * Both steps preserve information content:
+     * 1. **Deduplicate by event_key, keeping the newest report of each story line.** The
+     *    product definition of the weekly report is "merge along event story lines"
+     *    anyway; seven days of running log for the same story line is a burden to the
+     *    model, not information. `ShortlistContextBuilder` has long done the same for
+     *    recent_top30.
+     * 2. If the cap is still exceeded after dedup, keep the most recent by descending
+     *    date, so the digest leans toward developments in the latter half of the period.
      */
     private fun boundedItems(rows: List<ReportItemEntity>): List<PeriodicDigestItem> = rows
         .sortedByDescending { it.reportDate }
@@ -75,7 +83,7 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
             )
         }
 
-    /** 成功发布。已发布的周期简报不得被后续失败覆盖（与 ReportRepository 同策略）。 */
+    /** Publish a success. A published periodic digest must not be overwritten by a later failure (same policy as ReportRepository). */
     suspend fun publish(
         kind: PeriodKind,
         input: PeriodicDigestInput,
@@ -101,8 +109,10 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
     }
 
     /**
-     * 失败必须留行 —— 用户明确选了纯 LLM 路线，任何「挂了就用日摘要拼一份」的
-     * 确定性兜底都被禁止。失败行携带原因，UI 显式展示并给重试入口。
+     * A failure must still leave a row — the user explicitly chose the pure-LLM route, so
+     * any deterministic fallback of the "stitch one together from daily digests when it
+     * breaks" kind is forbidden. The failure row carries the reason; the UI shows it
+     * explicitly and offers a retry entry point.
      */
     suspend fun publishFailure(
         kind: PeriodKind,
@@ -131,14 +141,15 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
 
     companion object {
         /**
-         * 单次周期简报的素材条数上限。
+         * Cap on the number of material items for a single periodic digest.
          *
-         * 去重之后周报通常远低于此，月报会撞上。120 条 × 约 450 字节 ≈ 54 KB，
-         * 对 32K 上下文的便宜模型仍然宽裕。
+         * After dedup the weekly report usually stays far below this; the monthly report
+         * hits it. 120 items × ~450 bytes ≈ 54 KB is still comfortable for a cheap model
+         * with a 32K context.
          */
         const val MAX_DIGEST_ITEMS = 120
 
-        /** ISO 周：`2026-W32`。月：`2026-08`。 */
+        /** ISO week: `2026-W32`. Month: `2026-08`. */
         fun periodKeyFor(kind: PeriodKind, start: LocalDate): String = when (kind) {
             PeriodKind.WEEKLY -> {
                 val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
@@ -148,14 +159,14 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
             PeriodKind.MONTHLY -> start.format(DateTimeFormatter.ofPattern("uuuu-MM"))
         }
 
-        /** 上一个完整 ISO 周（周一至周日）。 */
+        /** The previous complete ISO week (Monday through Sunday). */
         fun previousWeek(today: LocalDate): Pair<LocalDate, LocalDate> {
             val thisMonday = today.with(WeekFields.ISO.dayOfWeek(), 1)
             val start = thisMonday.minusWeeks(1)
             return start to start.plusDays(6)
         }
 
-        /** 上一个完整自然月。 */
+        /** The previous complete calendar month. */
         fun previousMonth(today: LocalDate): Pair<LocalDate, LocalDate> {
             val start = today.withDayOfMonth(1).minusMonths(1)
             return start to start.withDayOfMonth(start.lengthOfMonth())

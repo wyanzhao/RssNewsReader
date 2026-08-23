@@ -85,8 +85,9 @@ class RunMaintenanceRepository(private val database: DailyNewsDatabase) {
         val oldArtifacts = database.runArtifacts().deleteBefore(runCutoff)
         val oldLogs = database.runLogs().deleteBefore(runCutoff)
         val oldRuns = database.runs().deleteFinishedBefore(runCutoff)
-        // 报告表此前完全没有保留期，而它们增长最快。只清 part 2：part 1 是跨天线索
-        // 与周期简报的素材，长期保留是产品要求。
+        // The report tables previously had no retention at all, and they grow the fastest.
+        // Only prune part 2: part 1 is material for cross-day story lines and periodic
+        // digests, and keeping it long-term is a product requirement.
         val reportCutoff = now.atZone(ZoneOffset.UTC)
             .toLocalDate()
             .minusDays(reportRetentionDays.coerceIn(7, 365).toLong())
@@ -96,13 +97,15 @@ class RunMaintenanceRepository(private val database: DailyNewsDatabase) {
     }
 
     /**
-     * 回收已删除页占用的磁盘。
+     * Reclaim the disk space held by deleted pages.
      *
-     * SQLite 默认 `auto_vacuum = NONE`：删掉 40 MB 的 report_items 会把页标记为空闲
-     * 供后续复用，但文件大小一个字节都不会变。所以保留期与这一步必须成对存在，
-     * 否则第一次清理会给出"删了却没变小"的结果。
+     * SQLite defaults to `auto_vacuum = NONE`: deleting 40 MB of report_items marks the
+     * pages free for reuse but does not shrink the file by a single byte. Retention and
+     * this step must therefore exist as a pair, or the first cleanup yields a "deleted
+     * but not smaller" result.
      *
-     * 只在真的删掉了东西之后调用，且必须在事务外——VACUUM 不能在事务里跑。
+     * Only call after something was actually deleted, and it must run outside a
+     * transaction — VACUUM cannot run inside one.
      */
     suspend fun compact() {
         database.openHelper.writableDatabase.execSQL("VACUUM")

@@ -53,8 +53,8 @@ class QcAndContextParityTest {
             ArtifactJson.codec.encodeToString(artifacts.llmContext).toByteArray().size,
             artifacts.contextBudget.sizes.llmContextBytes,
         )
-        // 闸门只对**真正会发出去**的负载生效。part1_brief 是这一步唯一进入
-        // LlmRequest 的那份。
+        // The gate only applies to payloads that **actually go out**. part1_brief
+        // is the only one that enters an LlmRequest at this step.
         val tightBrief = LlmContextBuilder().build(
             raw,
             validation,
@@ -65,9 +65,11 @@ class QcAndContextParityTest {
         assertEquals("part1_brief_bytes", tightBrief.contextBudget.violations.single().size)
         assertEquals(1, tightBrief.contextBudget.violations.single().limit)
 
-        // 反向：llm_context 从不被序列化进任何请求，part2_context 在强制 LAZY 下是死的，
-        // total 是三者之和。把这些收到 1 字节也不该拦下一次运行——此前会，于是这道闸
-        // 可以因为免费字节阻断，同时放行真正花钱的那份。
+        // Inverse: llm_context is never serialized into any request, part2_context
+        // is dead under forced LAZY, and total is the sum of the three. Tightening
+        // those to 1 byte must not block a run — previously it would, so the gate
+        // could stop a run on free bytes while letting the payload that actually
+        // costs money through.
         val tightUnsent = LlmContextBuilder().build(
             raw,
             validation,
@@ -83,7 +85,7 @@ class QcAndContextParityTest {
         )
         assertEquals(emptyList(), tightUnsent.contextBudget.violations)
         assertTrue(tightUnsent.contextBudget.withinBudget)
-        // 尺寸仍然全部上报——产物形状是契约，Python 侧逐字节对账。
+        // Sizes are still all reported — artifact shape is a contract; Python reconciles byte-for-byte.
         assertTrue(tightUnsent.contextBudget.sizes.totalContextBytes > 0)
     }
 
@@ -189,8 +191,9 @@ class QcAndContextParityTest {
         )
 
         val pythonBudget = ArtifactJson.codec.decodeFromString<ContextBudget>(FixtureFactory.text("replay/2026-08-03/context_budget.json"))
-        // 分歧之二的字节账：Android 的 brief 比 Python 多出每篇一行短引用 id。
-        // 逐行量出来而不是写死数字，这样 id 方案变了这条断言会跟着走。
+        // Divergence 2's byte ledger: Android's brief adds one short-ref id line
+        // per article vs Python. Measure it line by line rather than hard-coding
+        // a number, so the assertion tracks if the id scheme changes.
         val briefIdBytes = ArtifactJson.codec.encodeToString(artifacts.part1Brief)
             .lines()
             .filter { it.trimStart().startsWith("\"id\": ") }

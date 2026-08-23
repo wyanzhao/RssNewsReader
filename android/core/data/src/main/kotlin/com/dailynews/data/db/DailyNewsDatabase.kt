@@ -12,11 +12,12 @@ import java.io.FileOutputStream
 import java.nio.file.StandardCopyOption
 
 /**
- * Room schema 版本的唯一来源。
+ * Single source of truth for the Room schema version.
  *
- * `@Database(version=)` 与状态备份信封都必须读它。此前备份信封自带一个字面量
- * 默认值，v8→v9 时只有一半被改，于是每份 v9 导出都自称 v8 —— 导入侧那道
- * "拒绝更高版本备份"的守卫因此永远不可能触发。一个数字有两个副本就会漂移。
+ * Both `@Database(version=)` and the state-backup envelope must read it. Previously
+ * the envelope carried its own literal default; on v8→v9 only one half was updated,
+ * so every v9 export claimed to be v8 — and the import-side "reject higher-version
+ * backups" guard could never fire. Two copies of one number will drift.
  */
 const val DAILYNEWS_SCHEMA_VERSION = 9
 
@@ -170,20 +171,22 @@ abstract class DailyNewsDatabase : RoomDatabase() {
 
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Epic U 阅读器索引：索引名必须逐字匹配 Room 生成名，否则 validateMigration 失败。
+                // Epic U reader indexes: names must match Room-generated names byte-for-byte or validateMigration fails.
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_articles_feedName_pubDateIso` ON `articles` (`feedName`, `pubDateIso`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_articles_readAtUtc_feedName_pubDateIso` ON `articles` (`readAtUtc`, `feedName`, `pubDateIso`)")
             }
         }
 
-        /** Epic V：跨日线索 id 落库 + 周期简报表。索引名与建表 SQL 必须逐字匹配 Room 生成形态。 */
+        /** Epic V: persist the cross-day story id and create the periodic-reports table. Index names and CREATE TABLE SQL must match Room's generated form byte-for-byte. */
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE report_items ADD COLUMN eventKey TEXT NOT NULL DEFAULT ''")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_report_items_eventKey` ON `report_items` (`eventKey`)")
-                // 回填：editorial_cache 按 link 保存过历史 event key。回填出的线索多半是单篇
-                // （旧实现的 key 是逐标题 slug，中文标题还会塌成空串），真正的跨源聚类从第一份
-                // v8 报告开始；但这一条 UPDATE 的成本换来首日就有历史深度，值得。
+                // Backfill: editorial_cache stored historical event keys by link. Most
+                // backfilled story lines are single-article (the old key was a per-title
+                // slug, and Chinese titles collapsed to empty), so real cross-source
+                // clustering starts with the first v8 report; the cost of this UPDATE
+                // buys day-one historical depth and is worth it.
                 db.execSQL(
                     """
                     UPDATE report_items SET eventKey = COALESCE((

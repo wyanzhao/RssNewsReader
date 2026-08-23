@@ -11,11 +11,14 @@ import com.dailynews.model.ValidationResult
 import com.dailynews.pipeline.text.TextUtils
 
 /**
- * 确定性装配/审校拒绝了一份**已经通过 LLM 契约**的产物。
+ * Deterministic assemble/review rejected an artifact that had **already passed the
+ * LLM contract**.
  *
- * 曾经与 `flow.EditorialContractException` 同名。编排器只 import 了后者，于是这一类
- * 全部落进分类兜底，用户拿到的建议是"重跑一次"——而它们重跑必然精确复现。同名
- * 不同物是那个 bug 的全部成因，所以这里改名而不只是补一个分支。
+ * Previously shared a name with `flow.EditorialContractException`. The orchestrator
+ * only imported the latter, so this class all fell into the classification fallback
+ * and the user was told to "run it again" — which reproduces the failure exactly.
+ * Same name, different thing was the entire cause of that bug, so this was renamed
+ * rather than just adding a branch.
  */
 class ReportContractException(val errors: List<String>) : IllegalArgumentException(errors.joinToString("; "))
 
@@ -85,8 +88,9 @@ class ReportAssembler {
         }
         val topNMarkdown = if (renderTopN) TopNRenderer.render(context, part1, normalizedTopN, reportPath) else ""
         val items = buildList {
-            // event_key 在这里归一化落库：模型可以不填，但 report_items 里必须非空，
-            // 否则线索视图会把所有"没填"的条目错误地并成同一条线索。
+            // event_key is normalized into storage here: the model may omit it, but
+            // report_items must be non-empty, otherwise the story view incorrectly
+            // merges every "unfilled" item into one story line.
             part1.items.forEachIndexed { index, item ->
                 val article = articleByLink.getValue(TextUtils.cleanText(item.link))
                 val alsoLinks = item.alsoLinks.map { raw -> articleByLink.getValue(TextUtils.cleanText(raw)).link }

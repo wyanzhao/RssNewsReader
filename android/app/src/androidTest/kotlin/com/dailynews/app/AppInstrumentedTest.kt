@@ -129,9 +129,10 @@ class AppInstrumentedTest {
         assertEquals(NetworkType.CONNECTED, sweep.workSpec.constraints.requiredNetworkType)
         assertEquals(1_200_000L, DailyReportWorker.FOREGROUND_WATCHDOG_MILLIS)
         assertEquals(1_200_000L, SweepWorker.WATCHDOG_MILLIS)
-        // 钉的是性质而不是数值：降级看门狗必须排在平台约十分钟的非前台执行窗口
-        // **之前**，否则系统会先强杀，我们拿不到记账的机会。写死两个相等的数值曾经
-        // 让这条不变式静默失效整整一轮。
+        // What is pinned is the property, not the numbers: the degraded watchdog must come **before**
+        // the platform's roughly ten-minute non-foreground execution window, otherwise the system
+        // kills first and we never get the chance to record. Hard-coding two equal values once let
+        // this invariant silently fail for a whole iteration.
         assertTrue(
             "degraded watchdog must be shorter than the foreground one",
             DailyReportWorker.DEGRADED_WATCHDOG_MILLIS < DailyReportWorker.FOREGROUND_WATCHDOG_MILLIS,

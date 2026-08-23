@@ -14,14 +14,18 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 /**
- * KEEP: `ReportReviewer.review` 是「发布还是判失败」的最后一道闸。
+ * KEEP: `ReportReviewer.review` is the last gate between "publish" and "fail".
  *
- * 此前它的全部测试引用都在两个不生效的地方：一个 assumeTrue 门控的机器本地文件，
- * 和一个因返回类型非 Unit 而从未被 JUnit 收录的方法。编排器测试则把整个 gate 换成
- * 桩，且它的编辑 fake 直接从 allArticles 造 plan，链接天生完美——复核器永远见不到
- * 该被拒的输入。删掉 review 的函数体、直接 return passed=true，整套测试仍然全绿。
+ * Previously every test reference lived in two places that did not run: a
+ * machine-local file gated by assumeTrue, and a method never collected by
+ * JUnit because its return type was not Unit. Orchestrator tests stubbed the
+ * whole gate, and their editorial fake built the plan straight from
+ * allArticles so links were always perfect — the reviewer never saw input
+ * that should be rejected. Deleting review's body and returning passed=true
+ * would still leave the suite all green.
  *
- * 这些用例走真实装配产物，且**不依赖任何 gitignore 的本地回放数据**。
+ * These cases walk a real assembled artifact and **do not depend on any
+ * gitignored local replay data**.
  */
 class ReportReviewerTest {
     @Test
@@ -84,8 +88,10 @@ class ReportReviewerTest {
             context.allArticles.take(take).map { Part1PlanItem(it.link, "中文事件摘要", emptyList()) },
             shortfall = maxOf(0, 10 - take),
         )
-        // LAZY 的入参是「还没展开」的形态：每个来源在册但条目为空，由 assemble
-        // 自己展开成完整名册。传一份已展开、摘要为空的草稿会被 validatePart2 判缺摘要。
+        // LAZY input is the "not yet expanded" shape: every source is on the
+        // roster with empty items, and assemble expands it into the full roster.
+        // Passing an already-expanded draft with empty summaries would fail
+        // validatePart2 as missing summaries.
         val part2 = com.dailynews.model.Part2Draft(
             0,
             context.sourceGroups.map { group ->

@@ -448,8 +448,8 @@ fun LazyListScope.diagnosticsContent(
         if (state.artifactsLoading) {
             item(key = "advanced-loading") { InlineProgress() }
         } else {
-            // 契约违规排在最前：一旦这次运行被打回过，这就是唯一能说清"错在哪"的
-            // 东西。此前它只存在于导出 ZIP 里，于是排查必须离开手机。
+            // Contract violations go first: once this run has been sent back, these are the only things
+            // that explain what went wrong. Previously they existed only inside the export ZIP, so troubleshooting required leaving the phone.
             state.contractViolations.forEach { (name, body) ->
                 item(key = "advanced-violation-$name") {
                     RawJsonBlock(name.removePrefix("contract_violations/"), ArtifactPayload(raw = body, status = ArtifactStatus.PARSED))

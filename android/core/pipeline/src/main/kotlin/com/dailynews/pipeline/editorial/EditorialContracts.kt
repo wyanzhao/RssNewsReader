@@ -21,12 +21,13 @@ object EditorialContracts {
     const val MAX_TOP_N = 50
 
     /**
-     * 裸域名。
+     * Bare domains.
      *
-     * 只查 `http://` 前缀挡不住 `bit.ly/x` 或 `evil.com/verify`——它们在应用内是惰性
-     * 文本，但每一条分享路径都会把这段字符串交给会自动链接化的聊天软件。TLD 收在
-     * 一个显式清单里，所以 `GPT-4.5`、`0.3.1` 这类版本号不会误伤；真出现误报，代价
-     * 只是一轮契约重试，而中文摘要本来也没有理由带域名。
+     * Checking only the `http://` prefix does not stop `bit.ly/x` or `evil.com/verify` — inside the app they are
+     * inert text, but every share path hands this string to chat apps that auto-linkify. TLDs are confined to an
+     * explicit list, so version numbers like `GPT-4.5` or `0.3.1` are not false-positived; if a false positive does
+     * happen, the cost is only one contract-retry round, and Chinese summaries have no reason to carry a domain in
+     * the first place.
      */
     private val BARE_DOMAIN = Regex(
         """\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.""" +
@@ -34,8 +35,8 @@ object EditorialContracts {
     )
 
     /**
-     * 通用的模型自由文本 lint。`label` 必须自带字段名——这个函数也用于 heading 与
-     * notes，把 `summary_zh` 焊在消息里会让那些报错读起来是错的。
+     * Generic lint for model free text. `label` must carry the field name itself — this function is also used for
+     * headings and notes, and hard-wiring `summary_zh` into the message would make those errors read wrong.
      */
     fun summaryLintErrors(summary: String?, label: String, hardCap: Int): List<String> {
         val cleaned = TextUtils.cleanText(summary)

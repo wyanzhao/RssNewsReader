@@ -26,15 +26,16 @@ class SettingsViewModelTest {
         assertEquals("1200", form.llmConnectTimeoutSeconds)
         assertEquals("1200", form.llmReadTimeoutSeconds)
         assertEquals("1200", form.llmCallTimeoutSeconds)
-        // 表单默认必须能通过表单自己的校验：把某个角色的默认上限调到允许区间之外，
-        // 用户一打开设置页就会看到一条无法保存的报错，而不是任何有用的提示。
+        // Form defaults must pass the form's own validation: putting a role's default
+        // cap outside the allowed range would greet the user with an unsavable error
+        // instead of anything useful.
         assertEquals(RoleModelDefaults.EDITOR_MAX_TOKENS, form.editorMaxTokens.toInt())
         assertEquals(RoleModelDefaults.DRAFTER_MAX_TOKENS, form.drafterMaxTokens.toInt())
         assertEquals(ReasoningEffort.LOW, form.editorReasoningEffort)
         assertEquals(ReasoningEffort.LOW, form.drafterReasoningEffort)
         assertEquals(RoleModelDefaults.REASONING_EFFORT, ReasoningEffort.LOW)
         assertTrue(settingsValidationErrors(form).isEmpty(), settingsValidationErrors(form).toString())
-        // 截断是硬失败（不重试），两个角色的默认上限都取允许区间顶部。
+        // Truncation is a hard failure (no retry), so both roles default to the top of the allowed range.
         assertEquals(RoleModelDefaults.MAX_MAX_TOKENS, RoleModelDefaults.EDITOR_MAX_TOKENS)
         assertEquals(RoleModelDefaults.MAX_MAX_TOKENS, RoleModelDefaults.DRAFTER_MAX_TOKENS)
         assertEquals(listOf(1_200, 1_200, 1_200), listOf(
@@ -93,7 +94,7 @@ class SettingsViewModelTest {
 
     @Test
     fun part2ModeIsForcedLazyByNormalizationRegardlessOfFormSelection() {
-        // Epic U：normalized() 强制 LAZY，无论表单选什么、落盘值是什么。
+        // Epic U: normalized() forces LAZY regardless of form selection or persisted value.
         assertEquals(Part2Mode.LAZY, SettingsFormState().applyTo(PipelineConfig()).part2Mode)
         assertEquals(
             Part2Mode.LAZY,

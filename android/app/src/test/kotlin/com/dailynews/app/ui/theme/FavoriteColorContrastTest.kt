@@ -10,11 +10,13 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * 收藏红是应用里唯一一个绕开 Material 配色方案的硬编码颜色，没有任何上游保证它可读。
- * WCAG 对非文本 UI 元素（图标）的下限是 3:1。
+ * Favorite-red is the only hardcoded color in the app that bypasses the Material
+ * color scheme; nothing upstream guarantees it is readable. WCAG's floor for
+ * non-text UI (icons) is 3:1.
  *
- * 只对静态 light/dark scheme 断言：Roborazzi 基线也跑在静态 scheme 上，而 Material You
- * 的 surface 恒为低彩度中性色，动态取色下的偏移有界。
+ * Asserted only against the static light/dark schemes: Roborazzi baselines also
+ * run on static schemes, and Material You surfaces stay low-chroma neutrals, so
+ * dynamic-color drift is bounded.
  */
 class FavoriteColorContrastTest {
     @Test
@@ -22,7 +24,7 @@ class FavoriteColorContrastTest {
         val cases = listOf(
             Triple("light", LightExtendedColors.favorite, lightColorScheme().surface),
             Triple("dark", DarkExtendedColors.favorite, darkColorScheme().surface),
-            // 卡片是 surfaceContainer 系，一并覆盖，避免只在纯背景上达标。
+            // Cards are in the surfaceContainer family; cover them too so we do not only pass on a plain background.
             Triple("light/surfaceVariant", LightExtendedColors.favorite, lightColorScheme().surfaceVariant),
             Triple("dark/surfaceVariant", DarkExtendedColors.favorite, darkColorScheme().surfaceVariant),
         )
@@ -34,7 +36,7 @@ class FavoriteColorContrastTest {
 
     @Test
     fun favoriteReadsAsRedNotAsThemePrimary() {
-        // 回归守卫：这个 token 存在的全部意义就是"不是 primary、不是 error"。
+        // Regression guard: this token exists solely to mean "not primary, not error".
         listOf(LightExtendedColors.favorite, DarkExtendedColors.favorite).forEach { color ->
             assertTrue(color.red > color.green && color.red > color.blue, "收藏色不再是红色系：$color")
         }

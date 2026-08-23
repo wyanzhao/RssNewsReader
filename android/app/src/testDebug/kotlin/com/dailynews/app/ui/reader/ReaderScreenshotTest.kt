@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * 组件级阅读器截图：命名不带 v3- 前缀，脱离 64 张矩阵单独重录。
+ * Component-level reader screenshots: named without the v3- prefix, so they are re-recorded separately from the 64-image matrix.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -26,9 +26,9 @@ import org.robolectric.annotation.GraphicsMode
 class ReaderScreenshotTest {
     private companion object {
         /**
-         * 卡片副标题是「N 小时前 / N 天前」这样的相对时间。fixture 的 pubDate 是固定的，
-         * 所以不钉住 now，这三张基线会随日历每天漂一格。
-         * 与 ReaderFixture 的最新一篇（2026-08-05T06:30Z）保持同日。
+         * Card subtitles are relative times like "N hours ago / N days ago". The fixture's pubDate is fixed,
+         * so without pinning now these three baselines would drift by one step per day with the calendar.
+         * Kept on the same day as ReaderFixture's newest item (2026-08-05T06:30Z).
          */
         val FIXED_NOW: Instant = Instant.parse("2026-08-05T12:00:00Z")
     }

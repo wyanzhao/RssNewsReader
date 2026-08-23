@@ -21,12 +21,13 @@ import kotlinx.serialization.decodeFromString
 
 data class ReportUiState(
     /**
-     * Room 是否已经发过第一帧。
+     * Whether Room has already emitted its first frame.
      *
-     * 没有这一位时，初始状态（report=null、items 空）和「这一天真的没有报告」在
-     * 渲染上完全一样，于是每次打开都会先闪一下 `UNKNOWN · Top 0 · 统计检查：Top 0 篇`
-     * ——而导航到一个已被清理的日期时，那个假骨架会永久留在屏幕上。
-     * 这个三态模式仓库里已有两处现成的（PeriodicDigestScreen 与 ReaderPhase）。
+     * Without this bit, the initial state (report=null, items empty) and "there is genuinely
+     * no report for this day" render exactly the same, so every open first flashes
+     * `UNKNOWN · Top 0 · stats check: Top 0 articles` — and when navigating to a date that
+     * has already been cleaned up, that fake skeleton stays on screen forever.
+     * The repo already has two instances of this three-state pattern (PeriodicDigestScreen and ReaderPhase).
      */
     val loaded: Boolean = false,
     val report: ReportEntity? = null,
@@ -38,7 +39,7 @@ data class ReportUiState(
     val expandedSources: Set<String> = emptySet(),
     val generatingSources: Set<String> = emptySet(),
     val groupErrors: Map<String, String> = emptyMap(),
-    /** event_key → 这条线索被报道过的天数。仅用于决定是否显示线索历史入口。 */
+    /** event_key → the number of days this story has been reported. Only used to decide whether to show the story-history entry point. */
     val storyDepth: Map<String, Int> = emptyMap(),
 )
 
@@ -66,8 +67,8 @@ class ReportViewModel(
     private val interaction = combine(showRaw, expandedSources, generatingSources, groupErrors) { raw, expanded, generating, errors ->
         ReportInteractionState(raw, expanded, generating, errors)
     }
-    // items 与线索深度折成一个 flow：主 combine 已经用满 5 元强类型重载。
-    // 深度查询只依赖当天的 Part 1 event_key 集合，最多 N 个绑定参数。
+    // items and story depth are folded into one flow: the main combine already uses up the 5-arg typed overload.
+    // The depth query only depends on today's Part 1 event_key set, at most N bind arguments.
     private val itemsWithDepth = reports.items(date).flatMapLatest { items ->
         val keys = items.filter { it.part == 1 }.map(ReportItemEntity::eventKey).filter(String::isNotBlank)
         reports.storyDepth(keys).map { depth -> items to depth }
@@ -83,7 +84,7 @@ class ReportViewModel(
             ArtifactJson.codec.decodeFromString<List<ReportGroup>>(report?.groupsJson.orEmpty())
         }.getOrDefault(emptyList())
         ReportUiState(
-            // 能走到这里说明 Room 已经发过一帧，所以这一帧的 null 是真的"没有报告"。
+            // Reaching here means Room has already emitted a frame, so a null in this frame genuinely means "no report".
             loaded = true,
             report = report,
             items = items,

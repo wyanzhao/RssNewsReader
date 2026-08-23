@@ -39,9 +39,9 @@ object FeedParser {
         return descendants(root, itemTag).mapNotNull { item ->
             val title = item.firstText("title")
             if (title.isBlank()) return@mapNotNull null
-            // `<guid>` / Atom `<id>` 常常根本不是 URL，而下游会拿它去打开浏览器、
-            // 去抓取页面。不安全的一律降级成空 link——条目仍然保留（无 link 条目
-            // 有稳定身份），只是不再是一个可被点击或抓取的目标。
+            // `<guid>` / Atom `<id>` are often not URLs at all, yet downstream uses them to open a browser and to
+            // fetch pages. Anything unsafe is uniformly downgraded to an empty link — the entry is kept (linkless
+            // entries have a stable identity), it just stops being a target that can be clicked or fetched.
             val rawLink = if (isAtom) atomLink(item) else item.firstText("link").ifBlank { item.firstText("guid") }
             val link = rawLink.takeIf { LinkSafety.isAcceptable(it) }.orEmpty()
             val dateText = if (isAtom) {

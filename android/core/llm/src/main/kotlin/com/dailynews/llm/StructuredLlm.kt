@@ -10,10 +10,12 @@ class StructuredLlm(
     private val maxTransientRetries: Int = 2,
     private val retryDelay: suspend (Long) -> Unit = { millis -> delay(millis) },
     /**
-     * 首次退避的基数，随重试次数翻倍。
+     * Base for the first backoff delay; doubles with each retry.
      *
-     * 曾经是 250ms——对 429 等于立刻再撞一次限流窗口，三次尝试在不到一秒内烧光。
-     * 服务端给了 `Retry-After` 时以它为准，这条曲线只是没有指示时的兜底。
+     * It used to be 250ms — against a 429 that equals slamming into the rate-limit
+     * window again immediately, burning all three attempts in under a second. When the
+     * server supplies `Retry-After` it takes precedence; this curve is only the
+     * fallback for when no instruction is given.
      */
     private val baseRetryDelayMillis: Long = 1_000L,
 ) {

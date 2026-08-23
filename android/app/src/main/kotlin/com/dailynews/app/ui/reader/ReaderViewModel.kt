@@ -27,9 +27,9 @@ import kotlinx.coroutines.launch
 
 data class ReaderUiState(
     val phase: ReaderPhase = ReaderPhase.LOADING,
-    // null = Room 首次发射之前；非 null 后才区分 EMPTY / CONTENT，显式锁死三态。
+    // null = before Room's first emission; only once non-null do we distinguish EMPTY / CONTENT, explicitly locking in the three states.
     val articles: List<ReaderArticle>? = null,
-    /** 时间线按 UTC 日分节。分节头的计数是全量的，不受分页窗口影响。 */
+    /** The timeline is sectioned by UTC day. Section-header counts are full totals, unaffected by the paging window. */
     val sections: List<ReaderDaySection> = emptyList(),
     val windowNotice: String? = null,
     val filter: ReaderFilter = ReaderFilter(),
@@ -117,7 +117,7 @@ class ReaderViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReaderUiState())
 
     init {
-        // 选中源被删除后回落到全部，避免永远卡在空时间线。
+        // After the selected feed is deleted, fall back to all feeds to avoid being stuck on an empty timeline forever.
         viewModelScope.launch {
             feedsFlow.collect { rows ->
                 val selected = filter.value.feedName
@@ -140,7 +140,7 @@ class ReaderViewModel(
         searchQuery.value = query
     }
 
-    // 只增长窗口，绝不写 readAtUtc——「只有打开原文才写已读」由 openArticle 独占。
+    // Only grows the window; never writes readAtUtc — "only opening the article marks it read" is exclusively owned by openArticle.
     fun onVisibleItem(index: Int, itemCount: Int) {
         window.value = nextWindow(window.value, index, itemCount)
     }
@@ -162,7 +162,7 @@ class ReaderViewModel(
         }
     }
 
-    /** 作用域 = 当前筛选；批次时间戳使撤销精确回滚，不误伤之后真正读过的文章。 */
+    /** Scope = the current filter; the batch timestamp lets undo roll back precisely, without wrongly reverting articles genuinely read afterwards. */
     fun markAllRead() {
         val stamp = Instant.now().toString()
         lastBatchStamp.value = stamp

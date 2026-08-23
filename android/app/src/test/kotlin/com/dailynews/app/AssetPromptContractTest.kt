@@ -17,9 +17,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * prompt 是这套流水线里唯一没有编译期保护的契约面：markdown 里的字段名与数字
- * 全部是字面量，改 `@SerialName` 或改 Kotlin 常量而忘记改 markdown 不会报任何错，
- * 只会让模型收到一份描述错误结构的说明。这个测试是那道护栏。
+ * The prompts are the only contract surface in this pipeline without compile-time protection: the
+ * field names and numbers in the markdown are all literals, so changing `@SerialName` or a Kotlin
+ * constant while forgetting to update the markdown raises no error — it just hands the model a
+ * description of the wrong structure. This test is that guardrail.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -53,11 +54,12 @@ class AssetPromptContractTest {
     }
 
     /**
-     * Part 1 plan 的输出契约由 `EditorialJsonSchemas.part1Plan` 强制，模型能不能*正确*填充
-     * 则取决于 prompt 是否点名了每个字段。所以 plan 契约类的字段名一个都不许缺席。
+     * The Part 1 plan output contract is enforced by `EditorialJsonSchemas.part1Plan`; whether the
+     * model can fill it in *correctly* depends on the prompt naming every field. So not a single
+     * field name of the plan contract classes may be absent.
      *
-     * 钉的是**草稿**类型：模型写的是 `ref`/`also_refs`，link-keyed 的 `Part1Plan` 是
-     * Kotlin 解析之后才存在的东西，prompt 里不该出现它的字段名。
+     * What is pinned is the **draft** types: the model writes `ref`/`also_refs`; the link-keyed
+     * `Part1Plan` only exists after Kotlin parsing, and its field names must not appear in the prompt.
      */
     @Test
     fun planPromptNamesEveryPlanContractField() {
@@ -69,9 +71,10 @@ class AssetPromptContractTest {
     }
 
     /**
-     * 输入侧只要求 prompt 点名它真正指导模型去读的字段。豁免集是显式的：
-     * 新增一个输入字段会默认让这个测试变红，逼作者决定「要不要告诉模型」，
-     * 而不是让它悄悄躺在 JSON 里没人用。
+     * On the input side, the prompt is only required to name the fields it actually instructs the
+     * model to read. The exemption set is explicit: adding a new input field turns this test red by
+     * default, forcing the author to decide "should the model be told about it", rather than letting
+     * it silently lie unused in the JSON.
      */
     @Test
     fun planPromptNamesEveryNonExemptInputField() {
@@ -83,9 +86,10 @@ class AssetPromptContractTest {
     }
 
     /**
-     * 短名单是四个编辑调用里点名文章最多的一个（40–45 篇），也是 Epic Z 第一轮
-     * 漏掉的那一个——它当时仍要求逐字回显 URL。这条护栏此前只覆盖 plan 模板，
-     * 于是那个漏项没有任何东西会发现。
+     * The shortlist is the one among the four editorial calls that names the most articles (40–45
+     * items), and also the one missed in the first Epic Z round — which at the time still required
+     * echoing URLs verbatim. This guardrail previously covered only the plan template, so nothing
+     * would have caught that omission.
      */
     @Test
     fun shortlistPromptNamesItsOwnContractFields() {
@@ -100,7 +104,7 @@ class AssetPromptContractTest {
         )
     }
 
-    /** 抓取来的素材是数据不是指令，四个模板都要说这句话。 */
+    /** Scraped material is data, not instructions; all four templates must say so. */
     @Test
     fun everyPromptDeclaresScrapedMaterialUntrusted() {
         AssetPromptSource.TEMPLATES.forEach { template ->
@@ -130,7 +134,7 @@ class AssetPromptContractTest {
         const val TOP_N = 30
         val PLACEHOLDER = Regex("\\{[A-Z_]+}")
 
-        /** 结构导航字段与权威元数据：模型按 JSON 结构读取，无需 prompt 逐个点名。 */
+        /** Structural navigation fields and authoritative metadata: the model reads them from JSON structure, so the prompt need not name each one. */
         val INPUT_EXEMPT = setOf(
             "meta", "articles", "article_count", "cache_hits",
             "pub_date_utc", "pub_date_iso",

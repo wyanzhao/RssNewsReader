@@ -1,16 +1,20 @@
 package com.dailynews.app.ui.periodic
 
 /**
- * 把周期简报的 markdown 解析回结构。
+ * Parses the periodic digest's markdown back into structure.
  *
- * 简报本体是 `PeriodicDigestRenderer` 生成的、形状完全固定的 markdown，此前整段
- * 原样丢进一个 `Text` —— 用户看到的是字面的 `##`、`**` 和 `[标题](https://…)`，链接
- * 不可点，而隔壁一屏的日报是完整的结构化卡片。
+ * The digest body is markdown produced by `PeriodicDigestRenderer` with a completely
+ * fixed shape. Previously the whole block was dropped verbatim into a single `Text` —
+ * users saw literal `##`, `**`, and `[title](https://…)` (titles are Chinese in the
+ * real output), links were not clickable, while the daily report one screen over was
+ * fully structured cards.
  *
- * 这里刻意只做**这一种**已知格式的解析，不写通用 markdown 解析器：渲染端和解析端
- * 在同一个仓库里，格式变了两边一起改，而通用解析器要为一堆本仓库永远不会产出的
- * 语法负责。任何不认识的行都原样留在段落文本里，所以最坏情况是回到今天的样子，
- * 不会丢内容。
+ * This deliberately parses only **this one** known format instead of writing a
+ * general markdown parser: the renderer and the parser live in the same repo, and
+ * when the format changes both sides change together, whereas a general parser would
+ * have to answer for a pile of syntax this repo will never produce. Any unrecognized
+ * line stays verbatim in the section body text, so the worst case is falling back to
+ * today's appearance; no content is lost.
  */
 data class DigestLink(val title: String, val url: String, val meta: String)
 
@@ -23,13 +27,13 @@ data class DigestSection(
 data class ParsedDigest(
     val title: String,
     val sections: List<DigestSection>,
-    /** 无法归入任何段落的剩余行，原样保留，绝不丢内容。 */
+    /** Leftover lines that belong to no section, kept verbatim; content is never lost. */
     val trailing: String,
 )
 
 private val HEADING = Regex("^#{1,3}\\s+(.*)$")
 
-/** `- 2026-08-03 · [Title](https://…) · Source` 及其宽松变体。 */
+/** `- 2026-08-03 · [Title](https://…) · Source` and its lenient variants. */
 private val LINK_LINE = Regex("^\\s*[-*]?\\s*(.*?)\\[([^]]+)]\\(([^)]+)\\)\\s*(.*)$")
 
 fun parseDigestMarkdown(markdown: String): ParsedDigest {
@@ -83,5 +87,5 @@ fun parseDigestMarkdown(markdown: String): ParsedDigest {
     return ParsedDigest(title, sections, trailing.toString().trim())
 }
 
-/** 只去掉 `**` 与 `*`：其余字符原样保留，中文正文里不该有意外替换。 */
+/** Strips only `**` and `*`: every other character is kept verbatim; there should be no accidental replacements in Chinese body text. */
 internal fun stripEmphasis(value: String): String = value.replace("**", "").replace("*", "")

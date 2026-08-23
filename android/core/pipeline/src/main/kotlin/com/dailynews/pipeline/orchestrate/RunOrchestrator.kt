@@ -237,8 +237,8 @@ class RunOrchestrator(
             val warnings = mutableListOf<String>()
             runCatching { updateCache(artifacts, output, config) }
                 .onSuccess { stats ->
-                    // 代码补齐比例长期居高，说明 prompt 的 event_key 复用规则没生效——
-                    // 那是收紧 validatePart1 的触发条件，不是靠猜。
+                    // A persistently high code-derived share means the prompt's event_key reuse rules are not
+                    // taking effect — that is the trigger to tighten validatePart1, not to guess.
                     logSink.log(
                         runId,
                         "story_thread",
@@ -259,8 +259,9 @@ class RunOrchestrator(
             val stage = when (error) {
                 is EditorialLlmException -> "editorial"
                 is EditorialContractException -> "editorial_contract"
-                // 装配/审校拒绝了一份已通过 LLM 契约的产物。与上一条是不同的病，
-                // 必须分开报：重跑对它毫无用处，只能靠产物定位。
+                // Assemble/review rejected an artifact that had already passed the LLM contracts. A different
+                // disease from the one above, and it must be reported separately: rerunning is useless for it,
+                // only the artifacts can pinpoint it.
                 is ReportContractException -> "report_contract"
                 else -> "success_branch"
             }
@@ -272,7 +273,7 @@ class RunOrchestrator(
         seenLinks.recordReportedLinks(artifacts.llmContext.allArticles.map { it.link }, date)
     }
 
-    /** 一轮编辑里 event_key 的来源分布。用来判断 prompt 的复用规则有没有真的生效。 */
+    /** Source distribution of event_key within one editorial round. Used to judge whether the prompt's reuse rules are actually taking effect. */
     internal data class StoryThreadStats(val modelSupplied: Int, val codeDerived: Int, val reusedExisting: Int)
 
     private suspend fun updateCache(
@@ -287,9 +288,10 @@ class RunOrchestrator(
         var codeDerived = 0
         var reusedExisting = 0
 
-        // event_key 首写为准。它是线索 id，不是标签：事后改写只会把已发布的线索劈成两条，
-        // 或者把两条真线索错误地并成一条。Part 1 与 Part 2 必须同策略——此前 Part 1
-        // 无条件覆写而 Part 2 保留旧值，同一篇文章走哪条路径决定了它的线索是否稳定。
+        // First write wins for event_key. It is a story-thread id, not a tag: rewriting it after the fact only splits
+        // a published thread into two, or wrongly merges two real threads into one. Part 1 and Part 2 must share one
+        // policy — previously Part 1 overwrote unconditionally while Part 2 kept the old value, and which path an
+        // article went through decided whether its thread stayed stable.
         fun resolveEventKey(previous: String?, explicit: String, article: com.dailynews.model.Article): String {
             val existing = EditorialCacheKeys.sanitizeEventKey(previous)
             if (existing.isNotEmpty()) {

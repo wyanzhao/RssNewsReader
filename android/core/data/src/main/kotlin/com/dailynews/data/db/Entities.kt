@@ -28,9 +28,9 @@ data class FeedEntity(
         Index("pubDateIso"),
         Index("reportedDate"),
         Index("favoritedAtUtc"),
-        // Epic U 阅读器：按源时间线纯索引范围扫描。
+        // Epic U reader: pure index range scan for the per-feed timeline.
         Index(value = ["feedName", "pubDateIso"]),
-        // Epic U 阅读器：未读计数覆盖索引，不回表。
+        // Epic U reader: covering index for unread counts, no table lookup.
         Index(value = ["readAtUtc", "feedName", "pubDateIso"]),
     ],
 )
@@ -177,29 +177,32 @@ data class ReportItemEntity(
     val summaryZh: String,
     val alsoLinksJson: String = "[]",
     /**
-     * 跨日线索 id。`alsoLinksJson` 只在单份报告内聚类同一事件，这个字段把聚类
-     * 延伸到跨天：同一 eventKey 的历史条目就是「这条线索的进展」。
-     * 由 EditorialCacheKeys 归一化，保证非空。
+     * Cross-day story id. `alsoLinksJson` only clusters the same event inside one
+     * report; this field extends that clustering across days: historical items
+     * sharing an eventKey are "this story's progress". Normalized by
+     * EditorialCacheKeys so it is never empty.
      */
     val eventKey: String = "",
 )
 
 /**
- * 周报 / 月报。刻意不进 `reports` 表：那张表的主键 `reportDate` 在极多处被当日期解析，
- * 而 `2026-W32` 字典序大于 `2026-08-05`（`W` > `0`），塞进去的第一个后果就是
- * 桌面 widget 的 latestNow() 把周报当成「最新报告」展示。
- * 语义也不同——`reports` 是流水线产物，这里是对已发布行的二次编辑产物。
+ * Weekly / monthly digest. Deliberately not in the `reports` table: that table's
+ * PK `reportDate` is parsed as a date in many places, and `2026-W32` is
+ * lexicographically greater than `2026-08-05` (`W` > `0`), so the first effect of
+ * stuffing one in would be the desktop widget's latestNow() treating the weekly
+ * digest as "the latest report". Semantics differ too — `reports` is a pipeline
+ * artifact; this is a second editorial pass over already-published rows.
  */
 @Serializable
 @Entity(tableName = "periodic_reports", indices = [Index("kind"), Index("createdAtUtc")])
 data class PeriodicReportEntity(
-    /** `2026-W32`（ISO 周）或 `2026-08`（月）。 */
+    /** `2026-W32` (ISO week) or `2026-08` (month). */
     @PrimaryKey val periodKey: String,
     /** `WEEKLY` | `MONTHLY`。 */
     val kind: String,
     val periodStartDate: String,
     val periodEndDate: String,
-    /** `SUCCESS` | `FAILED`。失败必须留行，绝不伪造内容。 */
+    /** `SUCCESS` | `FAILED`. Failures must leave a row; never fabricate content. */
     val status: String,
     val markdown: String,
     val sourceReportDatesJson: String = "[]",
@@ -251,15 +254,15 @@ data class FavoriteArticle(
     val readAtUtc: String?,
 )
 
-/** 线索深度投影：该 event_key 被报道过多少个不同日期。 */
+/** Story-depth projection: how many distinct dates this event_key has been reported. */
 data class StoryDepth(val eventKey: String, val days: Int)
 
-/** 按天分节的日计数投影。`day` 是 UTC 日（substr(pubDateIso,1,10)）。 */
+/** Per-day count projection for day sections. `day` is the UTC day (substr(pubDateIso,1,10)). */
 data class ReaderDayCount(val day: String, val total: Int)
 
 /**
- * 阅读器窄投影：不含 articleText 与完整 summaryEn，单项载荷比
- * [ArticleEntity] 砍掉 >90%，避免全池 SELECT * 的十几 MB 扫描。
+ * Narrow reader projection: no articleText and no full summaryEn; per-item payload
+ * is cut >90% vs [ArticleEntity], avoiding a multi-MB full-pool SELECT *.
  */
 data class ReaderArticle(
     val linkKey: String,
@@ -274,11 +277,12 @@ data class ReaderArticle(
 )
 
 /**
- * 应用内阅读所需的完整投影。
+ * Full projection needed for in-app reading.
  *
- * 与窄投影 [ReaderArticle] 的区别只有 `articleText`：正文只在真正要读它的那一屏
- * 才取，列表投影保持轻量。中文摘要仍然按 report_items 优先、summaryEn 兜底，
- * 与 observeTimeline 同一口径。
+ * The only difference from the narrow [ReaderArticle] is `articleText`: the body
+ * is fetched only on the screen that actually reads it, so the list projection
+ * stays light. Chinese summaries still prefer report_items then fall back to
+ * summaryEn, same policy as observeTimeline.
  */
 data class ArticleDetail(
     val linkKey: String,

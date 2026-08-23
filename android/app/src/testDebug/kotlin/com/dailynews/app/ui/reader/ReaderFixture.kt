@@ -3,8 +3,8 @@ package com.dailynews.app.ui.reader
 import com.dailynews.data.db.ReaderArticle
 
 /**
- * 阅读器固定数据：V3 矩阵在 Robolectric 上是空 Room，只能拍到空态；
- * 「有数据的样子」由本 fixture + ReaderScreenshotTest 单独重录，不受 64 张矩阵牵连。
+ * Reader fixed data: the V3 matrix runs against an empty Room on Robolectric, so it can only capture the empty state;
+ * the "with-data look" is re-recorded separately by this fixture + ReaderScreenshotTest, independent of the 64-image matrix.
  */
 fun readerFixtureArticles(): List<ReaderArticle> = listOf(
         ReaderArticle(
@@ -45,9 +45,9 @@ fun readerFixtureArticles(): List<ReaderArticle> = listOf(
 fun readerFixtureState(): ReaderUiState = ReaderUiState(
     phase = ReaderPhase.CONTENT,
     articles = readerFixtureArticles(),
-    // 分节头的计数**故意**大于窗口内渲染的条数：08-05 那天真实有 24 篇，
-    // 但分页窗口只吐出 2 篇。这条契约（全量计数 ≠ 窗口计数）被钉进截图基线，
-    // 以后谁把 header 改成数渲染条数，基线就会红。
+    // The section-header count is **deliberately** larger than the number of items rendered inside the window: on 08-05 there
+    // really are 24 items, but the paging window only emits 2. This contract (full count ≠ window count) is pinned into the
+    // screenshot baseline, so if anyone later changes the header to count rendered items, the baseline will go red.
     sections = listOf(
         ReaderDaySection(
             day = "2026-08-05",

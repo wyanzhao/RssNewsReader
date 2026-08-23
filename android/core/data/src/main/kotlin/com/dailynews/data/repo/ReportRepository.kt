@@ -133,13 +133,14 @@ class ReportRepository(
     }
     fun items(date: String): Flow<List<ReportItemEntity>> = database.reports().observeItems(date)
 
-    /** 一条事件线索的全部历史报道（Part 1，按日期倒序）。只读 report_items，不碰文章池。 */
+    /** All historical reports of one event story line (Part 1, newest date first). Reads only report_items; never touches the article pool. */
     fun story(eventKey: String): Flow<List<ReportItemEntity>> =
         database.reports().observeStory(eventKey)
 
     /**
-     * 一批 event_key 各自被报道过多少天。入参最多 N 条（Top N 上限 50），
-     * 远低于 SQLITE_BIND_CHUNK，不需要分块。
+     * How many days each event_key in a batch has been reported on. The input holds at
+     * most N entries (Top N is capped at 50), far below SQLITE_BIND_CHUNK, so no
+     * chunking is needed.
      */
     fun storyDepth(eventKeys: List<String>): Flow<Map<String, Int>> =
         if (eventKeys.isEmpty()) flowOf(emptyMap())
@@ -224,7 +225,7 @@ class ReportRepository(
                             title = article.title,
                             summaryZh = summary.summaryZh,
                             noiseBucket = summary.noiseBucket,
-                            // 与 RunOrchestrator.updateCache 同策略：event_key 首写为准。
+                            // Same policy as RunOrchestrator.updateCache: the first-written event_key wins.
                             eventKey = EditorialCacheKeys.sanitizeEventKey(existing?.eventKey).takeIf { it.isNotEmpty() }
                                 ?: EditorialCacheKeys.eventKey(summary.eventKey, article.title, article.link),
                             updatedAtUtc = now,

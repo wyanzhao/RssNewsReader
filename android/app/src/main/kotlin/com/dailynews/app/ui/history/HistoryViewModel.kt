@@ -24,7 +24,7 @@ data class HistoryUiState(
     val query: String = "",
     val reports: List<ReportPreview> = emptyList(),
     val selectedDate: String? = null,
-    /** 周报 / 月报。历史页已经是「过去的报告」语义面，不新增底部导航项（V4-D1 锁死 5 个成员）。 */
+    /** Weekly / monthly reports. The history page is already the "past reports" semantic surface, so no new bottom-navigation item is added (V4-D1 locks the roster at 5 members). */
     val periodicReports: List<PeriodicReportSummary> = emptyList(),
 )
 

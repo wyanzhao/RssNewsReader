@@ -72,8 +72,9 @@ private val destinations = listOf(
 )
 
 /**
- * 路由归一化守卫：用户 pin 过的快捷方式会保留旧 extras（today→brief），
- * nav.navigate(未注册路由) 会抛 IllegalArgumentException，脏 route 在此静默归零。
+ * Route normalization guard: shortcuts pinned by users retain stale extras (today→brief),
+ * and nav.navigate(unregistered route) throws IllegalArgumentException; dirty routes are
+ * silently nulled out here.
  */
 internal fun canonicalRoute(raw: String?): String? {
     val route = raw?.trim().orEmpty()
@@ -97,8 +98,9 @@ fun DailyNewsApp(
     routeRequestVersion: Int,
     sweepWorkInfos: Flow<List<WorkInfo>>,
     onRouteConsumed: (Int) -> Unit = {},
-    // 与 sweepWorkInfos 同一个用途的注入点：简报页会把当前时刻渲染进
-    // 「下次计划」和补跑卡，截图基线必须钉住它，否则每过一天就自己红。
+    // Injection point with the same purpose as sweepWorkInfos: the brief screen renders
+    // the current time into the "next scheduled" label and the makeup-run card, so
+    // screenshot baselines must pin it, or they go red on their own with every passing day.
     clock: Clock = Clock.systemDefaultZone(),
 ) {
     val nav = rememberNavController()
@@ -147,9 +149,10 @@ private fun AppNavHost(
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
-    // 所有卡片点击的统一去处：应用内阅读。正文摘录已在本地，所以离线也能打开，
-    // 而浏览器原文在那一屏一键可达。此前每一处都直接开浏览器，于是没网时整个
-    // app 只剩下摘要能看。
+    // Single destination for every card tap: in-app reading. The article excerpt is
+    // already local, so it opens offline, while the original page in a browser stays one
+    // tap away on that screen. Previously every spot opened the browser directly, so
+    // without network the whole app had nothing to show but summaries.
     val openArticle: (String) -> Unit = { link -> nav.navigate("article/${Uri.encode(link)}") }
     NavHost(
         navController = nav,

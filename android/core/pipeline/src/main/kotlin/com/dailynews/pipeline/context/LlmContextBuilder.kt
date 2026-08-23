@@ -191,14 +191,14 @@ class LlmContextBuilder {
         val part2Bytes = bytes(codec.encodeToString(part2))
         val totalBytes = contextBytes + briefBytes + part2Bytes
         val limits = config.contextBudget
-        // 四个尺寸全部照旧上报（产物形状是契约，且 Python 侧逐字节对账），但**只有
-        // 真正会进入 LlmRequest 的负载才产生 violation**。
+        // All four sizes are reported as before (the artifact shape is a contract, and the Python side reconciles
+        // byte-for-byte), but **only payloads that actually enter an LlmRequest produce a violation**.
         //
-        // 此前四个都参与拦截，而其中三个根本不发出去：`llm_context` 从未被序列化进
-        // 任何请求（只用来做 known 映射与校验），`part2_context` 在强制 LAZY 下是死的，
-        // `total` 是三者之和。也就是说这道闸有约 81% 的分母是免费字节——它可以因为
-        // 免费字节拦下一次运行，同时放行真正花钱的那份（`part1_shortlist_context`
-        // 约 114 KB，在这里计为零，见 shortlistContextViolation）。
+        // Previously all four took part in gating, yet three of them are never sent at all: `llm_context` is never
+        // serialized into any request (it is only used for the known mapping and validation), `part2_context` is dead
+        // under forced LAZY, and `total` is the sum of the three. That means roughly 81% of this gate's denominator
+        // was free bytes — it could block a run over free bytes while letting through the one that actually costs
+        // money (`part1_shortlist_context`, about 114 KB, is counted as zero here; see shortlistContextViolation).
         val violations = buildList {
             if (briefBytes > limits.part1BriefMaxBytes) add(ContextBudgetViolation("part1_brief_bytes", briefBytes, limits.part1BriefMaxBytes))
         }

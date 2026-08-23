@@ -18,8 +18,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-// 视口显式放高：LazyColumn 只组合可见项，而按天分节额外插入了吸顶头，
-// 默认高度下最后一张卡片会落在视口外、根本不参与组合，断言就会莫名其妙地少一个。
+// Viewport explicitly made taller: LazyColumn only composes visible items, and the day sections additionally insert
+// sticky headers, so at the default height the last card falls outside the viewport and is never composed at all,
+// leaving assertions mysteriously short by one.
 @Config(sdk = [35], qualifiers = "w360dp-h1600dp")
 class ReaderSemanticsTest {
     @get:Rule val compose = createComposeRule()
@@ -36,13 +37,13 @@ class ReaderSemanticsTest {
             }
         }
 
-        // chip 选中态与未读徽章都能被 TalkBack 读到。
+        // Both the chip selected state and the unread badge are readable by TalkBack.
         compose.onNodeWithText("全部 412").assertIsSelected()
         compose.onNodeWithText("TechCrunch 5").assertIsDisplayed()
         compose.onNodeWithText("Broken Feed 0").assertIsDisplayed()
-        // 异常源 chip 携带健康徽章。
+        // The error-source chip carries a health badge.
         compose.onNodeWithContentDescription("异常，connect timeout").assertIsDisplayed()
-        // 收藏按钮 ≥48dp（多张卡片各取其一）。
+        // Favorite button ≥48dp (one node taken from each of several cards).
         compose.onAllNodesWithContentDescription("收藏").assertCountEquals(2)
         compose.onAllNodesWithContentDescription("收藏")[0].assertHeightIsAtLeast(48.dp)
         compose.onNodeWithContentDescription("取消收藏").assertHeightIsAtLeast(48.dp)

@@ -11,14 +11,15 @@ object EditorialCacheKeys {
         listOf(article.link, article.summaryEn, article.articleText).joinToString("\u0000") { TextUtils.cleanText(it) },
     )
 
-    /** 事件线索 id 的硬上限。超长 key 只会撑大次日 prompt，不带来更多区分度。 */
+    /** Hard cap for event-lead ids. Over-long keys only bloat the next day's prompt without adding more discriminating power. */
     const val EVENT_KEY_MAX_CHARS = 120
 
     /**
-     * event_key 是**全函数**：任何 (title, link) 都得到一个非空、稳定的线索 id。
-     * 返回空串曾经是常态——旧实现把标题按 `[^a-z0-9]+` 折叠，任何中文标题都会塌成空串，
-     * 于是所有中文源共享同一个"空"线索。调用方（Room v8 的 report_items.eventKey）
-     * 依赖非空来做线索归并，所以这里必须兜底到底。
+     * event_key is a **total function**: every (title, link) yields a non-empty, stable lead id.
+     * Returning an empty string used to be the norm — the old implementation collapsed titles on `[^a-z0-9]+`,
+     * so every Chinese title collapsed to the empty string and all Chinese sources shared the same "empty" lead.
+     * Callers (report_items.eventKey in Room v8) rely on non-emptiness to merge leads, so this function must
+     * fall back all the way down.
      */
     fun eventKey(explicit: String?, title: String, link: String): String {
         val provided = sanitizeEventKey(explicit)
@@ -29,8 +30,9 @@ object EditorialCacheKeys {
     }
 
     /**
-     * event_key 由 LLM 产出，又被原样注回次日 prompt（cached_event_key / recent_top30）。
-     * 这里是那条回路上的唯一收窄点：拒绝任何链接形态，钉死长度。
+     * event_key is produced by the LLM and then injected verbatim back into the next day's prompt
+     * (cached_event_key / recent_top30). This is the only narrowing point on that loop: reject anything
+     * link-shaped, pin the length.
      */
     fun sanitizeEventKey(raw: String?): String {
         val value = TextUtils.cleanText(raw)
@@ -40,9 +42,10 @@ object EditorialCacheKeys {
     }
 
     /**
-     * 逐字符实现而非 regex：Android ICU 与 JVM 的正则字符类语义并不总是一致
-     * （R10 的 `(?U)` 就是这么炸的）。ASCII 字母数字逐字保留，因此纯英文标题
-     * 与旧实现逐字节等价；CJK 等非 ASCII 字母数字同样保留，不再塌成空串。
+     * Character-by-character implementation instead of regex: Android ICU and the JVM do not always agree on
+     * regex character-class semantics (this is exactly how R10's `(?U)` blew up). ASCII letters and digits are
+     * preserved verbatim, so pure-English titles stay byte-for-byte equivalent to the old implementation;
+     * non-ASCII letters and digits such as CJK are kept too, instead of collapsing to the empty string.
      */
     private fun slugify(title: String): String {
         val cleaned = TextUtils.cleanText(title).lowercase()

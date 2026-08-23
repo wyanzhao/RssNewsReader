@@ -184,9 +184,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: 
                 Text("只路由到支持 response_format 的提供商", Modifier.padding(top = 12.dp))
             }
         }
-        // 表单不回填已保存的 provider（Base URL / API key 同理），所以再次保存会用当前
-        // 表单值整体覆盖。路由不像空 Base URL 那样有保存按钮兜着，静默丢掉的恰好是
-        // 治超时的那几个字段——所以至少要让用户看见自己将要覆盖什么。
+        // The form does not backfill the saved provider (Base URL / API key likewise), so saving
+        // again overwrites everything with the current form values. Routing, unlike an empty Base
+        // URL, has no save button guarding it, and what gets silently dropped are exactly the
+        // fields that fix timeouts — so at least let the user see what they are about to overwrite.
         item {
             state.savedProviders?.providers
                 ?.firstOrNull { it.id == form.providerId.trim() }
@@ -393,11 +394,12 @@ private fun EnumDropdown(label: String, selected: String, options: List<String>,
 }
 
 /**
- * 先量后读。
+ * Measure before reading.
  *
- * 此前是裸 `readBytes()`，而大小检查在 `importZip` 里——也就是说数组已经分配完了
- * 才去判断它是不是太大。选错文件（或选到一个几百 MB 的东西）会在校验发生之前就
- * 把进程推到内存压力下。SAF 能在不读内容的情况下给出大小，那就先问它。
+ * Previously this was a bare `readBytes()` with the size check inside `importZip` — meaning the
+ * array had already been allocated before anything asked whether it was too large. Picking the
+ * wrong file (or something hundreds of MB big) pushed the process into memory pressure before
+ * validation ever happened. SAF can report the size without reading the content, so ask it first.
  */
 private fun readBoundedBytes(context: android.content.Context, uri: android.net.Uri): ByteArray? {
     val size = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)
@@ -408,5 +410,5 @@ private fun readBoundedBytes(context: android.content.Context, uri: android.net.
     return context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
 }
 
-/** 手机堆放得下的上限，远低于 StateBackupRepository 名义上的 64 MiB。 */
+/** A cap the phone can comfortably hold, well below the nominal 64 MiB of StateBackupRepository. */
 private const val MAX_IMPORT_BYTES = 48L * 1_048_576

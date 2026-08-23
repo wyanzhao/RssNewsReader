@@ -50,9 +50,11 @@ class EditorialReplayTest {
     }
 
     @Test
-    // 显式 `: Unit`。函数体最后一句是 assertFailsWith，它返回异常对象，于是表达式体
-    // 推断出的返回类型不是 Unit，JUnit 5 的可测方法判定要求 void——这个测试因此
-    // 从未被收录过。与 R11 同构，由 TestMethodShapeTest 钉死防止再犯。
+    // Explicit `: Unit`. The last statement of the body is assertFailsWith, which
+    // returns the exception object, so an expression-body infers a non-Unit return
+    // type. JUnit 5's test-method discovery requires void — this test was therefore
+    // never collected. Same shape as R11; TestMethodShapeTest pins it so it cannot
+    // happen again.
     fun `lazy Part 2 accepts cached-only handoff and materializes the complete roster`(): Unit = runBlocking {
         val (raw, feeds, config) = FixtureFactory.goldenRaw()
         val validation = com.dailynews.pipeline.validate.QcValidator().validate(raw, feeds).result

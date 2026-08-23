@@ -84,7 +84,8 @@ fun TodayScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showDatePicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    // 内嵌报告的 item key 是 p1-1..p1-N，跨日期会被复用，不重置会停在上一天的滚动位置。
+    // The embedded report's item keys are p1-1..p1-N and get reused across dates; without
+    // resetting, the list would stay at the previous day's scroll position.
     LaunchedEffect(state.effectiveDate) { listState.scrollToItem(0) }
     if (confirmRun) {
         ConfirmDialog(
@@ -110,9 +111,11 @@ fun TodayScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            // 日期步进条钉在 topBar slot 内的独立行，不放进 LargeTopAppBar 的 title：
-            // title 在展开/折叠两态都会被渲染，塞进可交互控件会产生两个命中目标
-            // 和两次 TalkBack 播报。形态与 ReaderScreen 的 chip 行一致。
+            // The date stepper bar is pinned as its own row inside the topBar slot, not
+            // inside the LargeTopAppBar title: the title is rendered in both expanded and
+            // collapsed states, so putting interactive controls there would produce two
+            // hit targets and two TalkBack announcements. Shape matches the chip row in
+            // ReaderScreen.
             Column {
                 LargeTopAppBar(
                     title = {
@@ -188,7 +191,7 @@ fun TodayScreen(
                             EmptyState(
                                 title = briefEmptyTitle(state.isToday),
                                 message = briefEmptyMessage(state.isToday, state.effectiveDate, state.nextScheduledAt, state.providerConfigured),
-                                // 往期空白日给不出补跑，只能翻走：给个按钮只会让人白等。
+                                // A past blank day cannot offer a makeup run, only navigation away: a button would just make people wait for nothing.
                                 actionLabel = when {
                                     !state.isToday -> "回到今天"
                                     state.providerConfigured -> "立即生成"
@@ -274,8 +277,9 @@ private fun BriefDatePickerSheet(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // 用有报告的日期列表而不是 Material3 DatePicker：日历必然显示大量
-    // 从未生成过报告的空白自然日，点进去只会得到空态。
+    // Use a list of dates that have reports instead of Material3 DatePicker: a calendar
+    // would inevitably show many blank calendar days that never produced a report, and
+    // tapping into them would only yield the empty state.
     ModalBottomSheet(onDismissRequest = onDismiss) {
         LazyColumn(
             Modifier.fillMaxWidth(),
@@ -317,7 +321,7 @@ private fun TodayStatusCard(
     val run = state.currentRun
     val failed = run?.status == "FAILED"
     // Never started, so it is not a failure — but it still owes the user an explanation
-    // and a way into diagnostics, which the "等待首次生成" fallback below would not give.
+    // and a way into diagnostics, which the "awaiting first generation" fallback below would not give.
     val deferred = run?.status == "SKIPPED"
     Card(
         Modifier

@@ -149,10 +149,11 @@ data class PreviewPolicy(
 @Serializable
 data class Part1BriefArticle(
     /**
-     * 短引用 id（`a1`、`a2`…）。短名单只写这个，不回显 link。
+     * Short reference id (`a1`, `a2`…). The shortlist writes only this, never echoing the link.
      *
-     * 这是四个编辑调用里复制负担最重的一处：一次要点名 40–45 篇文章。要求模型逐字
-     * 抄同样多条平均 100 字符的 URL，正是 2026-08-19 事故的成因。
+     * This is the heaviest copying burden of the four editorial calls: it must name 40–45 articles
+     * at once. Asking the model to transcribe verbatim that many URLs averaging 100 characters is
+     * exactly what caused the 2026-08-19 incident.
      */
     val id: String,
     val source: String,
@@ -301,7 +302,7 @@ data class ReportItem(
     @SerialName("pub_date_iso") val pubDateIso: String,
     @SerialName("summary_zh") val summaryZh: String,
     @SerialName("also_links") val alsoLinks: List<String> = emptyList(),
-    /** 跨日线索 id。`also_links` 只在本份报告内聚类，这个字段把同一事件连到往日报道。 */
+    /** Cross-day thread id. `also_links` only clusters within this report; this field connects the same event to previous days' reports. */
     @SerialName("event_key") val eventKey: String = "",
 )
 

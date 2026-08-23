@@ -67,7 +67,7 @@ class RunRepository(private val database: DailyNewsDatabase) {
     /**
      * A scheduled trigger that never got a usable network. The pipeline did not run, so
      * this is not a failure of it: recording UNEXPECTED_ERROR / exit 40 here would put a
-     * red "运行故障" row in the history for what is really "the OS held us back". Written
+     * red "run failure" row in the history for what is really "the OS held us back". Written
      * as its own terminal state instead, so the diagnostics advisor and the history filter
      * can tell a deferral apart from a run that started and broke.
      *

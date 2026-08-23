@@ -14,27 +14,31 @@ internal data class LlmHttpResponse(
     val code: Int,
     val isSuccessful: Boolean,
     val body: String,
-    /** 服务端 `Retry-After` 换算成的毫秒数，超出上限时截断。 */
+    /** Milliseconds converted from the server's `Retry-After`, clamped when over the cap. */
     val retryAfterMillis: Long? = null,
 )
 
-/** 退避封顶。限流窗口再长也不该让一次运行在这里静坐几分钟。 */
+/** Backoff cap. No matter how long the rate-limit window is, one run should not sit idle here for minutes. */
 internal const val MAX_RETRY_AFTER_MILLIS = 60_000L
 
 /**
- * 完整的 HTTP 往返，**可取消**，包含响应体读取。
+ * The full HTTP round trip, **cancellable**, including the response-body read.
  *
- * 两点缺一不可：
+ * Two points are non-negotiable:
  *
- * 1. 体读取必须留在这个边界内。OkHttp 可能先返回响应头，之后才在
- *    `ResponseBody.string()` 里撞上 socket 超时；两个阶段都在这里，结构化重试层才
- *    能一致地看到每一次瞬时传输故障。
- * 2. 必须走 `enqueue` + `invokeOnCancellation`，不能用阻塞的 `execute()`。此前用的是
- *    后者，于是 `withTimeout` 的看门狗、WorkManager 的 `onStopped()` 全都停不掉一次
- *    在途的 LLM 调用——协程要等 socket 自己返回（最长 `callTimeout`，默认 1200 秒）
- *    才会解开。看门狗因此不是 20 分钟，而是「20 分钟 + 最长再 20 分钟」，且记录
- *    `stopped` 的那段 `NonCancellable` 代码往往等不到执行机会，`runs` 表就留下一行
- *    永久 RUNNING。同仓库的 `FeedFetcher.executeOnce` 一直是这么写的，这里对齐它。
+ * 1. The body read must stay inside this boundary. OkHttp may return the response
+ *    headers first and only hit a socket timeout later inside `ResponseBody.string()`;
+ *    with both phases here, the structured-retry layer sees every transient transport
+ *    failure consistently.
+ * 2. It must use `enqueue` + `invokeOnCancellation`, not the blocking `execute()`. The
+ *    code previously used the latter, so neither the `withTimeout` watchdog nor
+ *    WorkManager's `onStopped()` could stop an in-flight LLM call — the coroutine only
+ *    unblocked once the socket returned on its own (up to `callTimeout`, default 1200
+ *    seconds). The watchdog therefore became "20 minutes + up to another 20 minutes"
+ *    instead of 20 minutes, and the `NonCancellable` block that records `stopped` often
+ *    never got a chance to run, leaving a permanently RUNNING row in the `runs` table.
+ *    `FeedFetcher.executeOnce` in this repo has always been written this way; this
+ *    aligns with it.
  */
 internal suspend fun executeLlmHttp(
     client: OkHttpClient,
@@ -74,10 +78,12 @@ internal suspend fun executeLlmHttp(
 }
 
 /**
- * 只认整秒形式的 `Retry-After`。
+ * Only whole-second `Retry-After` values are honored.
  *
- * RFC 允许 HTTP-date，但 LLM 网关实际发的都是秒数；把日期形式当作「没给」比猜错
- * 一个时区安全——猜错会让退避要么退化成立即重试，要么变成一次几小时的静坐。
+ * The RFC allows HTTP-date, but LLM gateways in practice always send seconds; treating
+ * the date form as "not given" is safer than guessing a timezone wrong — a wrong guess
+ * makes the backoff either degenerate into an immediate retry or turn into a multi-hour
+ * sit-and-wait.
  */
 private fun retryAfterMillis(response: Response): Long? =
     response.header("Retry-After")

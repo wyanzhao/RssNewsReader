@@ -31,11 +31,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 data class TodayUiState(
-    /** 当前显示日期的报告。**按日期精确匹配**，不再是「最新一份」——断更三天时
-     *  首页显示三天前的内容而不加任何提示，是 Epic V 要修的核心问题。 */
+    /** Report for the currently displayed date. **Matched exactly by date**, no longer
+     *  "the latest one" — when runs have been broken for three days, showing three-day-old
+     *  content on the home page without any notice is the core problem Epic V set out to fix. */
     val current: ReportSummary? = null,
     val effectiveDate: String = "",
-    /** 真实的当天日期，供日期标签区分「· 今天」。 */
+    /** The actual current-day date, used by the date label to mark the "· Today" suffix. */
     val today: String = "",
     val isToday: Boolean = true,
     val availableDates: List<String> = emptyList(),
@@ -59,7 +60,7 @@ private data class TodayOperationalState(
     val sweep: SweepUiProgress,
 )
 
-/** ticks 与 selectedDate 先折成一个值：主 combine 已经用满 5 元强类型重载。 */
+/** Fold ticks and selectedDate into one value first: the main combine already uses up the 5-arg strongly-typed overload. */
 private data class BriefSelection(val now: ZonedDateTime, val picked: String?)
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -89,7 +90,7 @@ class TodayViewModel(
         TodayOperationalState(runs.firstOrNull(), logs, count, sweep)
     }
 
-    /** null = 跟随当天。用户翻到往期后，跨零点也停在他选的那天，不会被时钟拽走。 */
+    /** null = follow today. Once the user flips to a past date, it stays on the chosen day even across midnight, not dragged away by the clock. */
     private val selectedDate = MutableStateFlow<String?>(null)
     private val selection = combine(ticks, selectedDate) { now, picked -> BriefSelection(now, picked) }
 
@@ -105,8 +106,9 @@ class TodayViewModel(
         val effectiveDate = pick.picked ?: today
         val isToday = effectiveDate == today
         TodayUiState(
-            // 精确匹配当前日期，不再 firstOrNull()：拿不到就是拿不到，
-            // 由空态诚实说明，而不是不声不响地显示几天前的报告。
+            // Exact match on the current date, no longer firstOrNull(): if there is
+            // nothing, there is nothing — the empty state says so honestly, instead of
+            // silently showing a days-old report.
             current = reportRows.firstOrNull { it.reportDate == effectiveDate },
             effectiveDate = effectiveDate,
             today = today,
@@ -116,7 +118,8 @@ class TodayViewModel(
             hasNext = nextReportDate(available, effectiveDate) != null,
             providerConfigured = settings.providers.isNotEmpty(),
             scheduleTime = pipelineConfig.scheduleTime,
-            // 只在看今天时才提示补跑：翻到三天前还弹「今天没跑」纯属噪音。
+            // Only offer a makeup run when looking at today: popping "today did not run"
+            // while flipped three days back is pure noise.
             missedToday = isToday && isMissedToday(reportRows, pipelineConfig.scheduleTime, pick.now),
             currentRun = ops.run,
             runSteps = ops.logs,
@@ -135,7 +138,7 @@ class TodayViewModel(
         selectedDate.value = null
     }
 
-    /** delta < 0 往前翻，> 0 往后翻。只在有报告的日期之间跳，到头即不动。 */
+    /** delta < 0 flips backward, > 0 flips forward. Jumps only between dates that have reports; at the edge it does nothing. */
     fun stepDate(delta: Int) {
         val snapshot = state.value
         val target = if (delta < 0) {
@@ -143,7 +146,7 @@ class TodayViewModel(
         } else {
             nextReportDate(snapshot.availableDates, snapshot.effectiveDate)
         } ?: return
-        // 翻回当天时清空选择，这样跨零点后会继续跟随新的一天。
+        // Clear the selection when flipping back to today, so after crossing midnight it keeps following the new day.
         selectedDate.value = target.takeIf { it != todayString() }
     }
 

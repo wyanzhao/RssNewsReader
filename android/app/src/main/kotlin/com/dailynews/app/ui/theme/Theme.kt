@@ -29,11 +29,12 @@ object DailyNewsSpacing {
 }
 
 /**
- * Material 配色方案之外的语义色。
+ * Semantic colors outside the Material color scheme.
  *
- * 收藏红不能借用 `colorScheme.error`——那个槽位的语义是"出错了"，用它标记收藏
- * 会让 TalkBack 之外的所有视觉线索都在说反话；动态取色下 error 还会跟着壁纸走。
- * 这里固定取值，并由 `FavoriteColorContrastTest` 钉住对比度。
+ * The favorite red must not borrow `colorScheme.error` — that slot means "something went
+ * wrong", and using it to mark favorites makes every visual cue except TalkBack say the
+ * opposite; under dynamic color, error would also follow the wallpaper. The values here are
+ * fixed, and `FavoriteColorContrastTest` pins the contrast.
  */
 @Immutable
 data class DailyNewsExtendedColors(val favorite: Color)
@@ -75,8 +76,9 @@ fun DailyNewsTheme(
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    // 扩展色必须由同一个 `dark` 布尔决定。截图测试显式传 darkTheme，
-    // 再调一次 isSystemInDarkTheme() 会让基线在 dark 变体上拍到浅色收藏红。
+    // The extended colors must be decided by the same `dark` boolean. Screenshot tests pass
+    // darkTheme explicitly, and calling isSystemInDarkTheme() again would make the baseline
+    // capture the light favorite red on dark variants.
     CompositionLocalProvider(LocalDailyNewsColors provides if (dark) DarkExtendedColors else LightExtendedColors) {
         MaterialTheme(
             colorScheme = colors,

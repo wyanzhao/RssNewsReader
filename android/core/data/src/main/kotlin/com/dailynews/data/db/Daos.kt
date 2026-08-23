@@ -73,8 +73,9 @@ interface ArticleDao {
     @Query("SELECT * FROM articles WHERE linkKey = :linkKey") suspend fun get(linkKey: String): ArticleEntity?
 
     /**
-     * 应用内阅读用的完整投影。摘要口径与 observeTimeline 一致：优先取已发布报告里
-     * 的中文摘要，没有才回落 feed 的英文摘要。
+     * Full projection for in-app reading. Summary policy matches observeTimeline:
+     * prefer the Chinese summary from a published report, else fall back to the
+     * feed's English summary.
      */
     @Query("""
         SELECT a.linkKey, a.link, a.title, a.feedName AS source,
@@ -88,15 +89,20 @@ interface ArticleDao {
     """)
     fun observeDetail(linkKey: String): Flow<ArticleDetail?>
     @Query("SELECT * FROM articles ORDER BY pubDateIso DESC") suspend fun allNow(): List<ArticleEntity>
-    // `julianday(pubDateIso)` 把索引列包在函数里，index_articles_pubDateIso 因此完全
-    // 不可用：EXPLAIN QUERY PLAN 实测是 SCAN articles + USE TEMP B-TREE FOR ORDER BY，
-    // 30 天保留期稳态下每次读约 4000 行（含 articleText）再整体排序，而区间扫描只需
-    // 碰窗口内的一两百行。
+    // Wrapping the indexed column in `julianday(pubDateIso)` makes
+    // index_articles_pubDateIso completely unusable: EXPLAIN QUERY PLAN is
+    // SCAN articles + USE TEMP B-TREE FOR ORDER BY. At a 30-day retention
+    // steady state that reads ~4000 rows (including articleText) and sorts
+    // them all, while a range scan only touches the couple of hundred in the
+    // window.
     //
-    // 直接比较是安全的，但**绑定参数必须先归一化**：列值是 `...+00:00`，而调用方给的
-    // 是 `Instant.toString()` 的 `...Z`，字典序上 'Z' > '+'，裸比较会静默丢掉恰好等于
-    // 截止秒的文章。归一化在 ArticleRepository.toOffsetIso 里，由 SweepAndWindowStepTest
-    // 的边界用例钉住。ISO-8601 定宽前缀 + 左对齐小数使字典序等于时间序。
+    // Direct comparison is safe, but **the bind parameter must be normalized
+    // first**: column values are `...+00:00`, callers pass Instant.toString()
+    // `...Z`, and lexicographically 'Z' > '+', so a raw compare silently drops
+    // articles that fall exactly on the cutoff second. Normalization lives in
+    // ArticleRepository.toOffsetIso, pinned by SweepAndWindowStepTest's
+    // boundary case. ISO-8601 fixed-width prefixes plus left-aligned fractions
+    // make lexicographic order equal temporal order.
     @Query("SELECT * FROM articles WHERE pubDateIso >= :fromIso ORDER BY pubDateIso DESC") suspend fun inWindow(fromIso: String): List<ArticleEntity>
     @Query("SELECT * FROM articles WHERE pubDateIso >= :fromIso AND enrichedAtUtc IS NULL ORDER BY pubDateIso DESC LIMIT :limit")
     suspend fun pendingEnrichment(fromIso: String, limit: Int): List<ArticleEntity>
@@ -120,11 +126,13 @@ interface ArticleDao {
         ORDER BY a.favoritedAtUtc DESC
     """)
     fun observeFavorites(): Flow<List<FavoriteArticle>>
-    // Epic U 阅读器：两条 SQL 分别覆盖「全部/按源」×「全部/只看未读」四种组合。
-    // 不写成 (:feedName IS NULL OR …) 的单条形式——OR 会让优化器放弃复合索引；
-    // 拆开后可由 Kotlin 选择命中 index_articles_pubDateIso 或 index_articles_feedName_pubDateIso。
-    // pubDateIso <> '' 顺带挡住 FavoriteRepository.save 造的合成行（无日期）；
-    // ORDER BY pubDateIso DESC 直接走索引（字典序 = 时间序，见 FeedFetcher.toOffsetIso）。
+    // Epic U reader: two SQLs cover the four combinations of all/by-feed ×
+    // all/unread-only. Do not write a single query with (:feedName IS NULL OR …)
+    // — OR makes the optimizer drop the composite index; split, Kotlin can pick
+    // index_articles_pubDateIso or index_articles_feedName_pubDateIso. pubDateIso
+    // <> '' also blocks synthetic rows from FavoriteRepository.save (no date);
+    // ORDER BY pubDateIso DESC rides the index (lexicographic = temporal; see
+    // FeedFetcher.toOffsetIso).
     @Query("""
         SELECT a.linkKey, a.link, a.title, a.feedName AS source,
                COALESCE((SELECT ri.summaryZh FROM report_items ri
@@ -155,14 +163,16 @@ interface ArticleDao {
     @Query("SELECT feedName, COUNT(*) AS unread FROM articles WHERE readAtUtc IS NULL AND pubDateIso <> '' GROUP BY feedName")
     fun observeUnreadCounts(): Flow<List<FeedUnreadCount>>
 
-    // Epic V 按天分节的日计数。四种「全部/按源 × 全部/未读」各写一条，理由与
-    // observeTimeline 拆两条相同，而且更强：把 unreadOnly 也拆开之后，
-    // 四条全部是 COVERING INDEX（EXPLAIN QUERY PLAN 实测），无需 INDEXED BY 提示。
-    //   全部/全部 → SCAN   COVERING INDEX index_articles_pubDateIso
-    //   全部/未读 → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=?)
-    //   按源/全部 → SEARCH COVERING INDEX index_articles_feedName_pubDateIso (feedName=?)
-    //   按源/未读 → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=? AND feedName=?)
-    // 计数是全量的，与时间线的分页窗口无关：分节头写的是那天真实有多少篇。
+    // Epic V per-day counts for day sections. One query each for the four
+    // all/by-feed × all/unread combinations, same reason observeTimeline was
+    // split, and stronger: after splitting unreadOnly too, all four are
+    // COVERING INDEX (EXPLAIN QUERY PLAN), no INDEXED BY hint needed.
+    //   all/all     → SCAN   COVERING INDEX index_articles_pubDateIso
+    //   all/unread  → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=?)
+    //   feed/all    → SEARCH COVERING INDEX index_articles_feedName_pubDateIso (feedName=?)
+    //   feed/unread → SEARCH COVERING INDEX index_articles_readAtUtc_feedName_pubDateIso (readAtUtc=? AND feedName=?)
+    // Counts are full-pool, independent of the timeline window: the section
+    // header writes how many articles that day actually has.
     @Query("SELECT substr(pubDateIso,1,10) AS day, COUNT(*) AS total FROM articles WHERE pubDateIso <> '' GROUP BY day ORDER BY day DESC")
     fun observeDayCounts(): Flow<List<ReaderDayCount>>
 
@@ -278,15 +288,17 @@ interface ReportDao {
     @Query("DELETE FROM report_items WHERE reportDate = :reportDate") suspend fun deleteItems(reportDate: String)
 
     /**
-     * 只清 Part 2 的历史条目。
+     * Drop only historical Part 2 items.
      *
-     * `reports` / `report_items` 曾是**唯一没有保留期的两张表**，而它们同时是增长
-     * 最快的：LAZY 展开给池里每一篇文章生成一行 part 2，每行还带 summaryEn +
-     * articleText 快照（约 240 KB/天），而 `PART2_SECTION_ENABLED = false` 让这一段
-     * 界面根本不显示。半年约 60 MB。
+     * `reports` / `report_items` used to be **the only two tables without a
+     * retention period**, and they were also the fastest-growing: LAZY expansion
+     * writes one part-2 row per pooled article, each carrying a summaryEn +
+     * articleText snapshot (~240 KB/day), while `PART2_SECTION_ENABLED = false`
+     * means the UI never shows that section. ~60 MB in half a year.
      *
-     * **Part 1 绝不能按同一把尺子清**：跨天线索（observeStory / observeStoryDepth）
-     * 与周报月报（publishedPart1Between）都读它，它必须长期保留。
+     * **Part 1 must never be pruned with the same ruler**: cross-day story lines
+     * (observeStory / observeStoryDepth) and weekly/monthly digests
+     * (publishedPart1Between) both read it; it must be kept long term.
      */
     @Query("DELETE FROM report_items WHERE part = 2 AND reportDate < :beforeDate")
     suspend fun deletePart2Before(beforeDate: String): Int
@@ -337,13 +349,14 @@ interface ReportDao {
     """) fun observeAllPreviews(): Flow<List<ReportPreview>>
     @Query("SELECT * FROM report_items WHERE reportDate = :date ORDER BY part, position") fun observeItems(date: String): Flow<List<ReportItemEntity>>
 
-    // Epic V 线索历史：同一 event_key 的 Part 1 条目按日期倒序，走 index_report_items_eventKey。
+    // Epic V story history: Part 1 items for the same event_key, date descending, via index_report_items_eventKey.
     @Query("SELECT * FROM report_items WHERE eventKey = :eventKey AND part = 1 AND eventKey <> '' ORDER BY reportDate DESC, position")
     fun observeStory(eventKey: String): Flow<List<ReportItemEntity>>
 
     /**
-     * 每条线索被报道过多少天。UI 只在 >= 2 时才显示「线索历史」入口——
-     * 单篇线索点进去只有它自己，是个空承诺。
+     * How many days each story line has been reported. The UI only shows the
+     * story-history entry when >= 2 — opening a single-article story would
+     * only show itself, an empty promise.
      */
     @Query(
         """
@@ -355,10 +368,12 @@ interface ReportDao {
     fun observeStoryDepth(eventKeys: List<String>): Flow<List<StoryDepth>>
 
     /**
-     * Epic V 周期简报素材：区间内**已成功发布**那些天的 Part 1 条目。
-     * 主键 (reportDate, part, position) 以 reportDate 打头，BETWEEN 走主键范围扫描；
-     * EXISTS 是 reports 的主键点查。无需新索引。
-     * 被 markFailed 降级的日子由 status = 'SUCCESS' 挡掉：审校没过的内容不该进周报。
+     * Epic V periodic-digest material: Part 1 items from days in the range that
+     * **successfully published**. Primary key (reportDate, part, position)
+     * starts with reportDate, so BETWEEN is a PK range scan; EXISTS is a PK
+     * point lookup on reports. No new index needed. Days demoted by markFailed
+     * are excluded by status = 'SUCCESS': content that failed review must not
+     * enter a weekly digest.
      */
     @Query(
         """
@@ -415,7 +430,7 @@ interface PeriodicReportDao {
     )
     fun observeSummaries(): Flow<List<PeriodicReportSummary>>
     @Query("SELECT * FROM periodic_reports ORDER BY periodKey") suspend fun allNow(): List<PeriodicReportEntity>
-    /** 已成功发布的周期简报不得被后续失败覆盖，与 reports.wasPublished 同策略。 */
+    /** A successfully published periodic digest must not be overwritten by a later failure; same policy as reports.wasPublished. */
     @Query("SELECT COUNT(*) > 0 FROM periodic_reports WHERE periodKey = :periodKey AND publishedAtUtc IS NOT NULL")
     suspend fun wasPublished(periodKey: String): Boolean
     @Query("DELETE FROM periodic_reports") suspend fun clear()

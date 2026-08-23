@@ -85,10 +85,11 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
             ReportScheduler(applicationContext).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
             return Result.success()
         }
-        // 预算闸门必须在花钱之前。此前只在 run 结束后记一行 80% 的 WARN——也就是说
-        // 唯一真正的硬闸装在周期简报（最便宜的调用）前面，而开销最大的日常运行只被
-        // 事后观察。日常运行的 happy path 实测约 6.5 万 token/天，默认预算 100 万/月，
-        // 也就是说不设闸的话默认配置本身就会超支约一倍。
+        // The budget gate must come before the money is spent. Previously only an 80% WARN line was
+        // logged after the run finished — meaning the only real hard gate sat in front of the periodic
+        // digest (the cheapest calls), while the most expensive daily runs were only observed after the
+        // fact. The daily-run happy path measures ~65k tokens/day in practice, against a default budget
+        // of 1M/month, so without a gate the default configuration itself would overspend by ~2x.
         val monthTokensBefore = container.llmCallRepository.tokensThisMonth()
         if (config.monthlyTokenBudget > 0 && monthTokensBefore >= config.monthlyTokenBudget) {
             val message = "本月 token 用量 $monthTokensBefore 已达预算 ${config.monthlyTokenBudget}，未发起生成"
@@ -153,7 +154,8 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 )
             }
         }
-        // 周期简报挂在日报之后：此时整个周期的日报都已入库。有行即跳，天然幂等。
+        // Periodic digests hang off the daily report: by this point every daily report of the whole
+        // period is already in the database. If a row exists, skip — naturally idempotent.
         runCatching {
             PeriodicDigestWorker.dueKinds(
                 date,
@@ -172,15 +174,17 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                 )
             }
         }
-        // 此前这一行是裸 runCatching 没有 onFailure：产物/日志/运行记录的保留可以
-        // 天天失败而毫无信号，库无界增长。下面一行早就有日志，两行不该有区别。
+        // This line used to be a bare runCatching without onFailure: artifact/log/run-record retention
+        // could fail every day without any signal while the database grew without bound. The line below
+        // already had logging; the two lines should not differ.
         val pruned = runCatching {
             container.runMaintenanceRepository.prune(config.artifactRetentionDays, reportRetentionDays = config.reportRetentionDays)
         }.onFailure { warnRetention(it) }.getOrNull()
         runCatching { container.articleRepository.prune(config.articleRetentionDays) }
             .onFailure { warnRetention(it) }
-        // SQLite 默认 auto_vacuum = NONE，删掉的页只会进空闲列表，文件不会变小。
-        // 只在真删掉了 part 2 条目之后做——VACUUM 要重写整库，不该每天空跑一次。
+        // SQLite defaults to auto_vacuum = NONE: deleted pages only go onto the free list and the file
+        // never shrinks. Only do this after part 2 entries were actually deleted — VACUUM rewrites the
+        // whole database and should not run empty every day.
         if ((pruned?.part2ItemsDeleted ?: 0) > 0) {
             runCatching { container.runMaintenanceRepository.compact() }.onFailure { warnRetention(it) }
         }
@@ -208,12 +212,15 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         internal const val FOREGROUND_WATCHDOG_MILLIS = 1_200_000L
 
         /**
-         * 降级（前台提升失败）时的看门狗。
+         * Watchdog for the degraded case (foreground promotion failed).
          *
-         * 必须**明显短于**前台值：没有前台服务时，平台给普通 worker 的执行窗口约
-         * 十分钟，一个 20 分钟的应用级看门狗永远排在系统强杀之后，等于不存在——
-         * 而系统强杀不会给我们记账的机会，`runs` 表就留一行 RUNNING。八分钟留出
-         * 余量让 failRunning 跑完。两个常量曾经写成同一个值，那个三元分支是死的。
+         * Must be **clearly shorter** than the foreground value: without a foreground service the
+         * platform gives an ordinary worker an execution window of about ten minutes, so a 20-minute
+         * application-level watchdog would always come after the system force-kill, making it
+         * nonexistent — and a system force-kill gives us no chance to record anything, leaving a row
+         * in the `runs` table stuck at RUNNING. Eight minutes leaves headroom for failRunning to
+         * complete. The two constants were once written with the same value, which made that ternary
+         * branch dead.
          */
         internal const val DEGRADED_WATCHDOG_MILLIS = 480_000L
         internal const val MAX_PROVIDER_NETWORK_WORK_ATTEMPTS = 3

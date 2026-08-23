@@ -6,28 +6,28 @@ import okhttp3.Interceptor
 import okhttp3.Response
 
 /**
- * 文章 link 的准入闸。
+ * Admission gate for article links.
  *
- * link 逐字取自第三方 feed（RSS `<link>`，缺失时回落 `<guid>` / Atom `<id>`），此前
- * 一路直达两个危险出口，中途没有任何一处校验过它：
+ * Links are taken verbatim from third-party feeds (the RSS `<link>`, falling back to `<guid>` / Atom `<id>` when
+ * missing), and previously ran straight into two dangerous exits without a single validation anywhere along the way:
  *
- * 1. **UI**：五处 `CustomTabsIntent.launchUrl(context, link.toUri())`。`launchUrl` 构造的是
- *    裸 `ACTION_VIEW` 且不加 `CATEGORY_BROWSABLE`，所以 `tel:` / `market://` / 应用私有
- *    scheme 能触达那些刻意设计成网页无法触达的 activity；无 scheme 或无人处理的 URI
- *    则直接抛 `ActivityNotFoundException`，那五处都没有 runCatching，点一下就崩。
- * 2. **抓取**：文章页富化会去 GET 这个 URL。指向 `192.168.x.x` 就是从用户局域网内部
- *    发起请求，抽出 150 词正文存进 `articleText`，再随 prompt 发到云端供应商——局域网
- *    侦察外加一条外传通道。
+ * 1. **UI**: five `CustomTabsIntent.launchUrl(context, link.toUri())` call sites. `launchUrl` builds a bare
+ *    `ACTION_VIEW` without `CATEGORY_BROWSABLE`, so `tel:` / `market://` / app-private schemes can reach activities
+ *    deliberately designed to be unreachable from the web; a URI with no scheme or with no handler throws
+ *    `ActivityNotFoundException` outright, and none of those five sites has a runCatching — one tap and it crashes.
+ * 2. **Fetching**: article-page enrichment GETs this URL. Pointing it at `192.168.x.x` issues a request from inside
+ *    the user's own LAN, extracts a 150-word body into `articleText`, and then ships it to the cloud provider inside
+ *    the prompt — LAN reconnaissance plus an exfiltration channel.
  *
- * 在入池处拒绝是唯一能同时关掉两个出口的地方：坏 link 根本不进 Room，后面每一个
- * 消费者都不必各自记得防一遍。
+ * Rejecting at pool admission is the only place that closes both exits at once: a bad link never enters Room at all,
+ * and no downstream consumer has to remember to defend against it on its own.
  */
 object LinkSafety {
     /**
-     * 是否允许把这条 link 收进文章池。
+     * Whether this link may be admitted into the article pool.
      *
-     * 空 link 是允许的：`ArticlePoolKeys` 特意给无 link 条目保留了稳定身份，
-     * 而且它们既不会被打开也不会被抓取。这里挡的是**有值但不安全**的那些。
+     * Empty links are allowed: `ArticlePoolKeys` deliberately keeps a stable identity for linkless entries,
+     * and they are neither opened nor fetched. What gets blocked here is the **non-empty but unsafe** kind.
      */
     fun isAcceptable(link: String): Boolean {
         val trimmed = link.trim()
@@ -36,12 +36,13 @@ object LinkSafety {
     }
 
     /**
-     * 重定向闸。
+     * Redirect gate.
      *
-     * 入池处的校验只看得到 feed 给出的原始 URL。一个完全正常的公网链接可以 302 到
-     * `http://192.168.1.1/`，于是内网目标从后门进来——而这正是抓取路径上最容易被
-     * 忽略的一跳。用**网络**拦截器而不是应用拦截器：应用拦截器整条链只跑一次，
-     * 网络拦截器每一跳都跑，包括每一次重定向。
+     * The admission-time check only ever sees the original URL the feed supplied. A perfectly innocent public link
+     * can 302 to `http://192.168.1.1/`, letting an intranet target in through the back door — and this is exactly
+     * the hop on the fetch path that is easiest to overlook. Use a **network** interceptor rather than an application
+     * interceptor: an application interceptor runs once for the whole chain, while a network interceptor runs on every
+     * hop, including every redirect.
      */
     fun privateHostInterceptor() = Interceptor { chain ->
         val url = chain.request().url
@@ -51,7 +52,7 @@ object LinkSafety {
         chain.proceed(chain.request()) as Response
     }
 
-    /** 可以对它发起网络请求，或交给浏览器打开。 */
+    /** Safe to issue a network request to, or hand to the browser to open. */
     fun isSafeHttpUrl(value: String): Boolean {
         val uri = runCatching { URI(value.trim()) }.getOrNull() ?: return false
         if (uri.scheme?.lowercase() !in HTTP_SCHEMES) return false
@@ -60,11 +61,12 @@ object LinkSafety {
     }
 
     /**
-     * 按字面形态挡掉内网目标。
+     * Blocks intranet targets by their literal form.
      *
-     * 这不防 DNS rebinding——真要防得换掉 OkHttp 的 `Dns`/`SocketFactory`——但它关掉了
-     * 现实里的整个攻击面：敌意 feed 直接写内网地址。判断只看字面量，不做 DNS 解析，
-     * 因为解析要联网，而这个函数会在解析 feed 的热路径上对每一条目调用。
+     * This does not defend against DNS rebinding — a real defense would require replacing OkHttp's
+     * `Dns`/`SocketFactory` — but it closes the entire real-world attack surface: a hostile feed writing intranet
+     * addresses directly. The check looks only at the literal and performs no DNS resolution, because resolving
+     * needs the network, and this function is called for every entry on the hot path of feed parsing.
      */
     private fun isPrivateHost(host: String): Boolean {
         val name = host.trim().trim('[', ']').lowercase()
@@ -81,7 +83,7 @@ object LinkSafety {
             first == 169 && second == 254 -> true
             first == 172 && second in 16..31 -> true
             first == 192 && second == 168 -> true
-            // CGNAT 100.64.0.0/10：运营商级内网，同样不该被 feed 指过去。
+            // CGNAT 100.64.0.0/10: carrier-grade internal network, likewise something feeds must never point at.
             first == 100 && second in 64..127 -> true
             else -> false
         }

@@ -58,6 +58,6 @@ class Migration6To7InstrumentedTest {
         migrated.close()
     }
 
-    // 全链测试（v3 → 最新版本）住在 Migration7To8InstrumentedTest，
-    // 那里的终点跟着最新 schema 走；本文件只负责 v6→v7 这一步。
+    // The full-chain test (v3 → latest) lives in Migration7To8InstrumentedTest,
+    // whose endpoint tracks the latest schema; this file only covers v6→v7.
 }

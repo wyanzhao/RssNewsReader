@@ -18,10 +18,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
- * 周报 / 月报生成。
+ * Weekly / monthly report generation.
  *
- * **绝不确定性兜底**：LLM 失败就写 FAILED 行 + 原因，不用日摘要拼一份假的。
- * 这是用户在方案里明确选定的纯 LLM 路线的直接后果。
+ * **Absolutely no fallback**: if the LLM fails, write a FAILED row + reason; never fake one out of
+ * daily digests. This is a direct consequence of the pure-LLM route the user explicitly chose in the
+ * plan.
  */
 class PeriodicDigestWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -37,7 +38,7 @@ class PeriodicDigestWorker(context: Context, params: WorkerParameters) : Corouti
         }
         val periodKey = PeriodicReportRepository.periodKeyFor(kind, start)
         val repository = container.periodicReportRepository
-        // 幂等：已成功发布过就不再重跑，也不覆盖。
+        // Idempotency: if it was already published successfully, neither rerun nor overwrite.
         if (repository.find(periodKey)?.status == "SUCCESS") return Result.success()
 
         val runId = "${kind.name.lowercase()}-$periodKey"
@@ -48,7 +49,8 @@ class PeriodicDigestWorker(context: Context, params: WorkerParameters) : Corouti
                 repository.publishFailure(kind, periodKey, start, end, reason)
                 return Result.success()
             }
-            // 预算闸门在调用之前：超了就不发起，而不是发起后再后悔。
+            // The budget gate sits before the call: if over budget, do not start — rather than start
+            // and regret it later.
             val monthTokens = container.llmCallRepository.tokensThisMonth()
             if (config.monthlyTokenBudget > 0 && monthTokens >= config.monthlyTokenBudget) {
                 repository.publishFailure(
@@ -64,7 +66,8 @@ class PeriodicDigestWorker(context: Context, params: WorkerParameters) : Corouti
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            // 失败留痕，绝不伪造内容。UI 展示这条原因并给重试入口。
+            // Failures leave a trace; content is never fabricated. The UI shows this reason and
+            // offers a retry entry point.
             repository.publishFailure(kind, periodKey, start, end, error.message ?: error::class.simpleName.orEmpty())
             Result.success()
         }
@@ -85,9 +88,10 @@ class PeriodicDigestWorker(context: Context, params: WorkerParameters) : Corouti
         }
 
         /**
-         * 日报成功后判断是否该补一份周期简报。挂在日报之后而不是新建一套
-         * PeriodicWorkRequest：这样能保证整个周期的日报都已入库，复用现有
-         * AlarmManager 锚点，且天然幂等（有行即跳）。
+         * After a daily report succeeds, decide whether a periodic digest is due. Hung off the daily
+         * report instead of a new PeriodicWorkRequest set: this guarantees every daily report of the
+         * whole period is already in the database, reuses the existing AlarmManager anchor, and is
+         * naturally idempotent (row exists, skip).
          */
         internal fun dueKinds(
             today: LocalDate,

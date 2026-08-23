@@ -7,16 +7,16 @@ import com.dailynews.app.ui.common.ArticleCardModel
 import com.dailynews.data.repo.FeedRecord
 import java.time.Instant
 
-/** 阅读器筛选：来源（null = 全部）与「只看未读」。 */
+/** Reader filters: source (null = all) and "unread only". */
 data class ReaderFilter(
     val feedName: String? = null,
     val unreadOnly: Boolean = false,
 )
 
-/** 显式三态：避免 TodayViewModel 那种初始态与空态不可区分的坑。 */
+/** Explicit three-state: avoids the TodayViewModel pitfall where the initial state and the empty state are indistinguishable. */
 enum class ReaderPhase { LOADING, EMPTY, CONTENT }
 
-/** 源 chip 模型：未读数 + 健康点，信息即导航。 */
+/** Feed chip model: unread count + health dot; the information doubles as navigation. */
 data class FeedChipModel(
     val feedName: String,
     val unread: Int,
@@ -30,8 +30,9 @@ internal const val READER_WINDOW_MAX = 1_000
 internal const val READER_PREFETCH_AHEAD = 20
 
 /**
- * 不引入 Paging 3 的窗口增长：滚到倒数第 [READER_PREFETCH_AHEAD] 项时 += 100，
- * 封顶 [READER_WINDOW_MAX]。纯函数可直接单测。
+ * Window growth without introducing Paging 3: += 100 once scrolling reaches the
+ * [READER_PREFETCH_AHEAD]-th item from the end, capped at [READER_WINDOW_MAX].
+ * Pure function, directly unit-testable.
  */
 internal fun nextWindow(current: Int, visibleIndex: Int, itemCount: Int): Int {
     if (current >= READER_WINDOW_MAX) return current
@@ -39,7 +40,7 @@ internal fun nextWindow(current: Int, visibleIndex: Int, itemCount: Int): Int {
     return (current + READER_WINDOW_STEP).coerceAtMost(READER_WINDOW_MAX)
 }
 
-/** 一天的分节。[totalCount] 是那天的**全量**篇数，与窗口内渲染了几条无关。 */
+/** One day's section. [totalCount] is the **full** article count for that day, independent of how many items are rendered inside the window. */
 data class ReaderDaySection(
     val day: String,
     val label: String,
@@ -48,19 +49,21 @@ data class ReaderDaySection(
 )
 
 /**
- * 按 UTC 日分组。分组键 `pubDateIso.take(10)` 与 SQL 的 `substr(pubDateIso,1,10)`
- * 逐字节同源——两边必须用同一个定义，否则分节头的计数会对不上它下面的条目。
+ * Groups by UTC day. The grouping key `pubDateIso.take(10)` is byte-for-byte the same
+ * definition as SQL's `substr(pubDateIso,1,10)` — both sides must use the same one,
+ * otherwise the section header's count will not match the entries beneath it.
  *
- * 时间线本身已按 pubDateIso 降序，所以顺序遍历即可保持日期分组有序。
+ * The timeline itself is already sorted by pubDateIso descending, so a sequential
+ * traversal keeps the day groups in order.
  */
 internal fun readerDaySections(articles: List<ReaderArticle>, dayCounts: Map<String, Int>): List<ReaderDaySection> =
     articles.groupBy { it.pubDateIso.take(10) }
         .map { (day, items) ->
-            // 计数缺失时退回窗口内条数，宁可少报也不显示 0。
+            // When the count is missing, fall back to the number of items in the window; better to under-report than to show 0.
             ReaderDaySection(day, readerDayLabel(day), dayCounts[day] ?: items.size, items)
         }
 
-/** `08-05 星期三`。日期不可解析时原样回显。 */
+/** e.g. "08-05 Wednesday" (the actual UI string is in Chinese). When the date cannot be parsed, it is echoed back unchanged. */
 internal fun readerDayLabel(day: String): String {
     val parsed = runCatching { java.time.LocalDate.parse(day) }.getOrNull() ?: return day
     val weekday = when (parsed.dayOfWeek) {
@@ -76,14 +79,15 @@ internal fun readerDayLabel(day: String): String {
 }
 
 /**
- * LazyColumn 里的**项数**：文章 + 每个分节头各占一项。
- * 分页判定用的 `listState.firstVisibleItemIndex` 也在这个空间里，两者必须同源，
- * 否则窗口会每隔约 20 个分节就提前多涨一次 100。
+ * The **item count** in the LazyColumn: articles + one item per section header.
+ * The `listState.firstVisibleItemIndex` used for paging decisions lives in this same
+ * space; the two must come from the same source, otherwise the window grows an extra
+ * 100 prematurely roughly every 20 sections.
  */
 internal fun readerLazyItemCount(sections: List<ReaderDaySection>): Int =
     sections.sumOf { it.articles.size } + sections.size
 
-/** 触顶 1000 时的终止提示；未触顶返回 null。 */
+/** Terminal notice when the 1000 cap is reached; returns null when the cap is not hit. */
 internal fun readerWindowCapNotice(window: Int, loaded: Int): String? =
     if (window >= READER_WINDOW_MAX && loaded >= READER_WINDOW_MAX) {
         "已加载最近 $READER_WINDOW_MAX 篇。更早的文章请用搜索或按来源筛选。"
@@ -92,8 +96,9 @@ internal fun readerWindowCapNotice(window: Int, loaded: Int): String? =
     }
 
 /**
- * 空态文案的 5 个分支；非空返回值即为应展示的 EmptyState 文案。
- * 分支顺序即优先级：无订阅源 → 池空 → 该源无文章 → 都读完了 → 兜底。
+ * The 5 branches of empty-state copy; a non-empty return value is exactly the
+ * EmptyState copy to display. Branch order is the priority order: no feeds → empty
+ * pool → no articles for this feed → everything read → fallback.
  */
 internal fun readerEmptyReason(filter: ReaderFilter, poolCount: Int, feedCount: Int): String {
     if (feedCount == 0) return "还没有订阅源，先去「订阅」页添加来源。"
@@ -123,7 +128,7 @@ internal fun feedChipModels(
 
 internal fun totalUnread(unreadCounts: List<FeedUnreadCount>): Int = unreadCounts.sumOf { it.unread }
 
-/** 窄投影 → ArticleCardModel，结构零改动（saved/read 由时间戳判定）。 */
+/** Narrow projection → ArticleCardModel, zero structural change (saved/read are decided by timestamps). */
 internal fun ReaderArticle.toCardModel() = ArticleCardModel(
     link = link,
     title = title,

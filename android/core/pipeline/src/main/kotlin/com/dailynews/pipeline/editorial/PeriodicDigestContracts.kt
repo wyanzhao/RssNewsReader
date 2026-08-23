@@ -4,27 +4,28 @@ import com.dailynews.model.PeriodicDigest
 import com.dailynews.pipeline.text.TextUtils
 
 /**
- * 周期简报的确定性契约。
+ * Deterministic contract for periodic digests.
  *
- * 与 Part 1 同一条底线：模型只能从**给定素材**里挑和写，不能造链接、不能写超长摘要、
- * 不能把链接塞进正文。素材本身已经是上游发布过的中文摘要，所以这里防的是二次编辑
- * 引入的新东西。
+ * Same floor as Part 1: the model may only pick and write from **given material**,
+ * must not invent links, must not write oversize summaries, and must not put links
+ * in body text. The material is already published Chinese summaries from upstream,
+ * so this fence is against new content introduced by the second editorial pass.
  */
 object PeriodicDigestContracts {
     const val MAX_SECTIONS = 12
     const val SUMMARY_HARD_CAP = 400
 
-    /** prompt 要求 10–20 字；留出余量后仍远小于摘要上限。 */
+    /** The prompt asks for 10–20 characters; even with headroom this is far below the summary cap. */
     const val HEADING_HARD_CAP = 60
 
-    /** `notes[]` 是取舍理由，不是正文。 */
+    /** `notes[]` is the rationale for inclusion/exclusion, not body text. */
     const val NOTE_HARD_CAP = 200
     const val MAX_NOTES = 12
 
     fun validate(digest: PeriodicDigest, expectedPeriod: String, availableLinks: Set<String>): List<String> {
         val errors = mutableListOf<String>()
         val period = TextUtils.cleanText(digest.period)
-        // 抓「答错了周」：模型偶尔会照抄 prompt 示例里的周期。
+        // Catch "answered the wrong week": the model occasionally copies the period from a prompt example.
         if (period != expectedPeriod) {
             errors += "period must be exactly \"$expectedPeriod\" but was \"$period\""
         }
@@ -34,9 +35,11 @@ object PeriodicDigestContracts {
         }
         val normalizedAvailable = availableLinks.mapTo(mutableSetOf(), TextUtils::cleanText)
         val seenLinks = mutableSetOf<String>()
-        // notes[] 与 heading 同样是模型自由文本，且素材源自抓取来的 article_text。
-        // 它们此前完全不过 lint，而隔壁的 summary_zh 过——于是注入内容可以走这两个
-        // 字段绕过整条围栏，还能塞进 summary_zh 塞不进去的 markdown 链接。
+        // notes[] and heading are also free-text from the model, and the material
+        // originates in scraped article_text. They previously skipped lint entirely
+        // while neighboring summary_zh did not — so injected content could walk these
+        // two fields around the whole fence, including markdown links that summary_zh
+        // would have rejected.
         if (digest.notes.size > MAX_NOTES) errors += "notes must be at most $MAX_NOTES but was ${digest.notes.size}"
         digest.notes.forEachIndexed { index, note ->
             errors += EditorialContracts.summaryLintErrors(note, "notes[$index]", NOTE_HARD_CAP)
@@ -49,7 +52,7 @@ object PeriodicDigestContracts {
             if (section.links.isEmpty()) errors += "$label must reference at least one link"
             section.links.forEach { raw ->
                 val link = TextUtils.cleanText(raw)
-                // 禁止造链接：周报只能引用本周已发布报告里的条目。
+                // No invented links: a weekly digest may only cite items from this week's published reports.
                 if (link !in normalizedAvailable) errors += "$label references unknown link $link"
                 if (!seenLinks.add(link)) errors += "$label repeats link $link already used by an earlier section"
             }

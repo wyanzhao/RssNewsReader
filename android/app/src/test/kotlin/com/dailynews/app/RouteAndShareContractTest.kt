@@ -42,7 +42,8 @@ class RouteAndShareContractTest {
         assertEquals("reader", com.dailynews.app.ui.canonicalRoute("reader"))
         assertEquals("report/2026-08-04", com.dailynews.app.ui.canonicalRoute("report/2026-08-04"))
         assertEquals("runDiagnostics/run-1", com.dailynews.app.ui.canonicalRoute("runDiagnostics/run-1"))
-        // 新增路由必须同步进守卫，否则深链与路由恢复会被静默丢弃、不报任何错。
+        // New routes must be added to the guard in sync, otherwise deep links and route restoration
+        // are silently dropped without any error being reported.
         assertEquals("story/openai-funding", com.dailynews.app.ui.canonicalRoute("story/openai-funding"))
         assertEquals("periodic/2026-W32", com.dailynews.app.ui.canonicalRoute("periodic/2026-W32"))
         assertEquals(
@@ -91,7 +92,7 @@ class RouteAndShareContractTest {
 
         val notification = NotificationHelper.resultNotification(context, result)
         assertEquals("runDiagnostics/run-42", shadowOf(notification.contentIntent).savedIntent.getStringExtra("route"))
-        // The trailing action is the "诊断" deep link; retry sits before it.
+        // The trailing action is the "diagnostics" deep link; retry sits before it.
         assertEquals("runDiagnostics/run-42", shadowOf(notification.actions.last().actionIntent).savedIntent.getStringExtra("route"))
     }
 

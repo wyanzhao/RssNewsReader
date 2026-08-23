@@ -41,7 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 data class PeriodicDigestUiState(
-    /** null = 首次发射之前，与其它屏一致地区分「加载中」与「没有」。 */
+    /** null = before the first emission; distinguishes "loading" from "nothing", consistent with the other screens. */
     val report: PeriodicReportEntity? = null,
     val loaded: Boolean = false,
 )
@@ -61,7 +61,7 @@ fun PeriodicDigestScreen(
     viewModel: PeriodicDigestViewModel,
     onBack: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
-    /** 周报里的条目也走应用内阅读，与日报一致。 */
+    /** Entries in the weekly report also open in in-app reading, consistent with the daily report. */
     onOpenArticle: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -77,8 +77,8 @@ fun PeriodicDigestScreen(
                     }
                 },
                 actions = {
-                    // 分享 payload 逐字节等于 periodic_reports.markdown，
-                    // 与 Top N 分享路径完全隔离，两条不得互相复用。
+                    // The share payload is byte-for-byte equal to periodic_reports.markdown,
+                    // fully isolated from the Top N share path; the two must not reuse each other.
                     if (report?.status == "SUCCESS") {
                         TextButton(onClick = { shareText(context, report.markdown) }) { Text(stringResource(R.string.share)) }
                     }
@@ -92,7 +92,7 @@ fun PeriodicDigestScreen(
             report == null -> Box(modifier.padding(DailyNewsSpacing.roomy), contentAlignment = Alignment.TopCenter) {
                 EmptyState(title = stringResource(R.string.story_empty_title), message = "")
             }
-            // 失败必须显式展示，绝不用任何拼凑内容顶替。
+            // Failures must be shown explicitly; never replaced with any cobbled-together content.
             report.status != "SUCCESS" -> Box(modifier.padding(DailyNewsSpacing.roomy), contentAlignment = Alignment.TopCenter) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
                     EmptyState(
@@ -143,7 +143,7 @@ fun PeriodicDigestScreen(
                         }
                     }
                 }
-                // 解析不认识的行原样保留：最坏退回今天的样子，绝不丢内容。
+                // Lines the parser does not recognize are kept verbatim: the worst case is falling back to today's appearance; content is never lost.
                 if (parsed.trailing.isNotBlank()) {
                     item(key = "digest-trailing") {
                         ReadingColumn { Text(parsed.trailing, style = MaterialTheme.typography.bodyMedium) }

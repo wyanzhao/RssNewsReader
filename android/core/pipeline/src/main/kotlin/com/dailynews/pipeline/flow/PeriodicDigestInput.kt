@@ -4,10 +4,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * 周期简报的输入素材：一段时间内**已成功发布**的每日 Top N 条目。
+ * Input material for the periodic digest: the daily Top N items that were **successfully published** within a period.
  *
- * 摘要是上游已经定稿并通过 lint 的中文文本，所以这里不再带 article_text 或
- * summary_en——周报是对编辑判断的二次编辑，不是重新读一遍原文。
+ * The summaries are Chinese text already finalized and lint-passed upstream, so no article_text or summary_en is
+ * carried here — the weekly report is a second-pass edit of editorial judgment, not a re-read of the originals.
  */
 @Serializable
 data class PeriodicDigestItem(
@@ -18,18 +18,19 @@ data class PeriodicDigestItem(
     @SerialName("summary_zh") val summaryZh: String,
     @SerialName("event_key") val eventKey: String,
     /**
-     * 短引用 id（`a1`、`a2`…）。段落只写这个，不回显 link。
+     * Short reference id (`a1`, `a2`, …). Sections write only this and never echo the link back.
      *
-     * 采集端（`collectInput`）不需要关心编号，所以这里有默认值并排在最后：
-     * `LlmEditorialEngine.digest` 在发出请求之前统一盖上 id，负载与解析索引出自
-     * 同一次赋值，不可能失步。未盖 id 的输入会在引用解析处 fail closed，不会静默出错。
+     * The collection side (`collectInput`) does not need to care about numbering, so this has a default value and is
+     * placed last: `LlmEditorialEngine.digest` stamps the ids uniformly before the request goes out, and the payload
+     * and the resolution index come from one assignment, so they cannot drift apart. Input without stamped ids fails
+     * closed at reference resolution instead of erroring silently.
      */
     val id: String = "",
 )
 
 @Serializable
 data class PeriodicDigestInput(
-    /** `2026-W32` 或 `2026-08`。模型必须原样回填到输出的 `period`。 */
+    /** `2026-W32` or `2026-08`. The model must echo it back verbatim into the output's `period`. */
     val period: String,
     val kind: String,
     @SerialName("period_start_date") val periodStartDate: String,

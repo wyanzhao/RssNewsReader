@@ -28,11 +28,13 @@ class ArtifactStore(
     }
 
     /**
-     * 这次运行留下的全部产物名。
+     * Names of every artifact this run left behind.
      *
-     * 诊断页此前只硬编码展示 `validation.json` 与 `context_budget.json` 两个文件，
-     * 而每一次 LLM 被打回都会写 `contract_violations/<op>-attempt-N.json`——也就是说
-     * 应用把答案写下来了，却是全仓库唯一不可见的那份。要看只能导出 ZIP 拿到电脑上。
+     * The diagnostics page previously hardcoded just `validation.json` and
+     * `context_budget.json`, while every LLM rejection writes
+     * `contract_violations/<op>-attempt-N.json` — the app wrote the answer down,
+     * yet that file was the only one in the repo that was invisible. Seeing it
+     * required exporting a ZIP to a computer.
      */
     suspend fun names(runId: String): List<String> = withContext(Dispatchers.IO) {
         database.runArtifacts().metadataForRun(runId).map { it.name }

@@ -14,10 +14,13 @@ import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * KEEP: 短 id 引用层是 2026-08-19 链接改写事故的根治手段。
+ * KEEP: the short-id reference layer is the root fix for the 2026-08-19
+ * link-mutation incident.
  *
- * 这些用例钉的是那次事故的确切形状——按标题重造 slug、把撇号 percent-encode 进
- * slug、超长 slug 丢词——以及「便宜模型写 id 时的同义写法不该浪费重试」。
+ * These cases pin that incident's exact shapes — reconstructing the slug from
+ * the title, percent-encoding an apostrophe into the slug, dropping words from
+ * an overlong slug — and "synonymous id forms from a cheap model must not
+ * waste a retry".
  */
 class EditorialRefsTest {
     private val links = listOf(
@@ -32,15 +35,15 @@ class EditorialRefsTest {
         assertEquals(links[0], refs.resolve("a1"))
         assertEquals(links[1], refs.resolve("A2"))
         assertEquals(links[2], refs.resolve(" a03 "))
-        // 裸数字同样无歧义：id 空间就是 a1..aN，不值得为一次漏写 a 打回整轮。
+        // A bare number is equally unambiguous: the id space is a1..aN, not worth rejecting a whole round for a missing "a".
         assertEquals(links[1], refs.resolve("2"))
     }
 
     @Test
     fun `accepts a verbatim link but rejects every rewritten one`() {
-        // 抄对了就没有理由打回。
+        // A correct copy is no reason to reject.
         assertEquals(links[0], refs.resolve(links[0]))
-        // 以下三条是 8-19 当天实际出现的三种改写。
+        // The next three are the three mutations that actually appeared on 8-19.
         assertNull(refs.resolve("https://therecord.media/hackers-knocked-off-government-network-after-security-breach"))
         assertNull(refs.resolve("https://semiengineering.com/why-chiplets-won%E2%80%99t-fix-everything/"))
         assertNull(refs.resolve("https://tomshardware.com/cooler-review"))
@@ -58,8 +61,9 @@ class EditorialRefsTest {
 
         val resolved = EditorialRefs.resolvePart1(draft, refs)
 
-        // 丢掉坏条目会让一份少了条目的计划看起来完全正常，而 shortfall 校验
-        // 正是用来发现「悄悄丢条目」的——两者一起失效才是真正的危险。
+        // Dropping the bad item would make a short-by-items plan look fully
+        // normal, and shortfall validation is exactly what catches "quietly
+        // dropped items" — both failing together is the real danger.
         assertNull(resolved.value)
         assertEquals(1, resolved.errors.size)
         assertTrue("a9" in resolved.errors.single(), resolved.errors.single())

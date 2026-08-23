@@ -1,16 +1,18 @@
 package com.dailynews.app.ui.report
 
 /**
- * Epic U：Part 2（按来源分组 + 逐条中文摘要）已退出产品面。
+ * Epic U: Part 2 (grouped by source + per-item Chinese summaries) has retired
+ * from the product surface.
  *
- * 保留不动：ReportAssembler / Part2Merger / EditorialContracts /
- * ReportRepository.generatePart2Group / report_items 的 part=2 行 /
- * reports.groupsJson / Part2Mode 枚举。
+ * Kept untouched: ReportAssembler / Part2Merger / EditorialContracts /
+ * ReportRepository.generatePart2Group / part=2 rows in report_items /
+ * reports.groupsJson / the Part2Mode enum.
  *
- * 恢复步骤（两步，各一行）：
- *   1. 这里改成 true；
- *   2. PipelineConfig.normalized() 里删掉强制 part2Mode = LAZY 的那一行。
- * 注意：assembler 不在恢复步骤里——从 markdown 删 Part 2 段会触发
- * ReportReviewer 的逐条 link/title 检查，导致每日报告被判 FAILED。
+ * Restoration steps (two steps, one line each):
+ *   1. Change this to true here;
+ *   2. Delete the line in PipelineConfig.normalized() that forces part2Mode = LAZY.
+ * Note: the assembler is not part of the restoration steps — removing the Part 2
+ * section from the markdown triggers ReportReviewer's per-item link/title checks
+ * and gets the daily report judged FAILED.
  */
 internal const val PART2_SECTION_ENABLED = false

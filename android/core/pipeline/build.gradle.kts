@@ -49,9 +49,10 @@ sourceSets.test {
 tasks.test {
     dependsOn(syncMigrationGuards)
     useJUnitPlatform()
-    // 回放夹具来自被 gitignore 的本地目录，所以默认缺失即跳过——干净克隆上构建
-    // 仍然是绿的。交付前用 -PrequireReplayFixtures 跑一次，缺失就直接失败，
-    // 这样「JVM 全绿」才是一句可以被检验的话，而不是关于某一台机器的陈述。
+    // Replay fixtures come from a gitignored local directory, so by default missing means
+    // skip — the build stays green on a clean clone. Before delivery, run once with
+    // -PrequireReplayFixtures, where missing fixtures fail hard; that is what makes
+    // "JVM all green" a verifiable statement instead of a claim about one machine.
     systemProperty("dailynews.requireReplayFixtures", providers.gradleProperty("requireReplayFixtures").isPresent.toString())
 }
 

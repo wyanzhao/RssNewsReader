@@ -17,7 +17,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ShortlistContextArticle(
-    /** 短引用 id（`a1`、`a2`…）。Part 1 计划只写这个，不回显 link。 */
+    /** Short-ref id (`a1`, `a2`, …). The Part 1 plan writes only this and never echoes the link. */
     val id: String,
     val source: String,
     val title: String,
@@ -47,21 +47,21 @@ data class Part1ShortlistContext(
     val meta: LlmMeta,
     @SerialName("article_count") val articleCount: Int,
     @SerialName("cache_hits") val cacheHits: Int,
-    // wire 名是历史遗留：字段从来没有 30 条上限，它是 recent_top-N 的连续性材料。
-    // prompt 按这个名字读，改名要同时动 Kotlin 与 markdown，收益只有整洁，故保留。
+    // The wire name is a historical leftover: the field never had a 30-entry cap; it is recent top-N continuity material.
+    // The prompt reads it under this name, and renaming would touch both Kotlin and markdown for tidiness only, so it stays.
     @SerialName("recent_top30") val recentTopN: List<RecentTopNEvent>,
     val articles: List<ShortlistContextArticle>,
 )
 
-/** 跨日线索连续性的回看窗口。prompt 文案里的天数由 AssetPromptContractTest 钉死到这个常量。 */
+/** Lookback window for cross-day lead continuity. The day count in the prompt copy is pinned to this constant by AssetPromptContractTest. */
 const val RECENT_EVENT_WINDOW_DAYS = 7L
 
 /**
- * `recent_top30[]` 的条数硬上限。
+ * Hard cap on the entry count of `recent_top30[]`.
  *
- * 注意：`part1_shortlist_context` **不在 context_budget 的记账范围内**
- * （预算只覆盖 llm_context / part1_brief / part2_context），所以这条负载没有
- * 任何外部闸门。去重之后通常 120–180 条，这里再兜一道底。
+ * Note: `part1_shortlist_context` is **not covered by context_budget accounting** (the budget only
+ * covers llm_context / part1_brief / part2_context), so this payload has no external gate at all.
+ * After dedup there are typically 120–180 entries; this adds one more safety floor.
  */
 const val RECENT_EVENT_CAP = 150
 
@@ -92,9 +92,10 @@ class ShortlistContextBuilder(
                 summaryEn = article.summaryEn,
                 articleText = article.articleText,
                 cachedSummaryZh = cachedSummary,
-                // 摘要 lint 与 event key 是两条独立的防线：lint 挡的是注入正文，
-                // event key 有自己的形态守卫（sanitizeEventKey）。让摘要 lint 连坐掉 key
-                // 会在摘要偶发超长时悄悄切断这条文章的线索连续性。
+                // Summary lint and event key are two independent defense lines: lint blocks injected body text,
+                // while the event key has its own shape guard (sanitizeEventKey). Letting a summary-lint failure
+                // drag the key down with it would silently sever this article's lead continuity whenever a summary
+                // happens to run over length.
                 cachedEventKey = EditorialCacheKeys.sanitizeEventKey(record?.eventKey).takeIf { it.isNotEmpty() },
             )
         }
@@ -106,8 +107,8 @@ class ShortlistContextBuilder(
                 RecentTopNEvent(
                     title = record.title,
                     source = record.source,
-                    // 空 key 先归一化再去重，否则所有缺 key 的记录会塌进同一个桶，
-                    // 把互不相干的事件当成同一条线索。
+                    // Empty keys are normalized before dedup; otherwise all records missing a key would collapse
+                    // into the same bucket, treating unrelated events as the same lead.
                     eventKey = EditorialCacheKeys.sanitizeEventKey(record.eventKey).ifEmpty {
                         EditorialCacheKeys.eventKey(null, record.title, record.link)
                     },
@@ -115,8 +116,8 @@ class ShortlistContextBuilder(
                 )
             }
             .sortedWith(compareByDescending<RecentTopNEvent> { it.coveredOn }.thenByDescending { it.eventKey })
-            // 窗口从 3 天放宽到 7 天后条数会翻倍。按线索去重（保留最新一次报道）
-            // 才是模型真正需要的信息，重复的同一线索只是在烧 token。
+            // Widening the window from 3 days to 7 doubles the entry count. Deduping by lead (keeping the most
+            // recent coverage) is what the model actually needs; duplicates of the same lead just burn tokens.
             .distinctBy { it.eventKey }
             .take(RECENT_EVENT_CAP)
         return Part1ShortlistContext(context.meta, links.size, hits, recent, articles)

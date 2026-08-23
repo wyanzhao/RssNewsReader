@@ -69,7 +69,7 @@ data class DiagnosticsUiState(
     val probeSuggested: Boolean = false,
     val validationArtifact: ArtifactPayload = ArtifactPayload(),
     val budgetArtifact: ArtifactPayload = ArtifactPayload(),
-    /** 契约违规产物：name → 内容。空列表表示这次运行没有被打回过。 */
+    /** Contract-violation artifacts: name → content. An empty list means this run was never sent back. */
     val contractViolations: List<Pair<String, String>> = emptyList(),
     val loading: Boolean = true,
     val artifactsLoading: Boolean = false,
@@ -89,7 +89,7 @@ private sealed interface ArtifactTexts {
     data class Loaded(
         val validation: String?,
         val budget: String?,
-        /** name → 内容。每一次 LLM 被打回都写一份，此前在 app 里完全不可见。 */
+        /** name → content. One is written every time the LLM is sent back; previously completely invisible inside the app. */
         val violations: List<Pair<String, String>>,
     ) : ArtifactTexts
 }
@@ -148,8 +148,9 @@ class DiagnosticsViewModel(
             val texts: Flow<ArtifactTexts> = flow {
                 emit(ArtifactTexts.Loading)
                 val loaded = withContext(Dispatchers.IO) {
-                    // 契约违规产物是"模型第 N 次被打回时到底错在哪"的唯一记录。
-                    // 按名字排序即按 operation + attempt 排序，正好是发生顺序。
+                    // The contract-violation artifacts are the only record of what exactly went wrong
+                    // when the model was sent back for the Nth time. Sorting by name sorts by
+                    // operation + attempt, which is exactly the order they happened in.
                     val violations = artifacts.names(entity.runId)
                         .filter { it.startsWith("contract_violations/") }
                         .sorted()

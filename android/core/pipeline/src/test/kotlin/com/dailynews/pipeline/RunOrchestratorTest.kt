@@ -168,7 +168,7 @@ class RunOrchestratorTest {
         assertEquals("artifact_audit", auditFailure.stage)
         assertEquals(0, auditHarness.editorCalls)
 
-        // 闸门只对真正会发出去的 part1_brief 生效。
+        // The gate only applies to part1_brief, which actually goes out.
         val budgetHarness = Harness(raw)
         val hardBudget = config.copy(contextBudget = config.contextBudget.copy(part1BriefMaxBytes = 1, hardBlock = true))
         val budgetFailure = assertIs<RunExecutionResult.Failed>(budgetHarness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", hardBudget)))
@@ -179,7 +179,7 @@ class RunOrchestratorTest {
         val advisory = config.copy(part1MaxItems = 10, contextBudget = config.contextBudget.copy(part1BriefMaxBytes = 1, hardBlock = false))
         assertIs<RunExecutionResult.Success>(advisoryHarness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", advisory)))
 
-        // 把三份不会发出去的负载收到 1 字节也必须放行——它们进不了任何 LlmRequest。
+        // Tightening the three payloads that never go out to 1 byte must still pass — they enter no LlmRequest.
         val unsentHarness = Harness(raw)
         val unsentTight = config.copy(
             part1MaxItems = 10,

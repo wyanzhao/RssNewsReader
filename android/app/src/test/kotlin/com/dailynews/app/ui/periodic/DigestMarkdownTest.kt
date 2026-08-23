@@ -5,12 +5,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * KEEP: 周期简报此前整段以 markdown 源码呈现——字面的 `##`、`**` 与不可点的
- * `[标题](url)`，而隔壁一屏的日报是完整的结构化卡片。
+ * KEEP: periodic digests previously rendered as raw markdown source — literal `##`,
+ * `**`, and unclickable `[title](url)` — while the neighboring daily-report screen
+ * is fully structured cards.
  *
- * 解析端只认渲染端（`PeriodicDigestRenderer`）产出的那一种格式，所以两者必须一起
- * 改；这条用例就是那个约定的落点。另一条同样重要：任何不认识的行都必须原样保留，
- * 最坏情况是回到今天的样子，而不是把内容吃掉。
+ * The parser only accepts the one format the renderer (`PeriodicDigestRenderer`)
+ * produces, so both must change together; this test is the landing point for that
+ * contract. Equally important: any unrecognized line must be kept as-is. The worst
+ * case is falling back to today's look, not eating the content.
  */
 class DigestMarkdownTest {
     private val sample = """

@@ -6,11 +6,11 @@ import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** 周期简报的触发时机与周期边界都是纯函数，直接 JVM 单测。 */
+/** Periodic-digest trigger timing and period bounds are pure functions, JVM-tested directly. */
 class PeriodicDigestTriggerTest {
     @Test
     fun weeklyFiresOnConfiguredWeekdayOnly() {
-        // 2026-08-03 是周一。
+        // 2026-08-03 is a Monday.
         assertEquals(listOf(PeriodKind.WEEKLY), PeriodicDigestWorker.dueKinds(LocalDate.parse("2026-08-03"), true, true, 1))
         assertEquals(emptyList(), PeriodicDigestWorker.dueKinds(LocalDate.parse("2026-08-04"), true, true, 1))
         assertEquals(listOf(PeriodKind.WEEKLY), PeriodicDigestWorker.dueKinds(LocalDate.parse("2026-08-04"), true, true, 2))
@@ -18,7 +18,7 @@ class PeriodicDigestTriggerTest {
 
     @Test
     fun monthlyFiresOnTheFirstAndCanCoincideWithWeekly() {
-        // 2026-06-01 是周一，两者同时到期。
+        // 2026-06-01 is a Monday; both kinds come due together.
         assertEquals(
             listOf(PeriodKind.WEEKLY, PeriodKind.MONTHLY),
             PeriodicDigestWorker.dueKinds(LocalDate.parse("2026-06-01"), true, true, 1),
@@ -33,7 +33,7 @@ class PeriodicDigestTriggerTest {
 
     @Test
     fun previousWeekIsTheLastCompleteMondayToSunday() {
-        // 从周三回看，上一个完整周是 07-27（周一）至 08-02（周日）。
+        // Looking back from Wednesday, the last complete week is 07-27 (Mon) to 08-02 (Sun).
         val (start, end) = PeriodicReportRepository.previousWeek(LocalDate.parse("2026-08-05"))
         assertEquals(LocalDate.parse("2026-07-27"), start)
         assertEquals(LocalDate.parse("2026-08-02"), end)
@@ -51,7 +51,9 @@ class PeriodicDigestTriggerTest {
     @Test
     fun isoWeekKeyIsZeroPaddedAndUsesWeekBasedYear() {
         assertEquals("2026-W02", PeriodicReportRepository.periodKeyFor(PeriodKind.WEEKLY, LocalDate.parse("2026-01-05")))
-        // 跨年周归属 ISO week-based year，而不是自然年——否则 12 月底会生成一份错年份的周报。
+        // A week that straddles the year belongs to the ISO week-based year, not the
+        // calendar year — otherwise late December would produce a weekly digest with the
+        // wrong year.
         assertEquals("2026-W53", PeriodicReportRepository.periodKeyFor(PeriodKind.WEEKLY, LocalDate.parse("2026-12-28")))
     }
 }

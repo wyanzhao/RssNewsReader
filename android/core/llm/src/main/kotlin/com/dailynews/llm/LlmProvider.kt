@@ -57,8 +57,9 @@ enum class ProviderType {
     }
 
     /**
-     * 切换类型时：若当前 URL 为空或仍是上一种类型的官方默认地址，就换成新类型的默认；
-     * 自定义代理地址保持不动。
+     * When switching types: if the current URL is blank or still the previous type's
+     * official default address, swap in the new type's default; custom proxy addresses
+     * stay untouched.
      */
     fun adjustedBaseUrl(previousType: ProviderType, currentBaseUrl: String): String {
         val trimmed = currentBaseUrl.trim()
@@ -81,7 +82,7 @@ enum class EditorialRole { EDITOR, DRAFTER }
 @Serializable
 data class StructuredOutputSchema(val name: String, val schema: JsonObject)
 
-/** OpenRouter `provider.sort` 取值。`DEFAULT` 表示根本不发这个字段。 */
+/** Value for OpenRouter's `provider.sort`. `DEFAULT` means the field is not sent at all. */
 @Serializable
 enum class ProviderSort {
     DEFAULT, THROUGHPUT, PRICE, LATENCY;
@@ -90,21 +91,25 @@ enum class ProviderSort {
 }
 
 /**
- * OpenRouter 路由偏好。
+ * OpenRouter routing preferences.
  *
- * 便宜模型在 OpenRouter 上常被路由到低吞吐的提供商，一次 Part 1 生成就能拖到几百
- * 秒——本地把超时调大救不回来，中间网关对非流式长请求还有它自己的超时。这些字段
- * 把选择权交回给我们：按吞吐排序、给主模型备选、只落到真正支持结构化输出的提供商。
+ * Cheap models on OpenRouter are often routed to low-throughput providers, and a single
+ * Part 1 generation can drag on for hundreds of seconds — raising the local timeout
+ * does not save it, because the intermediary gateway has its own timeout for
+ * non-streaming long requests. These fields hand the choice back to us: sort by
+ * throughput, give the primary model fallbacks, and land only on providers that truly
+ * support structured output.
  *
- * 只有 [ProviderType.OPENROUTER] 才会把这些字段写进请求体。OpenAI / Anthropic
- * 官方 API 看到未知顶层字段会 400，所以类型本身就是开关。
+ * Only [ProviderType.OPENROUTER] writes these fields into the request body. The
+ * official OpenAI / Anthropic APIs 400 on unknown top-level fields, so the type itself
+ * acts as the switch.
  */
 @Serializable
 data class ProviderRouting(
-    /** 主模型不可用或超时时依次尝试的备选模型。 */
+    /** Fallback models tried in order when the primary model is unavailable or times out. */
     @SerialName("model_fallbacks") val modelFallbacks: List<String> = emptyList(),
     val sort: ProviderSort = ProviderSort.DEFAULT,
-    /** 只路由到真正支持 `response_format` 的提供商，避免结构化输出被静默忽略。 */
+    /** Route only to providers that truly support `response_format`, so structured output is not silently ignored. */
     @SerialName("require_parameters") val requireParameters: Boolean = false,
 ) {
     val isDefault: Boolean get() = modelFallbacks.isEmpty() && sort == ProviderSort.DEFAULT && !requireParameters
@@ -125,17 +130,17 @@ data class ProviderConfig(
 )
 
 /**
- * 推理力度挡位。
+ * Reasoning-effort gears.
  *
- * 线上取值对齐 OpenRouter 的统一集合：`minimal` / `low` / `medium` / `high` /
- * `xhigh` / `max`。[NONE] 不把该字段写入请求体，给不支持 reasoning 的模型用。
- * 用户可见的角色默认是 [LOW]。
+ * Wire values align with OpenRouter's unified set: `minimal` / `low` / `medium` /
+ * `high` / `xhigh` / `max`. [NONE] omits the field from the request body, for models
+ * that do not support reasoning. The user-visible role default is [LOW].
  */
 @Serializable
 enum class ReasoningEffort {
     NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX;
 
-    /** 写入请求体的小写取值；[NONE] 为 null，表示省略该字段。 */
+    /** The lowercase value written into the request body; null for [NONE], meaning the field is omitted. */
     val wire: String? get() = if (this == NONE) null else name.lowercase()
 
     val displayLabel: String get() = when (this) {
@@ -160,11 +165,13 @@ data class RoleModel(
 )
 
 /**
- * 角色输出上限。
+ * Per-role output caps.
  *
- * 两个角色都默认取允许区间上限 [MAX_MAX_TOKENS]：截断是硬失败（[wasTruncated] 不重试），
- * 上限只能往宽里估。注意部分便宜模型的 completion 上限远低于此，有的提供商会直接 400，
- * 遇到时在设置里手动调低。
+ * Both roles default to the allowed range's upper bound [MAX_MAX_TOKENS]: truncation is
+ * a hard failure ([wasTruncated] is not retried), so the cap can only be estimated on
+ * the generous side. Note that some cheap models have completion caps far below this,
+ * and some providers will just return 400 — lower it manually in settings when that
+ * happens.
  */
 object RoleModelDefaults {
     const val MIN_MAX_TOKENS = 512
@@ -188,7 +195,7 @@ class LlmTransportException(
     message: String,
     cause: Throwable? = null,
     val retryable: Boolean = false,
-    /** 服务端 `Retry-After` 换算成的毫秒数。有值时它优先于本地退避曲线。 */
+    /** Milliseconds converted from the server's `Retry-After`. When present, it takes precedence over the local backoff curve. */
     val retryAfterMillis: Long? = null,
 ) : RuntimeException(message, cause)
 class LlmProtocolException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

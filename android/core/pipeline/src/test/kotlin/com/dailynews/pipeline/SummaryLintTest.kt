@@ -11,11 +11,13 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 /**
- * KEEP: `summaryLintErrors` 是 `AGENTS.md` 明说的那条「防止注入内容经 article_text
- * 偷渡出去」的围栏。此前长度分支在整个仓库里没有任何测试——测试里最长的摘要是
- * 六个字，把 400 改成 40000 不会有任何东西变红。
+ * KEEP: `summaryLintErrors` is the fence `AGENTS.md` names as "stop injected
+ * content smuggling out via article_text". Previously the length branch had
+ * no test anywhere in the repo — the longest summary in tests was six
+ * characters, so changing 400 to 40000 would turn nothing red.
  *
- * 断言走 `validatePart1` 而不是直接调 helper，这样连接线一起钉住。
+ * Assertions go through `validatePart1` rather than calling the helper
+ * directly, so the wiring is pinned too.
  */
 class SummaryLintTest {
     @Test
@@ -42,11 +44,11 @@ class SummaryLintTest {
 
     @Test
     fun `bare domains are rejected, version numbers are not`() {
-        // 应用内是惰性文本，但每条分享路径都交给会自动链接化的聊天软件。
+        // In-app this is inert text, but every share path hands it to a chat app that auto-linkifies.
         listOf("详见 bit.ly/x2f", "访问 evil.com/verify 领取", "来源 www.example.org", "见 https://a.test/b")
             .forEach { assertTrue(lint(it).isNotEmpty(), "应被拒: $it") }
 
-        // 误报会白烧一轮契约重试，所以版本号与小数必须安全。
+        // A false positive burns a whole contract retry, so version numbers and decimals must be safe.
         listOf("GPT-4.5 与 Claude 3.7 的对比", "版本 0.3.1 发布", "营收增长 12.5%", "该模型在 MMLU 上达到 88.7 分")
             .forEach { assertEquals(emptyList(), lint(it), "不该被拒: $it") }
     }

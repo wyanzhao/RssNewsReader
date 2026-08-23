@@ -59,8 +59,10 @@ fun ReaderScreen(
     viewModel: ReaderViewModel,
     onSweep: () -> Unit = {},
     /**
-     * 打开文章：优先进应用内阅读（本地已有正文摘录，离线也能读），浏览器原文
-     * 在那一屏一键可达。传 null 时退回直接开浏览器，保持旧行为可用。
+     * Open an article: prefer in-app reading (the body excerpt is already local, so it
+     * reads offline); the original in the browser is one tap away on that screen.
+     * Passing null falls back to opening the browser directly, keeping the old
+     * behavior available.
      */
     onOpenArticle: ((String) -> Unit)? = null,
 ) {
@@ -74,11 +76,12 @@ fun ReaderScreen(
     val openLink: (String) -> Unit = { link ->
         onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
     }
-    // 必须是 lazy-item 空间的计数（文章 + 分节头），因为下面拿来比较的
-    // firstVisibleItemIndex 也在这个空间里。用纯文章数会让窗口每隔约 20 个
-    // 分节就提前多涨一次 100。
+    // Must be a count in lazy-item space (articles + section headers), because the
+    // firstVisibleItemIndex it is compared against below lives in the same space.
+    // Using the bare article count makes the window grow an extra 100 prematurely
+    // roughly every 20 sections.
     val itemCount = state.searchResults?.size ?: readerLazyItemCount(state.sections)
-    // 窗口增长只在有状态壳里触发；滚动本身绝不写 readAtUtc。
+    // Window growth is triggered only inside the stateful shell; scrolling itself never writes readAtUtc.
     LaunchedEffect(listState.firstVisibleItemIndex, itemCount) {
         val lastVisible = listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size
         viewModel.onVisibleItem(lastVisible, itemCount)
@@ -136,8 +139,8 @@ fun ReaderScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DailyNewsSpacing.roomy),
                     )
                 }
-                // 筛选 chip 钉在 topBar slot 内：滚 30 天也够得着；
-                // 横向 LazyRow 与纵向 LazyColumn 轴向正交，不触碰嵌套滚动红线。
+                // Filter chips are pinned inside the topBar slot: reachable even after scrolling 30 days;
+                // the horizontal LazyRow and the vertical LazyColumn have orthogonal axes, so they don't touch the nested-scroll red line.
                 ReaderFilterChips(state, viewModel::selectFeed, viewModel::toggleUnreadOnly)
             }
         },
@@ -198,12 +201,14 @@ internal fun ReaderFilterChips(
 }
 
 /**
- * 无状态内容：供截图/语义测试直接调用。
- * 三态显式：LOADING / EMPTY / CONTENT，不复制 Today 初始态与空态不可区分的坑。
+ * Stateless content: called directly by screenshot/semantics tests.
+ * Explicit three-state: LOADING / EMPTY / CONTENT — does not replicate Today's pitfall
+ * where the initial state and the empty state are indistinguishable.
  */
 /**
- * 吸顶日期头。背景必须**整宽不透明**：只给 640dp 的内层加背景，
- * 840dp 展开态下内容会从两侧的空隙里穿过吸顶头。
+ * Sticky date header. The background must be **opaque across the full width**: if the
+ * background were only on the 640dp inner layer, in the 840dp expanded state content
+ * would show through the gaps on both sides of the sticky header.
  */
 @Composable
 private fun ReaderDayHeader(section: ReaderDaySection) {
@@ -236,8 +241,9 @@ fun ReaderContent(
     onToggleRead: (ReaderArticle) -> Unit = {},
     onShare: (String) -> Unit = {},
     onOpenLink: (String) -> Unit = {},
-    // 卡片上的「N 天前」是相对时间。截图测试必须钉住这个时刻，
-    // 否则固定 fixture 的文案会随日历自己漂，基线每过一天就红一次。
+    // The "N days ago" on cards is a relative time. Screenshot tests must pin this
+    // instant, otherwise the fixed-fixture copy drifts with the calendar and the
+    // baseline goes red once a day.
     now: Instant = Instant.now(),
 ) {
     val searchResults = state.searchResults
@@ -281,8 +287,9 @@ fun ReaderContent(
                 }
             }
         }
-        // 分节视图不设 verticalArrangement.spacedBy：吸顶头必须紧贴内容，
-        // 中间留空隙会让下方卡片从缝里透出来。间距改由各项自己带。
+        // The sectioned view does not set verticalArrangement.spacedBy: the sticky header
+        // must sit flush against the content; a gap in between would let the cards below
+        // show through the seam. Spacing is carried by each item itself instead.
         else -> LazyColumn(
             modifier.fillMaxSize(),
             state = listState,

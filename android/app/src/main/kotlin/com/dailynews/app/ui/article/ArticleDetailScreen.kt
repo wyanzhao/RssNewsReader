@@ -35,14 +35,16 @@ import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.app.ui.theme.LocalDailyNewsColors
 
 /**
- * 应用内文章阅读。
+ * In-app article reading.
  *
- * 存在的理由只有一个：`articleText` 这份正文早已被抓取、付费、持久化，却没有任何
- * 界面读它。有了这一屏，离线时手里就是 30 条中文摘要**加上**每篇的正文摘录，而不是
- * 30 个通往浏览器离线错误页的链接。
+ * It exists for one reason: `articleText` has already been fetched, paid for, and
+ * persisted, yet no UI consumed it. With this screen, offline you hold 30 Chinese
+ * summaries **plus** each article's body excerpt, instead of 30 links that open a
+ * browser offline-error page.
  *
- * 刻意不做的事：不渲染 HTML、不加载图片、不请求网络。它读的完全是本地已有的数据，
- * 所以在飞行模式下也一定能打开——这正是它的全部意义。要原文就走「在浏览器打开」。
+ * Deliberately not done: no HTML rendering, no image loading, no network. It reads
+ * only data already on device, so it must open in airplane mode — that is the entire
+ * point. For the original page, use "Open in browser".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,8 +120,9 @@ fun ArticleDetailScreen(
                 item("divider") { HorizontalDivider(Modifier.widthIn(max = DailyNewsSpacing.readingMaxWidth)) }
                 item("body") {
                     Text(
-                        // 正文是**摘录**而不是全文（抓取时按词数截断），所以这里说清楚，
-                        // 而不是让读者以为文章就这么长。
+                        // The body is an **excerpt**, not the full article (truncated by word
+                        // count at fetch time), so say so here rather than letting readers think
+                        // the article is this short.
                         article.articleText.ifBlank { "本地没有正文摘录。点下方在浏览器打开原文。" },
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),

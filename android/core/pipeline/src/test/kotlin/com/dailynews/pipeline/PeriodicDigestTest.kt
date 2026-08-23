@@ -11,7 +11,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
-/** KEEP: 周期简报只能引用已发布素材，且不得伪造任何内容。 */
+/** KEEP: a periodic digest may only cite published material and must not fabricate anything. */
 class PeriodicDigestTest {
     private val items = listOf(
         PeriodicDigestItem("2026-08-03", "OpenAI opens round", "TechCrunch", "https://example/a", "摘要 A", "openai-funding"),
@@ -41,7 +41,7 @@ class PeriodicDigestTest {
 
     @Test
     fun rejectsWrongPeriod() {
-        // 模型偶尔会照抄 prompt 示例里的周期，这条是唯一能抓住它的检查。
+        // The model occasionally copies the period from a prompt example; this is the only check that catches it.
         val errors = PeriodicDigestContracts.validate(digest(period = "2026-W31"), "2026-W32", links)
         assertTrue(errors.any { "period must be exactly" in it })
     }
@@ -86,9 +86,11 @@ class PeriodicDigestTest {
     }
 
     /**
-     * heading 与 notes 此前完全不过 lint，而隔壁一行的 summary_zh 过。周报素材源自
-     * 抓取来的 article_text，所以注入内容可以专挑这两个字段落地——还能塞进
-     * summary_zh 塞不进去的 markdown 链接，再经分享进入会自动链接化的聊天软件。
+     * heading and notes previously skipped lint entirely, while neighboring
+     * summary_zh did not. Weekly-digest material originates in scraped
+     * article_text, so injected content can land specifically in these two
+     * fields — including markdown links that summary_zh would reject, which
+     * then reach auto-linkifying chat apps via share.
      */
     @Test
     fun rejectsLinksAndOverlongTextInHeadingAndNotes() {
@@ -114,12 +116,12 @@ class PeriodicDigestTest {
     @Test
     fun rendererJoinsAuthoritativeTitlesNotModelSuppliedOnes() {
         val markdown = PeriodicDigestRenderer.render(input, digest())
-        // 标题与来源来自素材，模型 schema 里根本没有这两个字段。
+        // Title and source come from the material; the model schema has neither field.
         assertTrue("OpenAI opens round" in markdown)
         assertTrue("TechCrunch" in markdown)
         assertTrue("2026-W32" in markdown)
         assertTrue("OpenAI 融资进展" in markdown)
-        // 日期前缀让读者看出线索的时间跨度。
+        // The date prefix lets the reader see the story's time span.
         assertTrue("2026-08-03 · [OpenAI opens round]" in markdown)
     }
 

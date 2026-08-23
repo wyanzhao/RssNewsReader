@@ -83,7 +83,7 @@ object NotificationHelper {
     /**
      * A scheduled trigger that never got a network. Posted on the low-importance progress
      * channel, not FAILED_CHANNEL: nothing broke, so it must not buzz the phone or claim
-     * "生成失败" — but staying silent would leave a missing daily report unexplained.
+     * "generation failed" — but staying silent would leave a missing daily report unexplained.
      */
     fun notifyDeferred(context: Context, reportDate: LocalDate, message: String, runId: String?) {
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return

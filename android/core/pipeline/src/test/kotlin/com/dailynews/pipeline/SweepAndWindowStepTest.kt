@@ -32,12 +32,14 @@ class SweepAndWindowStepTest {
     private val now = Instant.parse("2026-08-04T12:00:00Z")
 
     /**
-     * 窗口比较的时区后缀边界。
+     * Timezone-suffix boundary for window comparison.
      *
-     * 池里的 `pubDateIso` 是 `...+00:00`，而截止时刻来自 `Instant`，其 `toString()` 是
-     * `...Z`。字典序上 'Z'(0x5A) > '+'(0x2B)，所以**不归一化**的裸比较会把恰好等于
-     * 截止秒的文章判为更早并丢掉。这是把 `julianday()` 换成索引友好的区间比较时
-     * 唯一可能引入的 bug，所以它必须有一条自己的用例。
+     * Pool `pubDateIso` is `...+00:00`; the cutoff Instant's `toString()` is
+     * `...Z`. Lexicographically 'Z'(0x5A) > '+'(0x2B), so a **non-normalized**
+     * raw compare treats an article that falls exactly on the cutoff second as
+     * earlier and drops it. That is the only bug that can be introduced when
+     * swapping `julianday()` for an index-friendly range compare, so it must
+     * have its own case.
      */
     @Test
     fun windowIncludesArticlesExactlyOnTheCutoffSecond() = runBlocking {
@@ -415,10 +417,13 @@ class SweepAndWindowStepTest {
                 .map(PooledArticle::article)
         }
 
-        // 生产侧是 SQL 的字典序比较（`pubDateIso >= :fromIso`，参数经 toOffsetIso
-        // 归一化），不是时刻比较。fake 用 OffsetDateTime.parse 会在两处偏离真实语义：
-        // 空 pubDateIso 会抛异常（生产是静默排除），且边界秒的时区后缀差异被抹平——
-        // 而后者正是 julianday 改成区间比较时唯一可能引入的 bug。
+        // Production is a SQL lexicographic compare (`pubDateIso >= :fromIso`,
+        // parameter normalized via toOffsetIso), not an Instant compare. A fake
+        // that used OffsetDateTime.parse would diverge in two places: empty
+        // pubDateIso would throw (production silently excludes it), and the
+        // timezone-suffix difference at the boundary second would be flattened —
+        // which is exactly the only bug that can be introduced when swapping
+        // julianday for a range compare.
         override suspend fun articlesSince(from: Instant): List<PooledArticle> {
             val cutoff = from.toString().removeSuffix("Z") + "+00:00"
             return rows.values

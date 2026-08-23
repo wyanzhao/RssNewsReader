@@ -3,9 +3,10 @@
     <exclude domain="sharedpref" path="provider_keys.xml" />
     <!-- Keeping settings without their keys would restore an unusable configuration. -->
     <exclude domain="sharedpref" path="provider_settings.xml" />
-    <!-- 与 data_extraction_rules.xml 同因：体量（会撑爆 25 MB 云备份配额并让整个
-         备份静默失败）、隐私（完整阅读史与抓取正文）、一致性（WAL 下拷贝活动库可能
-         撕裂）。搬家走设置里的状态导出 ZIP。 -->
+    <!-- Same reasons as data_extraction_rules.xml: size (would blow the 25 MB cloud backup
+         quota and make the entire backup fail silently), privacy (complete reading history
+         and scraped article bodies), and consistency (copying the live database under WAL
+         can tear it). Use the state export ZIP in settings to move devices. -->
     <exclude domain="database" path="dailynews.db" />
     <exclude domain="database" path="dailynews.db-wal" />
     <exclude domain="database" path="dailynews.db-shm" />

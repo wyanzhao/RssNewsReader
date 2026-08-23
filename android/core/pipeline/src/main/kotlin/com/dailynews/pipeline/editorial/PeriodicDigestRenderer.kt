@@ -6,10 +6,11 @@ import com.dailynews.pipeline.flow.PeriodicDigestItem
 import com.dailynews.pipeline.text.TextUtils
 
 /**
- * 把 [PeriodicDigest] 与权威素材连接成 markdown。
+ * Join [PeriodicDigest] with authoritative material into markdown.
  *
- * 模型只交出 heading / summary_zh / links；标题、来源、日期一律从输入素材按 link
- * 反查——与 ReportAssembler 同一条契约，模型不回显它无权改写的字段。
+ * The model only hands over heading / summary_zh / links; title, source, and date
+ * are always looked up from the input material by link — same contract as
+ * ReportAssembler; the model does not echo fields it is not allowed to rewrite.
  */
 object PeriodicDigestRenderer {
     fun render(input: PeriodicDigestInput, digest: PeriodicDigest): String {
@@ -40,13 +41,13 @@ object PeriodicDigestRenderer {
 
     private fun escapeTitle(title: String): String = TextUtils.cleanText(title).replace("[", "\\[").replace("]", "\\]")
 
-    /** 与 ReportAssembler 同款：含括号或空格的链接用尖括号包裹，避免撑破 markdown。 */
+    /** Same as ReportAssembler: wrap links that contain parentheses or spaces in angle brackets so they do not break markdown. */
     private fun encodeLink(link: String): String {
         val clean = TextUtils.cleanText(link)
         return if (clean.any { it == '(' || it == ')' || it == ' ' }) "<$clean>" else clean
     }
 
-    /** 素材为空时不该发起 LLM 调用；调用方用这个判断给出明确的失败原因。 */
+    /** Do not start an LLM call when material is empty; callers use this to surface a concrete failure reason. */
     fun emptyReason(items: List<PeriodicDigestItem>): String? =
         if (items.isEmpty()) "这段时间没有任何已成功发布的日报条目，无法生成周期简报。" else null
 }

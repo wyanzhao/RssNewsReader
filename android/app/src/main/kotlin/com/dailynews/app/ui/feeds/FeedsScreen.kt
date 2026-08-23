@@ -180,7 +180,7 @@ private fun FeedList(
 @Composable
 private fun FeedRow(feed: FeedRecord, onEdit: () -> Unit, onDelete: () -> Unit, onMove: (Int) -> Unit) {
     var dragY by remember(feed.id) { mutableFloatStateOf(0f) }
-    // semantics {} 不是 composable 作用域，字符串必须在这里先取出来。
+    // semantics {} is not a composable scope, so the string must be read out here first.
     val reorderHint = stringResource(R.string.feed_reorder_hint, feed.name)
     Card(
         Modifier

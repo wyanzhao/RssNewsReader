@@ -112,8 +112,8 @@ class ProviderContractTest {
     }
 
     /**
-     * 429 曾经用 250ms 退避——对限流等于立刻再撞一次窗口，三次尝试在不到一秒内烧光。
-     * 服务端说了等多久就等多久。
+     * 429s used to back off 250ms — against rate limiting that equals slamming into the window again
+     * immediately, burning three attempts in under a second. Wait however long the server says to wait.
      */
     @Test
     fun `429 backoff honours Retry-After instead of the local curve`() = runBlocking {
@@ -131,7 +131,7 @@ class ProviderContractTest {
 
             StructuredLlm(provider, retryDelay = { waits += it }).completeObject(LlmRequest("m", "s", "u", 32))
 
-            // 第一次照服务端的 7 秒；第二次没有 Retry-After，退回本地曲线的第二档。
+            // First retry honors the server's 7 seconds; the second has no Retry-After and falls back to the local curve's second step.
             assertEquals(listOf(7_000L, 2_000L), waits)
         }
     }
@@ -211,7 +211,7 @@ class ProviderContractTest {
             ).complete(LlmRequest("model-a", "s", "u", 32))
             val routed = server.takeRequest().body.readUtf8()
 
-            // 主模型必须排在备选列表第一位，空白项被清掉。
+            // The primary model must lead the fallback list; blank entries are dropped.
             assertTrue("\"models\":[\"model-a\",\"backup-a\",\"backup-b\"]" in routed, routed)
             assertTrue("\"sort\":\"throughput\"" in routed, routed)
             assertTrue("\"require_parameters\":true" in routed, routed)
@@ -219,21 +219,22 @@ class ProviderContractTest {
     }
 
     /**
-     * 看门狗与 WorkManager 的停止都靠协程取消。此前 provider 用阻塞的 `execute()`，
-     * 于是取消要等 socket 自己返回（最长 callTimeout，默认 1200 秒）——20 分钟的
-     * 看门狗实际上停不掉任何东西。这条断言的是「取消在 socket 超时之前就生效」。
+     * The watchdog and WorkManager stops both rely on coroutine cancellation. The provider previously
+     * used the blocking `execute()`, so cancellation had to wait for the socket to return on its own
+     * (up to callTimeout, default 1200 seconds) — the 20-minute watchdog could not actually stop
+     * anything. This asserts that "cancellation takes effect before the socket times out".
      */
     @Test
     fun `cancelling the caller aborts an in-flight provider call`() = runBlocking {
         MockWebServer().use { server ->
-            // 收下请求但永不回应：客户端会一直挂在 socket 上，正是"慢供应商"的形状。
-            // 用 NO_RESPONSE 而不是 setBodyDelay，否则 MockWebServer 关不掉挂起的响应体。
+            // Accept the request but never respond: the client stays hung on the socket, exactly the shape of a "slow provider".
+            // Use NO_RESPONSE instead of setBodyDelay, otherwise MockWebServer cannot shut down the pending response body.
             server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
             server.start()
             val provider = OpenAiCompatProvider(
                 ProviderConfig("slow", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
                 ApiKeySource { "secret" },
-                // 读超时远长于我们等待的时间：如果取消无效，这个测试只能靠超时收场。
+                // The read timeout is far longer than we wait: if cancellation is ineffective, this test can only end by timing out.
                 OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).callTimeout(60, TimeUnit.SECONDS).build(),
             )
 

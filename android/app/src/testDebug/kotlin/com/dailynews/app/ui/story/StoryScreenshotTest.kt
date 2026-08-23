@@ -15,14 +15,14 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** 组件级线索历史截图：不进 V3 的 72 张矩阵，沿用 ReaderScreenshotTest 的做法。 */
+/** Component-level story-history screenshots: not part of V3's 72-image matrix; follows the ReaderScreenshotTest approach. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35])
 @OptIn(ExperimentalRoborazziApi::class)
 class StoryScreenshotTest {
     private companion object {
-        /** 卡片副标题是相对时间，必须钉住 now，否则基线每天自己漂。 */
+        /** Card subtitles are relative times, so now must be pinned; otherwise the baselines drift on their own every day. */
         val FIXED_NOW: Instant = Instant.parse("2026-08-05T12:00:00Z")
     }
 

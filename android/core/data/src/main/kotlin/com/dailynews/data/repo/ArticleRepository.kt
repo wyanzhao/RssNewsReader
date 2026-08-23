@@ -139,17 +139,18 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     }
 
     /**
-     * 应用内阅读的完整投影。
+     * Full projection for in-app reading.
      *
-     * `articleText`（约 150 词正文）一直被抓取、持久化，甚至专门做过迁移
-     * denormalize 到 report_items 上——却没有任何界面读它。于是地铁上、飞机上这个
-     * app 是死的：能读的中文摘要之外，每个链接都落到浏览器的离线错误页，而数据
-     * 早就在库里、钱也早就付过了。
+     * `articleText` (~150-word body) had always been fetched and persisted, and was even
+     * denormalized onto report_items in a dedicated migration — yet no surface ever read
+     * it. So on the subway or on a plane the app was dead: beyond the readable Chinese
+     * summaries, every link landed on the browser's offline error page, even though the
+     * data had long been in the database and the money had long been paid.
      */
     fun observeDetail(link: String): Flow<ArticleDetail?> =
         database.articles().observeDetail(TextUtils.dedupLinkKey(link))
 
-    // Epic U 阅读器数据层：窄投影时间线、未读计数、已读/未读写入。
+    // Epic U reader data layer: narrow-projection timeline, unread counts, read/unread writes.
     fun observeTimeline(feedName: String?, unreadOnly: Boolean, limit: Int): Flow<List<ReaderArticle>> {
         val capped = limit.coerceIn(1, 1_000)
         return if (feedName == null) database.articles().observeTimeline(unreadOnly, capped)
@@ -159,9 +160,11 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
     fun observeUnreadCounts(): Flow<List<FeedUnreadCount>> = database.articles().observeUnreadCounts()
 
     /**
-     * 按天的全量条数，供阅读器分节头显示「08-05 星期三 · 12 篇」。
-     * 与时间线的分页窗口无关——窗口只截断渲染，分节头写的是那天真实有多少篇。
-     * 四种组合各走一条 SQL（见 ArticleDao 注释），全部命中覆盖索引。
+     * Full per-day counts, for the reader section headers to show "08-05 Wednesday · 12 articles".
+     * Unrelated to the timeline's paging window — the window only truncates rendering; the
+     * section header states how many articles that day really has.
+     * Each of the four combinations runs its own SQL (see the ArticleDao comments), and all
+     * of them hit the covering index.
      */
     fun observeDayCounts(feedName: String?, unreadOnly: Boolean): Flow<List<ReaderDayCount>> = when {
         feedName == null && !unreadOnly -> database.articles().observeDayCounts()
@@ -174,7 +177,7 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
 
     suspend fun markUnread(linkKey: String) = database.articles().markUnread(linkKey)
 
-    /** 批次时间戳标记全部已读；撤销时用同一时间戳精确回滚。 */
+    /** Marks everything read with a batch timestamp; undo rolls back exactly by the same timestamp. */
     suspend fun markAllRead(feedName: String?, batchStamp: String): Int =
         if (feedName == null) database.articles().markAllRead(null, batchStamp)
         else database.articles().markAllReadForFeed(feedName, batchStamp)
@@ -224,10 +227,12 @@ internal fun ftsMatchExpression(query: String): String {
 }
 
 /**
- * 与 `FeedFetcher` 写入 `pubDateIso` 时用的是同一个变换。
+ * The same transformation `FeedFetcher` uses when writing `pubDateIso`.
  *
- * 这两处必须一致，否则窗口查询的字典序比较就会在时区后缀上失配：列值是
- * `...+00:00`，而 `Instant.toString()` 给的是 `...Z`，'Z' > '+' 会静默丢掉恰好等于
- * 截止秒的文章——这正是把 `julianday()` 换成区间比较时最容易引入的 bug。
+ * These two must agree, or the lexicographic comparison in window queries mismatches on
+ * the timezone suffix: the column values are `...+00:00`, while `Instant.toString()`
+ * yields `...Z`, and 'Z' > '+' would silently drop articles exactly at the cutoff
+ * second — precisely the bug easiest to introduce when replacing `julianday()` with
+ * range comparison.
  */
 private fun Instant.toOffsetIso(): String = toString().removeSuffix("Z") + "+00:00"

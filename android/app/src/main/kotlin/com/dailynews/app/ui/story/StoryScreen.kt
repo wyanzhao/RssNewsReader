@@ -62,7 +62,7 @@ fun StoryScreen(
     }
 }
 
-/** 无状态正文，供组件级截图与语义测试直接调用。 */
+/** Stateless content body, invoked directly by component-level screenshot and semantics tests. */
 @Composable
 fun StoryContent(
     state: StoryUiState,

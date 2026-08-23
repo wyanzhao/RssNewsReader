@@ -55,10 +55,11 @@ data class ArticleCardModel(
     val rank: Int? = null,
     val relatedLinks: List<String> = emptyList(),
     /**
-     * 这条线索被报道过的天数，>= 2 时才有意义。
+     * How many days this story line has been reported; only meaningful when >= 2.
      *
-     * 跨天线索是这个 app 最有差异化的功能，此前唯一入口是长按菜单——读者没有任何
-     * 方式知道第 7 条是某个事件的第四天，要发现它得把 30 张卡片挨个长按一遍。
+     * Cross-day story lines are this app's most distinctive feature; previously the
+     * only entry was the long-press menu — readers had no way to know item 7 is day
+     * four of an event without long-pressing all 30 cards one by one.
      */
     val storyDays: Int? = null,
 )
@@ -97,9 +98,10 @@ fun ArticleCard(
             // Merge the visible title, source/time, summary and related-source text. A custom
             // contentDescription here would replace all of that TalkBack information.
             //
-            // customActions 是必须的：分享、复制链接、线索历史全部只挂在 onLongClick 的
-            // 菜单上，而 TalkBack 用户没有"长按"这个手势可以发现它们——合并语义让他们
-            // 听得到内容，却没有任何被播报的路径去用这四个动作。
+            // customActions are required: share, copy-link, and story history all live
+            // only on the onLongClick menu, and TalkBack users have no "long-press"
+            // gesture to discover them — merged semantics lets them hear the content
+            // with no announced path to the four actions.
             .semantics(mergeDescendants = true) {
                 customActions = buildList {
                     add(CustomAccessibilityAction("分享文章") { onShare(); true })
@@ -137,8 +139,10 @@ fun ArticleCard(
                         },
                         modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
-                        // 形状 + 颜色双通道区分收藏态。只切 tint 时两种状态都是同一个
-                        // 描边心形，扫一眼列表分不出收没收；实心轮廓在缩略尺寸下也立得住。
+                        // Shape + color as two channels for the favorite state. Tint-only
+                        // leaves both states as the same outlined heart, so a glance at the
+                        // list cannot tell saved from unsaved; a filled outline still reads
+                        // at thumbnail size.
                         Icon(
                             painterResource(if (saved) R.drawable.ic_favorite_filled else R.drawable.ic_favorite),
                             contentDescription = stringResource(if (saved) R.string.remove_favorite else R.string.favorite),
@@ -164,7 +168,7 @@ fun ArticleCard(
                         article.relatedLinks.take(3).forEach { link ->
                             AssistChip(onClick = { onOpenRelated(link) }, label = { Text(linkDomain(link)) })
                         }
-                        // 超出 3 条时给出总数，否则 6 个来源的聚类看起来只有 3 个。
+                        // Show the total when there are more than 3 titles, otherwise a cluster of 6 sources looks like only 3.
                         if (article.relatedLinks.size > 3) {
                             AssistChip(onClick = {}, enabled = false, label = { Text("+${article.relatedLinks.size - 3}") })
                         }

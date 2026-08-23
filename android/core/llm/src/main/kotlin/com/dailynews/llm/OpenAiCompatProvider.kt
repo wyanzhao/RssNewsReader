@@ -39,11 +39,11 @@ class OpenAiCompatProvider(
             maxTokens = request.maxTokens,
             temperature = request.temperature,
             responseFormat = responseFormat,
-            // OpenRouter 要求备选列表把主模型放在第一位。
+            // OpenRouter requires the fallback list to have the primary model first.
             models = routing.modelFallbacks.takeIf { it.isNotEmpty() }?.let { listOf(request.model) + it },
             provider = openRouterPreferences(routing),
-            // OpenRouter 用统一的 `reasoning.effort`；官方 OpenAI / xAI 兼容端点用顶层
-            // `reasoning_effort`。两种形态互发都会被对方当成未知字段。
+            // OpenRouter uses the unified `reasoning.effort`; official OpenAI / xAI-compatible endpoints use the
+            // top-level `reasoning_effort`. Sending either shape to the other makes it an unknown field.
             reasoning = if (config.type.usesOpenRouterProtocol) effort?.let(::OpenAiReasoning) else null,
             reasoningEffort = if (!config.type.usesOpenRouterProtocol) effort else null,
         )
@@ -125,7 +125,7 @@ class OpenAiCompatProvider(
         }
     }
 
-    /** 全默认时返回 null，请求体里连 `provider` 这个键都不会出现。 */
+    /** Returns null when everything is at defaults; then even the `provider` key is absent from the request body. */
     private fun openRouterPreferences(routing: ProviderRouting): OpenRouterPreferences? {
         val sort = routing.sort.wire
         val requireParameters = true.takeIf { routing.requireParameters }
@@ -180,7 +180,7 @@ private data class OpenAiRequest(
     @SerialName("max_tokens") val maxTokens: Int,
     val temperature: Double? = null,
     @SerialName("response_format") val responseFormat: JsonObject? = null,
-    /** OpenRouter 扩展；null 时不进入请求体，兼容端点不会看到未知字段。 */
+    /** OpenRouter extension; when null it is omitted from the request body, so compat endpoints never see an unknown field. */
     val models: List<String>? = null,
     val provider: OpenRouterPreferences? = null,
     val reasoning: OpenAiReasoning? = null,

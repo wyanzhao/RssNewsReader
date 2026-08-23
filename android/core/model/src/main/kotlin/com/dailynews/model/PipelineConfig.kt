@@ -75,14 +75,15 @@ data class PipelineConfig(
     @SerialName("schedule_time") val scheduleTime: String = "10:00",
     @SerialName("weekly_digest_enabled") val weeklyDigestEnabled: Boolean = true,
     @SerialName("monthly_digest_enabled") val monthlyDigestEnabled: Boolean = true,
-    /** ISO 周几触发上一周的周报：1 = 周一。 */
+    /** ISO weekday that triggers last week's weekly digest: 1 = Monday. */
     @SerialName("weekly_digest_weekday") val weeklyDigestWeekday: Int = 1,
     @SerialName("wifi_only_page_enrichment") val wifiOnlyPageEnrichment: Boolean = false,
     @SerialName("artifact_retention_days") val artifactRetentionDays: Int = 14,
     @SerialName("article_retention_days") val articleRetentionDays: Int = 30,
     /**
-     * Part 2 报告条目的保留期。只作用于 `part = 2`——Part 1 是跨天线索与周期简报的
-     * 素材，必须长期保留，不能和这把尺子共用。
+     * Retention period for Part 2 report items. Applies only to `part = 2` — Part 1
+     * is material for cross-day story lines and periodic digests, must be kept long
+     * term, and cannot share this ruler.
      */
     @SerialName("report_retention_days") val reportRetentionDays: Int = 45,
     @SerialName("sweep_interval_minutes") val sweepIntervalMinutes: Int = 120,
@@ -104,10 +105,12 @@ data class PipelineConfig(
         ),
         llmExecution = llmExecution.normalized(),
         part1MaxItems = part1MaxItems.coerceIn(10, 50),
-        // Epic U：Part 2（按来源逐条中文摘要）已退出产品面，强制 LAZY 使 DRAFTER 成本归零。
-        // normalized() 同时覆盖 DataStore 读/写、RunOrchestrator 与状态恢复四条路径，
-        // 并自愈老设备已落盘的 "part2_mode":"FULL"。
-        // 恢复步骤：删掉本行，并把 ui/report/ReportSections.kt 的 PART2_SECTION_ENABLED 改回 true。
+        // Epic U: Part 2 (per-source Chinese summaries) has left the product surface;
+        // forcing LAZY zeros DRAFTER cost. normalized() covers DataStore read/write,
+        // RunOrchestrator, and state restore — four paths — and self-heals older
+        // devices that already persisted "part2_mode":"FULL".
+        // Restore: delete this line and set PART2_SECTION_ENABLED back to true in
+        // ui/report/ReportSections.kt.
         part2Mode = Part2Mode.LAZY,
         artifactRetentionDays = artifactRetentionDays.coerceIn(1, 365),
         articleRetentionDays = articleRetentionDays.coerceIn(1, 365),

@@ -34,7 +34,7 @@ import kotlinx.serialization.encodeToString
 @Serializable
 data class DeviceStateBackup(
     val schemaVersion: Int = 3,
-    /** 默认值来自 schema 的唯一来源，所以下一次 Room 版本变更不会再把它落在后面。 */
+    /** Default comes from the single source of truth for the schema, so the next Room version change will not leave it behind again. */
     val databaseVersion: Int = DAILYNEWS_SCHEMA_VERSION,
     val exportedAtUtc: String,
     val pipelineConfig: PipelineConfig,
@@ -137,8 +137,9 @@ class StateBackupRepository(
         }
         val backup = ArtifactJson.codec.decodeFromString<DeviceStateBackup>(json.toString(Charsets.UTF_8))
         require(backup.schemaVersion in 1..3) { "unsupported state backup schema ${backup.schemaVersion}" }
-        // databaseVersion 此前只写不读。更高版本的备份可能含本版本无法表达的表，
-        // 静默导入等于悄悄丢数据；宁可明确拒绝。
+        // databaseVersion was previously written but never read. A backup from a higher
+        // version may contain tables this version cannot represent; importing it silently
+        // would quietly lose data, so an explicit refusal is preferred.
         require(backup.databaseVersion <= CURRENT_DATABASE_VERSION) {
             "state backup was exported from database v${backup.databaseVersion}, this build only understands v$CURRENT_DATABASE_VERSION"
         }

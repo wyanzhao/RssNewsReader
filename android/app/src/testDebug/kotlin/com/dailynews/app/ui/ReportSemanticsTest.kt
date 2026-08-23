@@ -106,7 +106,7 @@ class ReportSemanticsTest {
             }
         }
 
-        // Epic U：PART2_SECTION_ENABLED = false 后组头不再出现，且 Top N 分享 payload 逐字节不变。
+        // Epic U: with PART2_SECTION_ENABLED = false, group headers no longer appear, and the Top N share payload is byte-for-byte unchanged.
         compose.onNodeWithText("▶ Example · 1 篇").assertDoesNotExist()
         compose.onNodeWithText("分享 Top N").performClick()
         assertEquals(exact, shared)

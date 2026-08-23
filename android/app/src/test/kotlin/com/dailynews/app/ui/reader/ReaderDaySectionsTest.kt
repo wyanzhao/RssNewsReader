@@ -5,7 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/** Epic V：按天分节的分组、计数与 lazy-item 空间换算。 */
+/** Epic V: grouping, counts, and lazy-item space conversion for day sections. */
 class ReaderDaySectionsTest {
     private fun article(key: String, iso: String) = ReaderArticle(
         linkKey = key,
@@ -23,7 +23,7 @@ class ReaderDaySectionsTest {
     fun groupsByUtcDayUsingTheSameKeyAsSql() {
         val articles = listOf(
             article("a", "2026-08-05T06:30+00:00"),
-            // 秒为 0 时 pubDateIso 会短一截，take(10) 必须仍然给出同一个日期键。
+            // When seconds are 0, pubDateIso is a character shorter; take(10) must still yield the same day key.
             article("b", "2026-08-05T00:00+00:00"),
             article("c", "2026-08-04T22:45:09+00:00"),
         )
@@ -31,7 +31,7 @@ class ReaderDaySectionsTest {
 
         assertEquals(listOf("2026-08-05", "2026-08-04"), sections.map { it.day })
         assertEquals(listOf(2, 1), sections.map { it.articles.size })
-        // 分节头写的是那天的全量条数，不是窗口内渲染的条数。
+        // The section header writes that day's full count, not the count rendered in the window.
         assertEquals(listOf(24, 31), sections.map { it.totalCount })
     }
 
@@ -39,7 +39,7 @@ class ReaderDaySectionsTest {
     fun fallsBackToWindowCountWhenAggregateIsMissing() {
         val articles = listOf(article("a", "2026-08-05T06:30+00:00"))
         val sections = readerDaySections(articles, emptyMap())
-        // 宁可少报，也不显示 0。
+        // Prefer under-reporting over displaying 0.
         assertEquals(1, sections.single().totalCount)
     }
 
@@ -53,8 +53,8 @@ class ReaderDaySectionsTest {
             ),
             emptyMap(),
         )
-        // 3 篇 + 2 个分节头 = 5 个 lazy item。分页判定用的 firstVisibleItemIndex
-        // 也在这个空间里，两者必须一致，否则窗口会提前增长。
+        // 3 articles + 2 section headers = 5 lazy items. The firstVisibleItemIndex used
+        // for paging lives in this same space; they must match or the window grows early.
         assertEquals(5, readerLazyItemCount(sections))
         assertEquals(0, readerLazyItemCount(emptyList()))
     }

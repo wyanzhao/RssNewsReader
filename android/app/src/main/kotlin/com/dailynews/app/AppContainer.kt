@@ -78,16 +78,18 @@ class AppContainer(context: Context) {
     val providerSettings by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { ProviderSettingsRepository(appContext) }
     val artifactStore = ArtifactStore(database)
     private val clock = Clock.systemUTC()
-    // 订阅源 URL 是用户自己加的，但内容不是；同样给短超时与内网拦截器。
+    // Feed URLs are added by users themselves, but their content is not; they get the
+    // same short timeout and intranet interceptor.
     private val feedClient = OkHttpClient.Builder()
         .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .addNetworkInterceptor(LinkSafety.privateHostInterceptor())
         .build()
-    // 文章页 URL 完全由第三方 feed 控制，所以这个客户端拿的是最短的超时和一道
-    // 内网拦截器。超时不与运行级常量共用：一个敌意源不该能占着并发信号量把整轮
-    // 运行的预算耗光（3 次尝试 × 20 分钟 = 60 分钟）。
+    // Article-page URLs are entirely controlled by third-party feeds, so this client gets
+    // the shortest timeout plus an intranet interceptor. The timeout does not share the
+    // run-level constant: a hostile source must not be able to hold a concurrency
+    // semaphore and drain the entire run's budget (3 attempts × 20 minutes = 60 minutes).
     private val pageClient = feedClient.newBuilder()
         .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -277,11 +279,13 @@ class AppContainer(context: Context) {
         const val DEFAULT_RUNTIME_TIMEOUT_SECONDS = 1_200L
 
         /**
-         * 抓取路径（feed 与文章页）的超时。
+         * Timeout for the fetch paths (feeds and article pages).
          *
-         * 刻意远短于运行级的 1200 秒：抓取有 8 路（feed）与 4 路（页面）并发信号量，
-         * 单个慢源占着 permit 20 分钟就能把整轮运行拖过看门狗，而它对报告的贡献
-         * 只是一个来源。60 秒对任何健康的 RSS 或文章页都绰绰有余。
+         * Deliberately far shorter than the run-level 1200 seconds: fetching has
+         * concurrency semaphores of 8 (feeds) and 4 (pages), and a single slow source
+         * holding a permit for 20 minutes could drag the whole run past the watchdog,
+         * while its contribution to the report is just one source. 60 seconds is more
+         * than enough for any healthy RSS feed or article page.
          */
         const val FETCH_TIMEOUT_SECONDS = 60L
     }

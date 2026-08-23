@@ -51,8 +51,9 @@ class ShortlistContextBuilderTest {
         assertEquals("可复用的昨日事件摘要", result.articles[0].cachedSummaryZh)
         assertEquals("event-a", result.articles[0].cachedEventKey)
         assertNull(result.articles[1].cachedSummaryZh)
-        // 摘要 lint 失败不得连坐掉 event key：两者防的是不同的东西，
-        // 连坐会让一次偶发的超长摘要悄悄切断这条文章的跨日线索。
+        // A summary-lint failure must not take the event key down with it: they
+        // fence different things, and guilt-by-association would silently cut
+        // this article's cross-day story on an occasional overlong summary.
         assertEquals("event-b", result.articles[1].cachedEventKey)
         assertEquals(listOf("event-a"), result.recentTopN.map { it.eventKey })
     }
@@ -64,7 +65,7 @@ class ShortlistContextBuilderTest {
         val context = LlmContextBuilder().build(raw, validation, "2026-04-10", "/report.md", config).llmContext
         val first = context.allArticles.first()
         val now = Instant.parse("2026-04-10T22:00:00Z")
-        // event_key 由 LLM 产出又被注回次日 prompt。被污染的值必须在读侧就消失。
+        // event_key is produced by the LLM and injected back into the next day's prompt. A poisoned value must disappear on the read side.
         val poisoned = EditorialCacheRecord(
             cacheKey = EditorialCacheKeys.cacheKey(first),
             link = first.link,
@@ -79,8 +80,10 @@ class ShortlistContextBuilderTest {
             .build(context, listOf(first.link))
 
         assertNull(result.articles[0].cachedEventKey)
-        // recent 侧不能留空串：所有缺 key 的记录会塌进同一个桶，被模型当成同一条线索。
-        // 污染值被拒绝后退化为标题 slug，仍然是一个稳定且互不冲突的标识。
+        // The recent side must not keep an empty string: every keyless record
+        // would collapse into one bucket and the model would treat them as one
+        // story. After a poisoned value is rejected it degrades to a title slug,
+        // still a stable, non-colliding identifier.
         val recentKey = result.recentTopN.single().eventKey
         assertTrue(recentKey.isNotEmpty())
         assertFalse("http" in recentKey)

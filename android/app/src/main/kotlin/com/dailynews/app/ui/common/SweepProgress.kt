@@ -18,8 +18,9 @@ import androidx.work.WorkInfo
 import com.dailynews.app.ui.theme.DailyNewsSpacing
 
 /**
- * sweep（后台增量抓取）进度模型。Epic U 起从 TodayViewModel 上移到 ui/common，
- * 简报页与阅读页共用同一份进度语义。
+ * Progress model for sweep (background incremental fetch). Moved up from TodayViewModel
+ * to ui/common since Epic U, so the brief screen and the reader screen share the same
+ * progress semantics.
  */
 data class SweepUiProgress(
     val active: Boolean = false,

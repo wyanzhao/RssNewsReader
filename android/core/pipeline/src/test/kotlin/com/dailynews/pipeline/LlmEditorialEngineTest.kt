@@ -52,8 +52,8 @@ class LlmEditorialEngineTest {
             (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet()
         fun properties(schema: kotlinx.serialization.json.JsonObject) = schema.getValue("properties").jsonObject.keys
 
-        // 校验的是**草稿**类型：schema 约束的是模型返回什么（`ref`），
-        // 不是解析之后落盘的 link-keyed 契约。
+        // Validating the **draft** types: the schema constrains what the model
+        // returns (`ref`), not the link-keyed contract written after parse.
         assertEquals(names(Part1ShortlistDraft.serializer().descriptor), properties(EditorialJsonSchemas.part1Shortlist))
         assertEquals(names(Part1PlanDraft.serializer().descriptor), properties(EditorialJsonSchemas.part1Plan))
         assertEquals(names(MissingPart2Draft.serializer().descriptor), properties(EditorialJsonSchemas.missingPart2))
@@ -76,22 +76,24 @@ class LlmEditorialEngineTest {
     }
 
     /**
-     * 这条是这次重构的落点：模型交回的是短 id，而**改写过的链接不再有任何生路**。
-     * 2026-08-19 那次三轮失败正是链接改写，当时的契约无法区分「抄错」和「造假」。
+     * Landing point of this refactor: the model returns short ids, and **a
+     * rewritten link no longer has any way through**. The three-round failure
+     * on 2026-08-19 was exactly link mutation; the contract then could not
+     * tell "copied wrong" from "fabricated".
      */
     @Test
     fun `plan items reference articles by short id and rewritten links are rejected`() = runBlocking {
         val artifacts = lowVolumeArtifacts()
         val selected = artifacts.llmContext.allArticles.map { it.link }.take(5)
         val rewritten = ArtifactJson.compact.encodeToString(
-            // 按标题重造 slug —— 8-19 事故的确切形状。
+            // Reconstructing the slug from the title — the exact shape of the 8-19 incident.
             Part1PlanDraft(listOf(Part1PlanDraftItem("https://example.test/story-1-extended", "中文事件摘要", emptyList())), 29),
         )
         val responses = ArrayDeque(
             listOf(
                 LlmResponse(shortlistDraft(selected.size), stopReason = "stop"),
                 LlmResponse(rewritten, stopReason = "stop"),
-                // 大小写与前导零都属于同义写法，不该浪费一整轮重试。
+                // Case and leading zeros are synonymous forms, not worth wasting a whole retry.
                 LlmResponse(planDraft(listOf("a1", "A2", "a03", "4", "a5"), shortfall = 25), stopReason = "stop"),
             ),
         )
@@ -190,8 +192,9 @@ class LlmEditorialEngineTest {
             first.errors,
         )
         assertEquals(3, capturedLogs.count { it.startsWith("contract_part1_plan/WARN:") })
-        // 按内容找而不是按位置找：编辑阶段还会写别的日志（比如缓存命中率），
-        // "第一条就是契约告警"从来不是这个测试真正想钉的东西。
+        // Find by content, not by position: the editorial stage also writes
+        // other logs (e.g. cache-hit rate); "the first line is the contract
+        // warning" was never what this test actually pins.
         assertTrue(
             capturedLogs.first { it.startsWith("contract_part1_plan/WARN:") }
                 .contains("attempt=1 items=3 shortfall=0 errors=${first.errors.single()}"),
@@ -295,7 +298,7 @@ class LlmEditorialEngineTest {
         )
 
         assertEquals(requests.map { it.link }, generated.map { it.link })
-        // 每个操作都直接采用用户配置的角色上限，不再按操作隐式收窄。
+        // Every operation uses the user-configured role cap directly; no implicit per-operation narrowing.
         assertEquals(8_192, observedMaxTokens)
     }
 
@@ -371,7 +374,7 @@ class LlmEditorialEngineTest {
         )
 
         val (shortlistCap, planCap) = observed
-        // 短名单与计划都直接采用用户配置的角色上限，不再按操作隐式收窄。
+        // Shortlist and plan both use the user-configured role cap directly; no implicit per-operation narrowing.
         assertEquals(12_288, planCap)
         assertEquals(12_288, shortlistCap)
     }
@@ -470,10 +473,10 @@ class LlmEditorialEngineTest {
         )
     }
 
-    /** 入围顺序即 id 顺序，所以测试可以直接按位置造引用。 */
+    /** Shortlist order is id order, so tests can build refs by position. */
     private fun ids(count: Int) = (1..count).map { "a$it" }
 
-    /** 短名单现在也走短 id：模型写 brief 里的 id，不回显 URL。 */
+    /** The shortlist now also uses short ids: the model writes brief ids, not echoed URLs. */
     private fun shortlistDraft(count: Int) =
         ArtifactJson.compact.encodeToString(Part1ShortlistDraft(ids(count)))
 

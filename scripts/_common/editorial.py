@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 
 # Hard safety caps for LLM-written Chinese summaries — deliberately looser
-# than the editorial targets (60-180字 Part 1 / 40-60字 Part 2) so borderline
+# than the editorial targets (60-180 chars Part 1 / 40-60 chars Part 2) so borderline
 # output never blocks, while runaway text or prompt-injection payloads
 # smuggled in via scraped article_text do. Links in a summary are the classic
 # injection artifact. Enforced at assemble/review, and also applied when
