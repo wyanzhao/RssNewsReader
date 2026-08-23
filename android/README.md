@@ -66,10 +66,12 @@ installed directly with `adb install -r app/build/outputs/apk/debug/app-debug.ap
 
 ## Release signing
 
-Canonical credentials live in 1Password (vault `Development`). The full
-sign-and-publish procedure — restore the keystore, materialize
-`keystore.properties` via `op read`, `assembleRelease`, `apksigner verify`,
-`git push`, and `gh release create` with `app-release.apk` — is in
+Canonical credentials live in 1Password (vault `Development`). Every
+`git push` to GitHub must also attach a signed `app-release.apk` to the
+GitHub Release for that `versionName`. The full procedure — restore the
+keystore, materialize `keystore.properties` via `op read`,
+`assembleRelease`, `apksigner verify`, `git push`, and `gh release create`
+or `gh release upload --clobber` — is in
 [`AGENTS.md`](../AGENTS.md#release-signing-and-github-publish).
 
 A local fallback is to copy `keystore.properties.example` to

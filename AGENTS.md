@@ -69,8 +69,21 @@ drift is silent.
 - Before handing over an APK, confirm the built `versionName` matches the
   iteration just completed. The version printed in the delivery message must be
   read back from the build, not from memory.
+- **A `git push` to GitHub is incomplete until a signed `app-release.apk` is
+  on a GitHub Release for that `versionName`.** Do not push and leave the APK
+  for later. The procedure is in `Release Signing And GitHub Publish` below.
 
 ## Release Signing And GitHub Publish
+
+**Hard rule for every agent:** every `git push` of this repo to GitHub
+(`origin/main`, and any other remote branch the user asked to publish) must
+also produce a signed release APK and attach it to the GitHub Release for
+the APK's `versionName`. A push without that APK is not done.
+
+This does not change the version bump rule. Doc-only / test-only / `scripts/`
+pushes still do not bump `versionName`. They still build and publish: if
+`v<versionName>` already exists, replace `app-release.apk` on that release
+(`gh release upload --clobber`) instead of inventing a second version string.
 
 Release APKs are signed with the keystore at
 `android/.signing/dailynews-release.jks`. The keystore file and the three
@@ -126,6 +139,9 @@ to the public GitHub release.
 
 ### Push the sources and publish the APK on GitHub
 
+These two steps are one unit of work. `git push` without the APK step below
+is a contract miss.
+
 The signed APK is a GitHub Release asset, not a git blob. Tag name is
 `v<versionName>` and must match the APK's `versionName` / `versionCode`.
 
@@ -136,15 +152,21 @@ VERSION="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
 CODE="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
   | sed -n 's/.*versionCode='\''\([^'\'']*\)'\''.*/\1/p' )"
 SHA="$(shasum -a 256 "$APK" | awk '{print $1}')"
-gh release create "v${VERSION}" "$APK" \
-  --title "DailyNews ${VERSION}" \
-  --notes "$(printf '%s\n' \
-    "Signed Android release APK for DailyNews." \
-    "" \
-    "- Package: \`com.dailynews.app\`" \
-    "- Version: \`${VERSION}\` (\`versionCode\` ${CODE})" \
-    "- Signing: APK Signature Scheme v2 / v3" \
-    "- APK SHA-256: \`${SHA}\`")"
+NOTES="$(printf '%s\n' \
+  "Signed Android release APK for DailyNews." \
+  "" \
+  "- Package: \`com.dailynews.app\`" \
+  "- Version: \`${VERSION}\` (\`versionCode\` ${CODE})" \
+  "- Signing: APK Signature Scheme v2 / v3" \
+  "- APK SHA-256: \`${SHA}\`")"
+if gh release view "v${VERSION}" >/dev/null 2>&1; then
+  gh release upload "v${VERSION}" "$APK" --clobber
+  gh release edit "v${VERSION}" --notes "$NOTES"
+else
+  gh release create "v${VERSION}" "$APK" \
+    --title "DailyNews ${VERSION}" \
+    --notes "$NOTES"
+fi
 ```
 
 The release certificate is not the debug certificate: a device with a debug

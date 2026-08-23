@@ -57,8 +57,14 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("op://Development/DailyNews Android Release Signing/keyAlias", text)
         self.assertIn("DailyNews Android Release Keystore", text)
         self.assertIn("gh release create", text)
+        self.assertIn("gh release upload", text)
         self.assertIn("app-release.apk", text)
         self.assertIn("never publish that", text)
+        self.assertIn(
+            "A `git push` to GitHub is incomplete until a signed `app-release.apk` is",
+            text,
+        )
+        self.assertIn("every `git push` of this repo to GitHub", text)
 
     def test_shared_skill_file_has_expected_frontmatter(self):
         self.assertTrue(SKILL_MD.exists())
