@@ -22,6 +22,12 @@ internal data class LlmHttpResponse(
 internal const val MAX_RETRY_AFTER_MILLIS = 60_000L
 
 /**
+ * Per-response body cap after decompression. Same 8 MiB as the feed-path gate: a runaway
+ * LLM gateway is the same worker-OOM class as a gzip-bombed feed.
+ */
+internal const val MAX_LLM_BODY_BYTES = 8L * 1024 * 1024
+
+/**
  * The full HTTP round trip, **cancellable**, including the response-body read.
  *
  * Two points are non-negotiable:
@@ -65,11 +71,20 @@ internal suspend fun executeLlmHttp(
                     val payload = LlmHttpResponse(
                         code = it.code,
                         isSuccessful = it.isSuccessful,
-                        body = it.body?.string().orEmpty(),
+                        body = readBounded(it),
                         retryAfterMillis = retryAfterMillis(it),
                     )
                     if (continuation.isActive) continuation.resume(payload)
                 }
+            } catch (error: LlmBodyTooLargeException) {
+                if (!continuation.isActive) return
+                continuation.resumeWithException(
+                    LlmTransportException(
+                        "$providerDescription ${error.message}",
+                        error,
+                        retryable = false,
+                    ),
+                )
             } catch (error: IOException) {
                 failTransport(error)
             }
@@ -91,3 +106,21 @@ private fun retryAfterMillis(response: Response): Long? =
         ?.toLongOrNull()
         ?.takeIf { it >= 0 }
         ?.let { (it * 1_000).coerceAtMost(MAX_RETRY_AFTER_MILLIS) }
+
+/**
+ * Same two-step gate as feed reads: `Content-Length` short-circuit, then a bounded copy.
+ * Oversized bodies are not retryable — the same request produces the same size.
+ */
+private fun readBounded(response: Response): String {
+    val body = response.body ?: return ""
+    val declared = body.contentLength()
+    if (declared > MAX_LLM_BODY_BYTES) throw LlmBodyTooLargeException(declared)
+    val source = body.source()
+    source.request(MAX_LLM_BODY_BYTES + 1)
+    val buffered = source.buffer
+    if (buffered.size > MAX_LLM_BODY_BYTES) throw LlmBodyTooLargeException(buffered.size)
+    return buffered.readString(body.contentType()?.charset() ?: Charsets.UTF_8)
+}
+
+internal class LlmBodyTooLargeException(bytes: Long) :
+    IOException("response body exceeds ${MAX_LLM_BODY_BYTES / (1024 * 1024)} MiB (got $bytes bytes)")

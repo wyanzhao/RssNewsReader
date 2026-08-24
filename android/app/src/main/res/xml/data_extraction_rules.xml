@@ -5,9 +5,11 @@
          on a missing key, with no way back into onboarding.
 
          Database and report files are excluded as well, for three independent reasons:
-         1. Size. report_items has no retention period today, so half a year can push the
-            database past the 25 MB cloud backup quota; once crossed, auto-backup for the
-            **entire** app fails silently and even settings stop being backed up.
+         1. Size. Part 2 report_items have a retention window, but Part 1 items and
+            article bodies are kept long-term (story threads / periodic digests), so half
+            a year can still push the database past the 25 MB cloud backup quota; once
+            crossed, auto-backup for the **entire** app fails silently and even settings
+            stop being backed up.
          2. Privacy. It holds the complete reading history and every scraped article body;
             there is no reason to send that to the cloud.
          3. Consistency. Room runs WAL, and without a BackupAgent the live SQLite files are

@@ -67,11 +67,19 @@ object LinkSafety {
      * `Dns`/`SocketFactory` — but it closes the entire real-world attack surface: a hostile feed writing intranet
      * addresses directly. The check looks only at the literal and performs no DNS resolution, because resolving
      * needs the network, and this function is called for every entry on the hot path of feed parsing.
+     *
+     * IPv6 ULA (`fc00::/7`) and link-local (`fe80::/10`) are matched as hextets, not hostname prefixes:
+     * `startsWith("fc")` previously treated `fcc.gov` as unique-local. IPv4-mapped addresses
+     * (`::ffff:10.0.0.1`) are classified by the embedded IPv4, not skipped as "not four dotted octets".
      */
-    private fun isPrivateHost(host: String): Boolean {
+    internal fun isPrivateHost(host: String): Boolean {
         val name = host.trim().trim('[', ']').lowercase()
         if (name == "localhost" || name.endsWith(".localhost") || name.endsWith(".local")) return true
-        if (name == "::1" || name.startsWith("fc") || name.startsWith("fd") || name.startsWith("fe80:")) return true
+        if (':' in name) return isPrivateIpv6(name)
+        return isPrivateIpv4(name)
+    }
+
+    private fun isPrivateIpv4(name: String): Boolean {
         val octets = name.split('.')
         if (octets.size != 4 || octets.any { part -> part.isEmpty() || !part.all(Char::isDigit) }) return false
         val numbers = octets.map { it.toIntOrNull() ?: return false }
@@ -89,5 +97,32 @@ object LinkSafety {
         }
     }
 
+    private fun isPrivateIpv6(name: String): Boolean {
+        if (name == "::1" || name.startsWith("::1:")) return true
+        ipv4MappedDotted(name)?.let { return isPrivateIpv4(it) }
+        val first = name.substringBefore(':')
+        if (first.isEmpty() || first.length > 4 || first.any { it !in HEX }) return false
+        val hextet = first.toInt(16)
+        // fe80::/10 link-local; fc00::/7 unique local.
+        return hextet in 0xfe80..0xfebf || hextet in 0xfc00..0xfdff
+    }
+
+    /** Dotted-quad IPv4 embedded in `:ffff:` (compressed `::ffff:a.b.c.d` or expanded `0:0:…:ffff:a.b.c.d`). */
+    private fun ipv4MappedDotted(name: String): String? {
+        val marker = ":ffff:"
+        val prefix = when {
+            name.startsWith("::ffff:") -> ""
+            marker in name -> name.substringBefore(marker)
+            else -> return null
+        }
+        if (prefix.any { it != '0' && it != ':' }) return null
+        val rest = name.substringAfterLast("ffff:")
+        return rest.takeIf { candidate ->
+            val octets = candidate.split('.')
+            octets.size == 4 && octets.all { part -> part.isNotEmpty() && part.all(Char::isDigit) }
+        }
+    }
+
     private val HTTP_SCHEMES = setOf("http", "https")
+    private val HEX = "0123456789abcdef"
 }

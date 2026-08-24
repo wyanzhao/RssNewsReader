@@ -69,4 +69,34 @@ class DailyReportWorkerPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun compactRunsWhenAnyCountedDeleteIsPositiveAndNotWhenAllAreZero() {
+        assertFalse(shouldCompactAfterPrune())
+        assertFalse(
+            shouldCompactAfterPrune(
+                articlesDeleted = 0,
+                fetchLogsDeleted = 0,
+                runArtifactsDeleted = 0,
+                runLogsDeleted = 0,
+                runsDeleted = 0,
+                part2ItemsDeleted = 0,
+            ),
+        )
+        assertTrue(shouldCompactAfterPrune(articlesDeleted = 1))
+        assertTrue(shouldCompactAfterPrune(fetchLogsDeleted = 1))
+        assertTrue(shouldCompactAfterPrune(runArtifactsDeleted = 1))
+        assertTrue(shouldCompactAfterPrune(runLogsDeleted = 1))
+        assertTrue(shouldCompactAfterPrune(runsDeleted = 1))
+        assertTrue(shouldCompactAfterPrune(part2ItemsDeleted = 1))
+    }
+
+    @Test
+    fun dailyAndSweepWorkersGateCompactOnTheSharedRule() {
+        val daily = java.io.File("src/main/kotlin/com/dailynews/app/work/DailyReportWorker.kt").readText()
+        val sweep = java.io.File("src/main/kotlin/com/dailynews/app/work/SweepWorker.kt").readText()
+        assertTrue("shouldCompactAfterPrune" in daily)
+        assertTrue("shouldCompactAfterPrune" in sweep)
+        assertFalse("part2ItemsDeleted ?: 0) > 0" in daily)
+    }
 }

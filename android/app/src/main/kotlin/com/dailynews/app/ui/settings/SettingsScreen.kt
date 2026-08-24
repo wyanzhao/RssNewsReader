@@ -90,7 +90,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
                 SettingsSection.OVERVIEW -> {
                     item { SettingsEntry("模型服务", providerSummary(state), { viewModel.selectSection(SettingsSection.PROVIDERS) }) }
                     item { SettingsEntry("计划与后台", "每日 ${state.form.schedule} · ${state.form.sweepInterval} 分钟增量抓取", { viewModel.selectSection(SettingsSection.SCHEDULE) }) }
-                    item { SettingsEntry("生成流程", "Top ${state.form.topN} · Part 2 ${state.form.part2Mode}", { viewModel.selectSection(SettingsSection.PIPELINE) }) }
+                    item { SettingsEntry("生成流程", "Top ${state.form.topN} · 仅产出 Part 1 精选", { viewModel.selectSection(SettingsSection.PIPELINE) }) }
                     item { SettingsEntry("数据与迁移", "导入、导出与设备状态恢复", { viewModel.selectSection(SettingsSection.DATA) }) }
                     item { SettingsEntry("运行诊断", "最近运行、步骤日志、LLM 调用与网络探测", onOpenDiagnostics) }
                 }

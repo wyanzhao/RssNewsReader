@@ -180,12 +180,21 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
         val pruned = runCatching {
             container.runMaintenanceRepository.prune(config.artifactRetentionDays, reportRetentionDays = config.reportRetentionDays)
         }.onFailure { warnRetention(it) }.getOrNull()
-        runCatching { container.articleRepository.prune(config.articleRetentionDays) }
+        val articlePrune = runCatching { container.articleRepository.prune(config.articleRetentionDays) }
             .onFailure { warnRetention(it) }
+            .getOrNull()
         // SQLite defaults to auto_vacuum = NONE: deleted pages only go onto the free list and the file
-        // never shrinks. Only do this after part 2 entries were actually deleted — VACUUM rewrites the
-        // whole database and should not run empty every day.
-        if ((pruned?.part2ItemsDeleted ?: 0) > 0) {
+        // never shrinks. Compact after any counted delete, not only Part 2 — Epic U writes almost no
+        // part=2 rows, so gating on that counter alone never ran VACUUM on the success path.
+        if (shouldCompactAfterPrune(
+                articlesDeleted = articlePrune?.first ?: 0,
+                fetchLogsDeleted = articlePrune?.second ?: 0,
+                runArtifactsDeleted = pruned?.runArtifactsDeleted ?: 0,
+                runLogsDeleted = pruned?.runLogsDeleted ?: 0,
+                runsDeleted = pruned?.runsDeleted ?: 0,
+                part2ItemsDeleted = pruned?.part2ItemsDeleted ?: 0,
+            )
+        ) {
             runCatching { container.runMaintenanceRepository.compact() }.onFailure { warnRetention(it) }
         }
         publishUiResult(result)

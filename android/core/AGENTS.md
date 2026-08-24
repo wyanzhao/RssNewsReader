@@ -43,17 +43,17 @@
   Success / ExpectedBlock / Failed semantics with a bounded two-attempt
   retry, mirroring the Python skill's branch flow. Do not add a fourth
   state or silent fallback paths.
-- **Room migrations.** `DailyNewsDatabase` is versioned (currently 8) with
+- **Room migrations.** `DailyNewsDatabase` is versioned (currently 9) with
   explicit migrations and exported schema in `schemas/`; schema changes
   always ship a migration. Test fixtures are synced from a real run dir via
   the `syncMigrationGuards` Gradle task.
   A version bump touches eight places, and none of the last four fail at
-  compile time: `version =`, the entity list, the `MIGRATION_X_Y` object,
+  compile time: `version =` (read from `DAILYNEWS_SCHEMA_VERSION`, which is
+  also the backup envelope version), the entity list, the `MIGRATION_X_Y` object,
   **the `addMigrations(...)` argument list**, the version-aware backup fuse,
-  the committed `schemas/<n>.json`, `StateBackupRepository.databaseVersion`
-  (plus any new table in `DeviceStateBackup`, on both the export and import
-  side), and the migration instrumented tests — whose full-chain case always
-  targets the newest version.
+  the committed `schemas/<n>.json`, `StateBackupRepository` export/import of any
+  new table in `DeviceStateBackup`, and the migration instrumented tests — whose
+  full-chain case always targets the newest version.
 - **Structured-output fallback.** Providers that reject structured mode
   surface `StructuredOutputUnsupportedException` with a `fallbackMode`;
   `StructuredLlm` performs JSON-extract/repair retry. Never assume a

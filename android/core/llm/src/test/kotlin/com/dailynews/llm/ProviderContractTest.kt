@@ -694,6 +694,30 @@ class ProviderContractTest {
         }
     }
 
+    @Test
+    fun `an oversized LLM response body is rejected and not retried`() = runBlocking {
+        MockWebServer().use { server ->
+            val oversized = "x".repeat((MAX_LLM_BODY_BYTES + 1).toInt())
+            server.enqueue(MockResponse().setBody(oversized))
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}]}"""))
+            server.start()
+            val provider = OpenAiCompatProvider(
+                ProviderConfig("huge", ProviderType.OPENAI_COMPAT, server.url("/v1").toString(), "alias", true),
+                ApiKeySource { "secret" },
+                OkHttpClient(),
+            )
+
+            val error = assertFailsWith<LlmTransportException> {
+                StructuredLlm(provider, maxTransientRetries = 2, retryDelay = {})
+                    .completeObject(LlmRequest("m", "s", "u", 32))
+            }
+
+            assertFalse(error.retryable)
+            assertTrue("exceeds" in error.message.orEmpty(), error.message)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
     private fun structuredRequest() = LlmRequest(
         "model",
         "system",

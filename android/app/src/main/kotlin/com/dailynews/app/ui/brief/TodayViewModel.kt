@@ -76,23 +76,26 @@ class TodayViewModel(
     sweepWorkInfos: Flow<List<WorkInfo>> = flowOf(emptyList()),
 ) : ViewModel() {
     private val ticks = minuteTicks ?: minuteTicker(clock)
-    private val recentRuns = runRepository?.observeRecent(1) ?: flowOf(emptyList())
-    private val recentRunLogs = recentRuns.flatMapLatest { runs ->
-        val runId = runs.firstOrNull()?.runId
-        if (runId == null || runLogs == null) flowOf(emptyList()) else runLogs.observe(runId)
-    }
+    private val recentRuns = runRepository?.observeRecent(50) ?: flowOf(emptyList())
     private val poolCount = ticks.flatMapLatest { now ->
         articleRepository?.observeCountSince(now.toInstant().minusSeconds(28 * 60 * 60L)) ?: flowOf(0)
     }
     private val sweepProgress = sweepWorkInfos
         .map { infos -> sweepProgressFor(infos.map { it.state }) }
-    private val operational = combine(recentRuns, recentRunLogs, poolCount, sweepProgress) { runs, logs, count, sweep ->
-        TodayOperationalState(runs.firstOrNull(), logs, count, sweep)
-    }
-
     /** null = follow today. Once the user flips to a past date, it stays on the chosen day even across midnight, not dragged away by the clock. */
     private val selectedDate = MutableStateFlow<String?>(null)
     private val selection = combine(ticks, selectedDate) { now, picked -> BriefSelection(now, picked) }
+    private val displayedRun = combine(selection, recentRuns) { pick, runs ->
+        val date = pick.picked ?: pick.now.toLocalDate().toString()
+        runForDisplayedDate(runs, date)
+    }
+    private val displayedLogs = displayedRun.flatMapLatest { run ->
+        val runId = run?.runId
+        if (runId == null || runLogs == null) flowOf(emptyList()) else runLogs.observe(runId)
+    }
+    private val operational = combine(displayedRun, displayedLogs, poolCount, sweepProgress) { run, logs, count, sweep ->
+        TodayOperationalState(run, logs, count, sweep)
+    }
 
     val state: StateFlow<TodayUiState> = combine(
         reports.summaries(),
@@ -158,6 +161,15 @@ internal fun nextScheduledLabel(scheduleTime: String, now: ZonedDateTime): Strin
     val date = if (now.toLocalTime().isBefore(time)) now.toLocalDate() else now.toLocalDate().plusDays(1)
     return "$date $time"
 }
+
+/**
+ * Latest run for [effectiveDate] from a newest-first [runs] list.
+ *
+ * Brief status and failed-report diagnostics must follow the displayed day, not
+ * `observeRecent(1)` globally — a today FAILED/RUNNING run must not overlay a past SUCCESS.
+ */
+internal fun runForDisplayedDate(runs: List<RunSummary>, effectiveDate: String): RunSummary? =
+    runs.firstOrNull { it.reportDate == effectiveDate }
 
 internal fun isMissedToday(reports: List<ReportSummary>, scheduleTime: String, now: ZonedDateTime): Boolean {
     val hasSuccess = reports.any { it.reportDate == now.toLocalDate().toString() && it.status == "SUCCESS" }

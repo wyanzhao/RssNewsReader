@@ -38,7 +38,14 @@ class SweepWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             error
         }
         if (failure == null) {
-            runCatching { container.articleRepository.prune(config.articleRetentionDays) }
+            val articlePrune = runCatching { container.articleRepository.prune(config.articleRetentionDays) }.getOrNull()
+            if (shouldCompactAfterPrune(
+                    articlesDeleted = articlePrune?.first ?: 0,
+                    fetchLogsDeleted = articlePrune?.second ?: 0,
+                )
+            ) {
+                runCatching { container.runMaintenanceRepository.compact() }
+            }
             return Result.success()
         }
         if (runAttemptCount < MAX_RETRIES) return Result.retry()

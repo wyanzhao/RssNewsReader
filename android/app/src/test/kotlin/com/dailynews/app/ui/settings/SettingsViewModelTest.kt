@@ -93,6 +93,13 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun generationFlowOverviewDoesNotPresentPart2ModeAsALiveControl() {
+        val screen = java.io.File("src/main/kotlin/com/dailynews/app/ui/settings/SettingsScreen.kt").readText()
+        assertFalse("Part 2 \${state.form.part2Mode}" in screen)
+        assertTrue("仅产出 Part 1 精选" in screen)
+    }
+
+    @Test
     fun part2ModeIsForcedLazyByNormalizationRegardlessOfFormSelection() {
         // Epic U: normalized() forces LAZY regardless of form selection or persisted value.
         assertEquals(Part2Mode.LAZY, SettingsFormState().applyTo(PipelineConfig()).part2Mode)

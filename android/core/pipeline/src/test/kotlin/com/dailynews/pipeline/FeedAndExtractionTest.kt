@@ -291,6 +291,36 @@ class FeedAndExtractionTest {
             "http://169.254.169.254/latest/meta-data/", "http://172.16.0.1/", "http://localhost/x",
         ).forEach { assertEquals("", FeedParser.parse(rss(it)).single().link, "should drop $it") }
 
+        // Public hostnames that share IPv6 ULA's first two letters must stay links.
+        listOf(
+            "https://fcc.gov/item",
+            "https://www.fcc.gov/news",
+            "https://fd.io/blog",
+            "http://fc2.com/post",
+        ).forEach { link ->
+            assertEquals(link, FeedParser.parse(rss(link)).single().link, "should keep $link")
+        }
+
+        // IPv4-mapped private addresses (and IPv6 ULA / loopback) must drop like dotted RFC1918.
+        listOf(
+            "http://[::ffff:10.0.0.1]/status",
+            "http://[::ffff:192.168.1.1]/",
+            "http://[::FFFF:172.16.0.1]/x",
+            "http://[0:0:0:0:0:ffff:10.0.0.1]/",
+            "http://[fc00::1]/",
+            "http://[fd12:3456:789a:1::1]/",
+            "http://[fe80::1]/",
+            "http://[::1]/",
+        ).forEach { link ->
+            assertEquals("", FeedParser.parse(rss(link)).single().link, "should drop $link")
+        }
+
+        // A public IPv4-mapped address is not intranet; keep it.
+        assertEquals(
+            "http://[::ffff:8.8.8.8]/lookup",
+            FeedParser.parse(rss("http://[::ffff:8.8.8.8]/lookup")).single().link,
+        )
+
         // 正常公网链接照旧。
         assertEquals(
             "https://example.com/story",
