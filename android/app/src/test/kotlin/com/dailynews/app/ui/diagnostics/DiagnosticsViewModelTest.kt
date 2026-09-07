@@ -1,5 +1,8 @@
 package com.dailynews.app.ui.diagnostics
 
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -43,6 +46,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiagnosticsViewModelTest {
+    private val viewModels = mutableListOf<DiagnosticsViewModel>()
     private lateinit var database: DailyNewsDatabase
 
     @BeforeTest
@@ -56,6 +60,8 @@ class DiagnosticsViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        runBlocking { viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() } }
+        viewModels.clear()
         database.close()
         Dispatchers.resetMain()
     }
@@ -83,7 +89,7 @@ class DiagnosticsViewModelTest {
         FeedRepository(database, ApplicationProvider.getApplicationContext()),
         NetworkDiagnostics(OkHttpClient()),
         networkContext = { mapOf("transport" to "wifi") },
-    )
+    ).also { viewModels += it }
 
     private fun awaitState(viewModel: DiagnosticsViewModel, predicate: (DiagnosticsUiState) -> Boolean): DiagnosticsUiState =
         runBlocking { withTimeout(10_000) { viewModel.state.first(predicate) } }
@@ -153,7 +159,7 @@ class DiagnosticsViewModelTest {
 
         viewModel.runNetworkDiagnostics()
         awaitCondition { observed.any { !it.probing && it.probes.isNotEmpty() } }
-        job.cancel()
+        runBlocking { job.cancelAndJoin() }
         scope.cancel()
 
         assertTrue(observed.any { it.probing })

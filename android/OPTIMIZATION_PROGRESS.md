@@ -89,6 +89,28 @@ has been requested.
 - APK SHA-256: `4568641b226745219928261552d0957886df0c8f99e9911a780a5308eef20eee`.
   Mapping is archived beside the APK. No GitHub publication.
 
+## 0.7.2 queued-generation visibility
+
+- The brief screen now observes DailyReportWorker WorkInfo separately from RSS
+  sweeps. Queued, retrying and pre-run preparation remain visible before a run
+  record exists, with a stop action; completed history does not stay active.
+- Recovery requests carry their explicit report date; ordinary work follows the
+  execution day. Historical screens do not inherit today's active generation.
+- Added state/date/precedence regression cases and a request-tag policy check.
+  The full app suite (144 executions), lint and screenshots passed; the final
+  worker policy suite passed seven cases. A pre-existing diagnostics test cleanup
+  race was fixed by cancelling and joining ViewModel/collector jobs before
+  resetting Dispatchers.Main.
+- S25 offline test displayed the retry queue while retaining the saved Top 30.
+  Wi-Fi and mobile data were both restored to their original enabled settings.
+  The same task subsequently resumed automatically and published successfully
+  (72-second run duration, excluding the earlier queue wait).
+  The test covers preflight disconnection, not a mid-request transport failure.
+- Signed 0.7.2 (21) installed preserving app data; version gate against `ecff8bc`
+  passed. APK SHA-256:
+  `817f72e739da7749ed5a260f2e6e5b52d45f2216ae8e095268f3ee4392b98d38`.
+  Mapping archived beside APK. No GitHub publication.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

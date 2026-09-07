@@ -340,8 +340,13 @@ private fun TodayStatusCard(
     ) {
         Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
             Text(if (state.isToday) "今日生成状态" else "这一天的状态", style = MaterialTheme.typography.titleLarge)
-            StatusBadge(run?.status ?: state.current?.status ?: "EMPTY")
+            StatusBadge(if (state.generation.active) "RUNNING" else run?.status ?: state.current?.status ?: "EMPTY")
             when {
+                state.generation.active && (state.generation.queued || run?.status != "RUNNING") -> {
+                    Text(state.generation.label)
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    TextButton(onClick = onCancelRun) { Text("停止生成") }
+                }
                 run?.status == "RUNNING" -> {
                     Text("正在执行 ${run.classification.lowercase()} 流程")
                     LinearProgressIndicator(Modifier.fillMaxWidth())

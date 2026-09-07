@@ -46,9 +46,8 @@ class DailyReportWorkerPolicyTest {
     }
 
     /**
-     * Only SweepWorker's WorkInfo reaches the UI, so a constrained manual request would sit
-     * ENQUEUED and silent while the device is offline — the user tapped a button and would
-     * get nothing back. Manual keeps failing fast inside the retry bound instead.
+     * Manual generation keeps the existing bounded network-preflight retry policy.
+     * WorkInfo presentation changes must not silently change execution constraints.
      */
     @Suppress("RestrictedApi")
     @Test
@@ -56,6 +55,13 @@ class DailyReportWorkerPolicyTest {
         val spec = DailyReportWorker.request(scheduled = false).workSpec
         assertEquals(NetworkType.NOT_REQUIRED, spec.constraints.requiredNetworkType)
         assertFalse(spec.expedited)
+    }
+
+    @Test
+    fun recoveryWorkTagsItsFixedDateWhileOrdinaryWorkFollowsExecutionDay() {
+        assertTrue("report-date:2026-09-06" in DailyReportWorker.request(false, "failed-run", "2026-09-06").tags)
+        assertTrue("report-current-day" in DailyReportWorker.request(false).tags)
+        assertTrue("report-current-day" in DailyReportWorker.request(true).tags)
     }
 
     @Test

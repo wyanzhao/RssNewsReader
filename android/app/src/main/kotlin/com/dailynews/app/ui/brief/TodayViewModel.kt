@@ -49,6 +49,7 @@ data class TodayUiState(
     val runSteps: List<RunLogEntity> = emptyList(),
     val poolCount: Int = 0,
     val nextScheduledAt: String = "",
+    val generation: GenerationProgress = GenerationProgress(),
     val sweepRefreshing: Boolean = false,
     val sweepProgressLabel: String = "",
 )
@@ -58,6 +59,7 @@ private data class TodayOperationalState(
     val logs: List<RunLogEntity>,
     val poolCount: Int,
     val sweep: SweepUiProgress,
+    val generation: GenerationProgress,
 )
 
 /** Fold ticks and selectedDate into one value first: the main combine already uses up the 5-arg strongly-typed overload. */
@@ -74,6 +76,7 @@ class TodayViewModel(
     runLogs: RunLogRepository? = null,
     articleRepository: ArticleRepository? = null,
     sweepWorkInfos: Flow<List<WorkInfo>> = flowOf(emptyList()),
+    reportWorkInfos: Flow<List<WorkInfo>> = flowOf(emptyList()),
 ) : ViewModel() {
     private val ticks = minuteTicks ?: minuteTicker(clock)
     private val recentRuns = runRepository?.observeRecent(50) ?: flowOf(emptyList())
@@ -93,8 +96,12 @@ class TodayViewModel(
         val runId = run?.runId
         if (runId == null || runLogs == null) flowOf(emptyList()) else runLogs.observe(runId)
     }
-    private val operational = combine(displayedRun, displayedLogs, poolCount, sweepProgress) { run, logs, count, sweep ->
-        TodayOperationalState(run, logs, count, sweep)
+    private val generation = combine(selection, reportWorkInfos) { pick, infos ->
+        val today = pick.now.toLocalDate().toString()
+        generationProgressFor(infos, pick.picked ?: today, today)
+    }
+    private val operational = combine(displayedRun, displayedLogs, poolCount, sweepProgress, generation) { run, logs, count, sweep, generation ->
+        TodayOperationalState(run, logs, count, sweep, generation)
     }
 
     val state: StateFlow<TodayUiState> = combine(
@@ -128,6 +135,7 @@ class TodayViewModel(
             runSteps = ops.logs,
             poolCount = ops.poolCount,
             nextScheduledAt = nextScheduledLabel(pipelineConfig.scheduleTime, pick.now),
+            generation = ops.generation,
             sweepRefreshing = ops.sweep.active,
             sweepProgressLabel = ops.sweep.label,
         )

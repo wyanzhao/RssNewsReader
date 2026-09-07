@@ -270,12 +270,12 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
          * ordinary work, never dropped) so it no longer depends on a background
          * setForeground() that Android 12 often refuses.
          *
-         * A manual trigger must not get either. The app is in the foreground, so its UID is
-         * never firewalled — and a constrained request would sit ENQUEUED and silent when
-         * the device is genuinely offline, because only SweepWorker's WorkInfo is observed
-         * by the UI. Failing fast within the retry bound is the feedback the user tapped for.
+         * Manual generation retains its bounded preflight retry policy without expedited
+         * scheduling. Both manual and scheduled WorkInfo now reach the brief screen, so
+         * queued work remains visible before any pipeline run row exists.
          */
         internal fun request(scheduled: Boolean, recoverySource: String? = null, reportDate: String? = null) = OneTimeWorkRequestBuilder<DailyReportWorker>()
+                .addTag(reportDate?.let { "report-date:$it" } ?: "report-current-day")
                 .setInputData(workDataOf(KEY_SCHEDULED to scheduled, KEY_RECOVERY_SOURCE to recoverySource, KEY_REPORT_DATE to reportDate))
                 .apply {
                     if (scheduled) {

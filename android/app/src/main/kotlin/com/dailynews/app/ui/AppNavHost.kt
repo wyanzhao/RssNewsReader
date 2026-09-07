@@ -102,6 +102,7 @@ fun DailyNewsApp(
     // the current time into the "next scheduled" label and the makeup-run card, so
     // screenshot baselines must pin it, or they go red on their own with every passing day.
     clock: Clock = Clock.systemDefaultZone(),
+    reportWorkInfos: Flow<List<WorkInfo>> = kotlinx.coroutines.flow.flowOf(emptyList()),
 ) {
     val nav = rememberNavController()
     val currentEntry by nav.currentBackStackEntryAsState()
@@ -126,7 +127,7 @@ fun DailyNewsApp(
             }
         },
     ) {
-        AppNavHost(nav, container, expanded, sweepWorkInfos, clock, Modifier.fillMaxSize())
+        AppNavHost(nav, container, expanded, sweepWorkInfos, clock, Modifier.fillMaxSize(), reportWorkInfos)
     }
 }
 
@@ -146,6 +147,7 @@ private fun AppNavHost(
     sweepWorkInfos: Flow<List<WorkInfo>>,
     clock: Clock,
     modifier: Modifier,
+    reportWorkInfos: Flow<List<WorkInfo>>,
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -173,6 +175,7 @@ private fun AppNavHost(
                     runLogs = container.runLogRepository,
                     articleRepository = container.articleRepository,
                     sweepWorkInfos = sweepWorkInfos,
+                    reportWorkInfos = reportWorkInfos,
                     clock = clock,
                 )
             })

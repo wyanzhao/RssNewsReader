@@ -45,6 +45,9 @@ class MainActivity : ComponentActivity() {
             val sweepWorkInfos = remember(appContext) {
                 WorkManager.getInstance(appContext).getWorkInfosForUniqueWorkFlow(SweepWorker.UNIQUE_REFRESH)
             }
+            val reportWorkInfos = remember(appContext) {
+                WorkManager.getInstance(appContext).getWorkInfosForUniqueWorkFlow(DailyReportWorker.UNIQUE_WORK)
+            }
             val onboardingComplete by appViewModel.onboardingComplete.collectAsStateWithLifecycle()
             val routeRequest by appViewModel.route.collectAsStateWithLifecycle()
             DailyNewsTheme {
@@ -55,6 +58,7 @@ class MainActivity : ComponentActivity() {
                         routeRequest.route,
                         routeRequest.version,
                         sweepWorkInfos,
+                        reportWorkInfos = reportWorkInfos,
                         onRouteConsumed = appViewModel::consumeRoute,
                     )
                 } else {
