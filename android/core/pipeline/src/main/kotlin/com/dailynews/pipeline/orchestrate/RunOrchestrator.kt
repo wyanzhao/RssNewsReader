@@ -42,6 +42,7 @@ import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.CancellationException
+import com.dailynews.pipeline.observability.StageTimer
 
 data class RunRequest(
     val reportDate: LocalDate,
@@ -127,6 +128,7 @@ class RunOrchestrator(
         val config = request.config.normalized()
         var lastFailure: Throwable? = null
         for (attempt in 1..2) {
+            val fetchStarted = System.nanoTime()
             val raw = try {
                 fetch.fetch(request.reportDate, attempt, request.trigger, config)
             } catch (error: Throwable) {
@@ -144,10 +146,13 @@ class RunOrchestrator(
                 return unexpectedFailure(request, null, "fetch", error.message ?: "unexpected fetch failure", error)
             }
             val runId = raw.meta.runId
+            StageTimer(logSink).record(runId, "fetch", (System.nanoTime() - fetchStarted) / 1_000_000, "success")
             // Preserve the fetched authority artifact even if validation itself crashes.
             snapshot(runId, "raw.json", ArtifactJson.codec.encodeToString(raw))
             val validation = try {
-                validator.validate(raw, com.dailynews.model.FeedConfigDocument(feeds.enabledFeeds()))
+                StageTimer(logSink).measure(runId, "validate", { if (it.result.passed) "success" else "blocked" }) {
+                    validator.validate(raw, com.dailynews.model.FeedConfigDocument(feeds.enabledFeeds()))
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 lastFailure = error
@@ -180,52 +185,63 @@ class RunOrchestrator(
     ): RunExecutionResult {
         val runId = raw.meta.runId
         return try {
-            val artifacts = contexts.build(
-                raw,
-                validation,
-                request.reportDate.toString(),
-                request.reportPath,
-                config,
-                cacheLookup = CacheLookup { article ->
-                    cache.find(EditorialCacheKeys.cacheKey(article))
-                        ?: cache.find(EditorialCacheKeys.legacyCacheKey(article))
-                },
-            )
+            val timer = StageTimer(logSink)
+            val artifacts = timer.measure(runId, "context") {
+                contexts.build(
+                    raw,
+                    validation,
+                    request.reportDate.toString(),
+                    request.reportPath,
+                    config,
+                    cacheLookup = CacheLookup { article ->
+                        cache.find(EditorialCacheKeys.cacheKey(article))
+                            ?: cache.find(EditorialCacheKeys.legacyCacheKey(article))
+                    },
+                )
+            }
             snapshotContexts(runId, artifacts)
             if (!artifacts.contextBudget.withinBudget && request.config.contextBudget.hardBlock) {
                 return RunExecutionResult.Failed(request.reportDate, runId, "context_budget", artifacts.contextBudget.violations.joinToString("; "))
             }
-            val audit = artifactAuditGate.audit(artifacts.llmContext, validation)
+            val audit = timer.measure(runId, "artifact_audit", { if (it.passed) "success" else "blocked" }) {
+                artifactAuditGate.audit(artifacts.llmContext, validation)
+            }
             if (!audit.passed) return RunExecutionResult.Failed(request.reportDate, runId, "artifact_audit", audit.errors.joinToString("; "))
 
-            val output = editorial.edit(
-                runId,
-                artifacts.llmContext,
-                artifacts.part1Brief,
-                artifacts.part2Context,
-                artifacts.contextBudget,
-                config.part1MaxItems,
-                config.maxLlmCallsPerRun,
-                config.part2Mode,
-                config.llmExecution,
-            )
+            val output = timer.measure(runId, "editorial") {
+                editorial.edit(
+                    runId,
+                    artifacts.llmContext,
+                    artifacts.part1Brief,
+                    artifacts.part2Context,
+                    artifacts.contextBudget,
+                    config.part1MaxItems,
+                    config.maxLlmCallsPerRun,
+                    config.part2Mode,
+                    config.llmExecution,
+                )
+            }
             snapshot(runId, "part1_plan.json", ArtifactJson.codec.encodeToString(output.part1))
             output.part2MissingSummariesJson?.let { snapshot(runId, "part2_missing_summaries.json", it) }
             snapshot(runId, "part2_draft.json", ArtifactJson.codec.encodeToString(output.part2))
-            val report = assembler.assemble(
-                artifacts.llmContext,
-                validation,
-                output.part1,
-                output.part2,
-                config.part1MaxItems,
-                request.reportPath,
-                renderTopN = false,
-                part2Mode = config.part2Mode,
-            )
+            val report = timer.measure(runId, "assemble") {
+                assembler.assemble(
+                    artifacts.llmContext,
+                    validation,
+                    output.part1,
+                    output.part2,
+                    config.part1MaxItems,
+                    request.reportPath,
+                    renderTopN = false,
+                    part2Mode = config.part2Mode,
+                )
 
+            }
             // ReportAssembler owns the only success write. Review deliberately runs after it.
             reportSink.publish(report)
-            val review = reportReviewGate.review(report.markdown, request.reportPath, artifacts.llmContext, validation, output.part1, output.part2, config.part1MaxItems, config.part2Mode)
+            val review = timer.measure(runId, "review", { if (it.passed) "success" else "blocked" }) {
+                reportReviewGate.review(report.markdown, request.reportPath, artifacts.llmContext, validation, output.part1, output.part2, config.part1MaxItems, config.part2Mode)
+            }
             if (!review.passed) {
                 val reason = review.errors.joinToString("; ")
                 reportSink.markFailed(request.reportDate.toString(), reason)

@@ -9,6 +9,11 @@ import com.dailynews.data.repo.FavoriteRepository
 import com.dailynews.data.repo.ReportRepository
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.ReportGroup
+import com.dailynews.model.ArticleFeedback
+import com.dailynews.model.FeedbackKind
+import com.dailynews.data.config.PipelineConfigRepository
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +46,8 @@ data class ReportUiState(
     val groupErrors: Map<String, String> = emptyMap(),
     /** event_key → the number of days this story has been reported. Only used to decide whether to show the story-history entry point. */
     val storyDepth: Map<String, Int> = emptyMap(),
+    val feedbackByLink: Map<String, ArticleFeedback> = emptyMap(),
+    val feedbackMessage: String = "",
 )
 
 private data class ReportInteractionState(
@@ -57,7 +64,13 @@ class ReportViewModel(
     private val favorites: FavoriteRepository,
     private val generateGroup: suspend (String) -> Unit,
     private val savedState: SavedStateHandle = SavedStateHandle(),
+    private val config: PipelineConfigRepository? = null,
 ) : ViewModel() {
+    private val feedbackMessage = MutableStateFlow("")
+    private val feedback = combine(
+        config?.config?.map { it.articleFeedback.associateBy(ArticleFeedback::link) } ?: flowOf(emptyMap()),
+        feedbackMessage,
+    ) { entries, message -> entries to message }
     private val showRaw = MutableStateFlow(savedState[SHOW_RAW_KEY] ?: false)
     private val expandedSources = MutableStateFlow<Set<String>?>(
         savedState.get<ArrayList<String>>(EXPANDED_SOURCES_KEY)?.toSet(),
@@ -97,7 +110,24 @@ class ReportViewModel(
             groupErrors = interaction.groupErrors,
             storyDepth = storyDepth,
         )
+    }.combine(feedback) { state, (entries, message) ->
+        state.copy(feedbackByLink = entries, feedbackMessage = message)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReportUiState())
+
+    fun recordFeedback(item: ReportItemEntity, kind: FeedbackKind?, topic: String) {
+        val repository = config ?: return
+        viewModelScope.launch {
+            try {
+                if (kind == null) repository.removeFeedback(item.link)
+                else repository.recordFeedback(ArticleFeedback(item.link, item.title, item.source, item.eventKey, kind, topic))
+                feedbackMessage.value = if (kind == null) "已撤销选题反馈" else "已保存反馈，将用于下一次选题"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                feedbackMessage.value = "反馈未保存：${error.message ?: "请重试"}"
+            }
+        }
+    }
 
     fun toggleRaw() {
         showRaw.value = !showRaw.value

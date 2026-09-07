@@ -70,6 +70,10 @@ class V3ScreenMatrixScreenshotTest {
                                 size(widthDp = width, heightDp = 800)
                                 fontScale(scale)
                                 uiMode(if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO)
+                                when (name) {
+                                    "reader" -> addOption(AwaitComposeText("这里暂时没有内容"))
+                                    "report" -> addOption(AwaitComposeText("这一天没有报告"))
+                                }
                             },
                         ) {
                             DailyNewsTheme(darkTheme = dark, dynamicColor = false) {

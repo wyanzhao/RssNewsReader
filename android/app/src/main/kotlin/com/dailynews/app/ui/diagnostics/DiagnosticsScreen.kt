@@ -404,6 +404,18 @@ fun LazyListScope.diagnosticsContent(
     }
 
     // 7 — LLM calls
+    val timings = stageTimingsFor(state.logs)
+    if (timings.isNotEmpty()) {
+        item(key = "stage-timings") {
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                    Text("阶段耗时", style = MaterialTheme.typography.titleLarge)
+                    Text("编辑全流程包含模型调用；模型耗时包含内部重试。", style = MaterialTheme.typography.bodySmall)
+                    timings.forEach { Text(stageTimingText(it), style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
+        }
+    }
     if (state.llmCalls.isNotEmpty()) {
         val totals = state.llmTotals
         collapsibleSection(

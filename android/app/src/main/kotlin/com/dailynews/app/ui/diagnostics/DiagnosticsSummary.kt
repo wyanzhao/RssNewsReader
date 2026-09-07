@@ -48,6 +48,10 @@ fun buildDiagnosticsSummary(state: DiagnosticsUiState): String = buildString {
         val totals = state.llmTotals
         appendLine("LLM：${totals.calls} 次 · ${totals.inputTokens}+${totals.outputTokens} tokens · ${totals.failed} 次失败")
     }
+    stageTimingsFor(state.logs).takeIf { it.isNotEmpty() }?.let { timings ->
+        appendLine("阶段耗时（编辑全流程包含模型调用）：")
+        timings.forEach { appendLine("- ${stageTimingText(it)}") }
+    }
     state.budget?.takeIf { !it.withinBudget || it.violations.isNotEmpty() }?.let { budget ->
         budget.violations.forEach { violation ->
             appendLine("预算超出：${violation.size} ${violation.actual} > ${violation.limit}")

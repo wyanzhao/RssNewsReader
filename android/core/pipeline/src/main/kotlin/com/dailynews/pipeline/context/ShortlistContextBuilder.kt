@@ -51,6 +51,9 @@ data class Part1ShortlistContext(
     // The prompt reads it under this name, and renaming would touch both Kotlin and markdown for tidiness only, so it stays.
     @SerialName("recent_top30") val recentTopN: List<RecentTopNEvent>,
     val articles: List<ShortlistContextArticle>,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
 )
 
 /** Lookback window for cross-day lead continuity. The day count in the prompt copy is pinned to this constant by AssetPromptContractTest. */

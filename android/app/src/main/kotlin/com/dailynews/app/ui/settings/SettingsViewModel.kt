@@ -223,8 +223,7 @@ class SettingsViewModel(
     fun savePipeline() = launchOperation {
         val value = form.value
         require(settingsValidationErrors(value).isEmpty()) { settingsValidationErrors(value).values.joinToString("；") }
-        val config = value.applyTo(configRepository.config.first())
-        configRepository.save(config)
+        val config = configRepository.update { current -> value.applyTo(current) }
         scheduleReports(config)
         providerMessage.value = "生成流程配置已保存"
     }

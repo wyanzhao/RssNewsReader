@@ -311,6 +311,7 @@ private fun reportViewModel(container: AppContainer, date: String): ReportViewMo
             container.favoriteRepository,
             generateGroup = { source -> container.generatePart2Group(date, source) },
             savedState = savedState,
+            config = container.configRepository,
         )
     },
 )

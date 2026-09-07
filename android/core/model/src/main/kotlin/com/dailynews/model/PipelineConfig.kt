@@ -92,6 +92,7 @@ data class PipelineConfig(
     @SerialName("monthly_token_budget") val monthlyTokenBudget: Long = 1_000_000,
     @SerialName("max_llm_calls_per_run") val maxLlmCallsPerRun: Int = 20,
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
+    @SerialName("article_feedback") val articleFeedback: List<ArticleFeedback> = emptyList(),
 ) {
     fun normalized(): PipelineConfig = copy(
         fetch = fetch.copy(
@@ -119,6 +120,10 @@ data class PipelineConfig(
         monthlyTokenBudget = monthlyTokenBudget.coerceAtLeast(0),
         maxLlmCallsPerRun = maxLlmCallsPerRun.coerceIn(4, 100),
         editorFeedback = editorFeedback.map(String::trim).filter(String::isNotEmpty).takeLast(20),
+        articleFeedback = articleFeedback.filter {
+            it.link.isNotBlank() && (it.kind != FeedbackKind.LESS_TOPIC || it.topic.isNotBlank())
+        }.asReversed().distinctBy { it.link }.asReversed().takeLast(100)
+            .map { it.copy(title = it.title.take(300), source = it.source.take(120), topic = it.topic.trim().take(80), eventKey = it.eventKey.take(60)) },
         weeklyDigestWeekday = weeklyDigestWeekday.coerceIn(1, 7),
     )
 }

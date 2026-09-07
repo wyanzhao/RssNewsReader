@@ -65,8 +65,8 @@ android {
         applicationId = "com.dailynews.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.5.6"
+        versionCode = 17
+        versionName = "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -88,8 +88,10 @@ android {
                 storePassword = storePasswordInput
                 keyAlias = keyAliasInput
                 keyPassword = keyPasswordInput
-                // minSdk 26 is past the v1 (JAR signing) era; AGP already drops
-                // v1 here, and v2/v3 stay on by default.
+                // Keep the release contract explicit; AGP defaults do not guarantee v3.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }

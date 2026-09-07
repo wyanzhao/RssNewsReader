@@ -22,6 +22,8 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -80,6 +82,10 @@ fun TodayScreen(
     val current = state.current
     val embeddedViewModel = current?.takeIf { it.status == "SUCCESS" }?.let { reportViewModel(it.reportDate) }
     val embeddedState = embeddedViewModel?.state?.collectAsStateWithLifecycle()?.value
+    val feedbackSnackbar = remember { SnackbarHostState() }
+    LaunchedEffect(embeddedState?.feedbackMessage) {
+        embeddedState?.feedbackMessage?.takeIf(String::isNotBlank)?.let { feedbackSnackbar.showSnackbar(it) }
+    }
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showDatePicker by remember { mutableStateOf(false) }
@@ -109,6 +115,7 @@ fun TodayScreen(
         )
     }
     Scaffold(
+        snackbarHost = { SnackbarHost(feedbackSnackbar) },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             // The date stepper bar is pinned as its own row inside the topBar slot, not
@@ -225,6 +232,7 @@ fun TodayScreen(
                         onToggleGroup = reportVm::toggleGroup,
                         onMarkRead = reportVm::markRead,
                         onToggleFavorite = reportVm::toggleFavorite,
+                        onFeedback = reportVm::recordFeedback,
                         onOpen = { link ->
                             onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
                         },
@@ -336,7 +344,8 @@ private fun TodayStatusCard(
                 run?.status == "RUNNING" -> {
                     Text("正在执行 ${run.classification.lowercase()} 流程")
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    state.runSteps.takeLast(5).forEach { log -> Text("• ${log.step} · ${log.message}", style = MaterialTheme.typography.bodySmall) }
+                    state.runSteps.filterNot { it.step == "stage_timing" }.takeLast(5)
+                        .forEach { log -> Text("• ${log.step} · ${log.message}", style = MaterialTheme.typography.bodySmall) }
                 }
                 failed -> {
                     Text("${run.classification} · validator ${run.validatorExitCode}", color = MaterialTheme.colorScheme.error)

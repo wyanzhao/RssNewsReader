@@ -141,12 +141,16 @@ class LlmEditorialEngineTest {
         )
         val capturedArtifacts = linkedMapOf<String, String>()
         val capturedLogs = mutableListOf<String>()
+        val capturedRequests = mutableListOf<LlmRequest>()
         val engine = LlmEditorialEngine(
             providers = ProviderResolver { _, _ ->
                 ProviderBinding(
                     "test",
                     object : LlmProvider {
-                        override suspend fun complete(request: LlmRequest) = responses.removeFirst()
+                        override suspend fun complete(request: LlmRequest): LlmResponse {
+                            capturedRequests += request
+                            return responses.removeFirst()
+                        }
                     },
                     RoleModel("test", "model", 8_192),
                 )
@@ -168,7 +172,7 @@ class LlmEditorialEngineTest {
             engine.edit(
                 "checkpoint-run",
                 artifacts.llmContext,
-                artifacts.part1Brief,
+                artifacts.part1Brief.copy(editorFeedback = listOf("prefer compiler research")),
                 artifacts.part2Context,
                 artifacts.contextBudget,
                 30,
@@ -181,6 +185,9 @@ class LlmEditorialEngineTest {
         assertEquals("part1_plan", error.operation)
         assertTrue("part1_shortlist.json" in capturedArtifacts)
         assertTrue("part1_shortlist_context.json" in capturedArtifacts)
+        assertTrue(capturedArtifacts.getValue("part1_shortlist_context.json").contains("prefer compiler research"))
+        assertEquals(4, capturedRequests.size)
+        assertTrue(capturedRequests.all { "prefer compiler research" in it.userContent })
         val violationPaths = capturedArtifacts.keys.filter { it.startsWith("contract_violations/part1_plan-") }
         assertEquals(3, violationPaths.size)
         val first = ArtifactJson.codec.decodeFromString<EditorialContractViolation>(capturedArtifacts.getValue(violationPaths.first()))

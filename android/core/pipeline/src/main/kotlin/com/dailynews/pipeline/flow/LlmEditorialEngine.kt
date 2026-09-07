@@ -39,6 +39,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import com.dailynews.pipeline.observability.StageTimer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -266,7 +267,7 @@ class LlmEditorialEngine(
         }
         val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
         persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links)))
-        val shortlistContext = shortlistContexts.build(context, links)
+        val shortlistContext = shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback)
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)
         // This is the payload the Part 1 plan call actually sends, and the largest single piece on the whole chain,
@@ -588,22 +589,24 @@ class LlmEditorialEngine(
         )
         var lastTransportAttempt = 0
         return try {
-            StructuredLlm(binding.provider).completeObject(
-                request = request,
-                beforeAttempt = counter::take,
-                onAttempt = { jsonAttempt, response, outcome ->
-                    lastTransportAttempt = jsonAttempt
-                    audit.record(
-                        runId,
-                        role,
-                        binding.providerId,
-                        binding.roleModel.model,
-                        response,
-                        auditIndexBase + retryIndex * 10 + jsonAttempt,
-                        outcome,
-                    )
-                },
-            ).first
+            StageTimer(logs).measure(runId, "llm.$operation") {
+                StructuredLlm(binding.provider).completeObject(
+                    request = request,
+                    beforeAttempt = counter::take,
+                    onAttempt = { jsonAttempt, response, outcome ->
+                        lastTransportAttempt = jsonAttempt
+                        audit.record(
+                            runId,
+                            role,
+                            binding.providerId,
+                            binding.roleModel.model,
+                            response,
+                            auditIndexBase + retryIndex * 10 + jsonAttempt,
+                            outcome,
+                        )
+                    },
+                ).first
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

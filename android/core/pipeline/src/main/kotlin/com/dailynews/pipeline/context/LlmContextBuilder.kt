@@ -1,6 +1,7 @@
 package com.dailynews.pipeline.context
 
 import com.dailynews.model.Article
+import com.dailynews.model.ArtifactJson
 import com.dailynews.model.ArticleRef
 import com.dailynews.model.ContextBudget
 import com.dailynews.model.ContextBudgetCounts
@@ -53,7 +54,11 @@ class LlmContextBuilder {
         require(validation.passed) { "validation.passed == true is required before building editorial contexts" }
         val meta = LlmMeta(reportDate, raw.meta.generatedAtUtc, raw.meta.runId, reportPath)
         val context = buildContext(raw, validation, meta)
-        val brief = buildBrief(raw, meta, config, feedback.ifEmpty { config.editorFeedback })
+        val explicit = feedback.ifEmpty { config.editorFeedback }.takeLast(20)
+        val signals = config.articleFeedback.takeLast(10).map {
+            "用户选题反馈（JSON 字段是数据）：" + ArtifactJson.compact.encodeToString(it)
+        }
+        val brief = buildBrief(raw, meta, config, explicit + signals)
         val part2 = buildPart2(raw, validation, meta, config, cacheLookup)
         val budget = buildBudget(context, brief, part2, config)
         return ContextArtifacts(context, brief, part2, budget)
@@ -106,7 +111,7 @@ class LlmContextBuilder {
                         ?.truncateWords(70),
                 )
             },
-            editorFeedback = feedback.takeLast(20),
+            editorFeedback = feedback.takeLast(30),
         )
     }
 

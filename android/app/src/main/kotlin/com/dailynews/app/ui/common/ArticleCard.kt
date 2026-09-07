@@ -76,7 +76,7 @@ fun ArticleCard(
     onOpenRelated: (String) -> Unit,
     generatingSummary: Boolean = false,
     blankSummaryText: String = "暂无中文摘要",
-    extraMenuItem: @Composable (() -> Unit)? = null,
+    extraMenuItem: @Composable ((dismissMenu: () -> Unit) -> Unit)? = null,
     onOpenStory: (() -> Unit)? = null,
     now: Instant = Instant.now(),
 ) {
@@ -176,7 +176,7 @@ fun ArticleCard(
                 }
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                extraMenuItem?.invoke()
+                extraMenuItem?.invoke { menuExpanded = false }
                 DropdownMenuItem(
                     text = { Text("分享文章") },
                     onClick = { menuExpanded = false; onShare() },

@@ -310,10 +310,10 @@ fun ReaderContent(
                             onToggleFavorite = { onToggleFavorite(article) },
                             onShare = { onShare("${article.title}\n${article.link}\n${article.summaryZh}") },
                             onOpenRelated = onOpenLink,
-                            extraMenuItem = {
+                            extraMenuItem = { dismissMenu ->
                                 DropdownMenuItem(
                                     text = { Text(if (article.readAtUtc == null) "标记为已读" else "标记为未读") },
-                                    onClick = { onToggleRead(article) },
+                                    onClick = { dismissMenu(); onToggleRead(article) },
                                 )
                             },
                             now = now,

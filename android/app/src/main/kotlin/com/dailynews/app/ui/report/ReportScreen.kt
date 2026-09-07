@@ -24,6 +24,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -50,6 +53,8 @@ import com.dailynews.app.ui.theme.DailyNewsSpacing
 import com.dailynews.data.db.ReportItemEntity
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.ReportGroup
+import com.dailynews.model.ArticleFeedback
+import com.dailynews.model.FeedbackKind
 import kotlinx.serialization.decodeFromString
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +67,10 @@ fun ReportScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val feedbackSnackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.feedbackMessage) {
+        if (state.feedbackMessage.isNotBlank()) feedbackSnackbar.showSnackbar(state.feedbackMessage)
+    }
     var overflowExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -73,6 +82,7 @@ fun ReportScreen(
         }
     }
     Scaffold(
+        snackbarHost = { SnackbarHost(feedbackSnackbar) },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
@@ -138,6 +148,7 @@ fun ReportPane(
             onToggleGroup = viewModel::toggleGroup,
             onMarkRead = viewModel::markRead,
             onToggleFavorite = viewModel::toggleFavorite,
+            onFeedback = viewModel::recordFeedback,
             onOpen = { link ->
                 onOpenArticle?.invoke(link) ?: CustomTabsIntent.Builder().build().launchUrl(context, link.toUri())
             },
@@ -159,6 +170,7 @@ fun LazyListScope.reportContent(
     onOpenDiagnostics: (() -> Unit)? = null,
     /** null = the host does not wire up story history (e.g. screenshot fixtures); in that case no entry point is shown. */
     onOpenStory: ((String) -> Unit)? = null,
+    onFeedback: ((ReportItemEntity, FeedbackKind?, String) -> Unit)? = null,
 ) {
     val entries = state.items
     val groups = state.groups
@@ -220,6 +232,11 @@ fun LazyListScope.reportContent(
     }
 
     val part1 = entries.filter { it.part == 1 }
+    if (state.feedbackMessage.isNotBlank()) {
+        item(key = "feedback-status") {
+            Text(state.feedbackMessage, modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth))
+        }
+    }
     item(key = if (embedded) "embedded-part1-title" else "part1-title") {
         Text("Part 1 · Top ${part1.size}", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth))
     }
@@ -237,6 +254,8 @@ fun LazyListScope.reportContent(
             // containing only its own single article is an empty promise. Depth is aggregated from report_items.
             onOpenStory = onOpenStory?.takeIf { (state.storyDepth[article.eventKey] ?: 0) >= 2 },
             storyDays = state.storyDepth[article.eventKey],
+            feedback = state.feedbackByLink[article.link],
+            onFeedback = onFeedback?.let { save -> { kind, topic -> save(article, kind, topic) } },
         )
     }
     if (PART2_SECTION_ENABLED) {
@@ -375,7 +394,16 @@ private fun ReportArticleCard(
     generatingSummary: Boolean = false,
     onOpenStory: ((String) -> Unit)? = null,
     storyDays: Int? = null,
+    feedback: ArticleFeedback? = null,
+    onFeedback: ((FeedbackKind?, String) -> Unit)? = null,
 ) {
+    var feedbackOpen by remember { mutableStateOf(false) }
+    if (feedbackOpen && onFeedback != null) {
+        EditorialFeedbackDialog(feedback, onDismiss = { feedbackOpen = false }) { kind, topic ->
+            onFeedback(kind, topic)
+            feedbackOpen = false
+        }
+    }
     val alsoLinks = remember(item.alsoLinksJson) {
         runCatching { ArtifactJson.codec.decodeFromString<List<String>>(item.alsoLinksJson) }.getOrDefault(emptyList())
     }
@@ -391,11 +419,17 @@ private fun ReportArticleCard(
         onShare = onShare,
         onOpenRelated = onOpenRelated,
         generatingSummary = generatingSummary,
-        extraMenuItem = onOpenStory?.let { open ->
-            {
+        extraMenuItem = { dismissMenu ->
+            if (onFeedback != null) {
+                DropdownMenuItem(
+                    text = { Text(if (feedback == null) "选题反馈" else "修改选题反馈") },
+                    onClick = { dismissMenu(); feedbackOpen = true },
+                )
+            }
+            if (onOpenStory != null) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.story_open)) },
-                    onClick = { open(item.eventKey) },
+                    onClick = { dismissMenu(); onOpenStory(item.eventKey) },
                 )
             }
         },

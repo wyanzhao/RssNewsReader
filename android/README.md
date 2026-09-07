@@ -32,6 +32,25 @@ Since Epic U the Android report shape intentionally diverges from the Python
 `/dailynews-report` pipeline, which still produces Part 1 + Part 2; do not
 re-align them.
 
+## Editorial feedback and run measurements
+
+The article menu in a brief offers **选题反馈**: valuable, reduce a named topic,
+reduce this source, repetitive coverage, or interest in an event's next development.
+Feedback can be edited or removed from the same menu. It affects subsequent
+shortlisting and final ranking; it never rewrites an already-published report.
+The current implementation retains the latest 100 article decisions in the
+backed-up pipeline configuration and sends the latest 10 alongside all 20
+manual editorial preferences. Event-follow-up feedback is an editorial preference;
+it is not yet a separate alert subscription.
+
+Diagnostics and its shared text summary show monotonic elapsed times for
+preparation, validation, editorial work, assembly and review. Each model-operation
+measurement includes its internal transport/JSON retries. Editorial total time
+already contains model time, so the rows must not be added together. These are
+elapsed-time measurements, not provider billing estimates. Older runs have no
+stage timing data. A fetch that fails before a run ID is assigned also has no
+stage timing record; its error remains in the existing diagnostics.
+
 ## Modules
 
 - `core:model` — serializable artifact and configuration contracts (pure JVM)
