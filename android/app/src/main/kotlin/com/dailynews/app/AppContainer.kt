@@ -70,6 +70,7 @@ class AppContainer(context: Context) {
     val stateImporter = StateImporter(seenLinksRepository, cacheRepository)
     val runLogRepository = RunLogRepository(database)
     val runRepository = RunRepository(database)
+    val reportWorkRepository = com.dailynews.data.repo.ReportWorkRepository(appContext)
     val llmCallRepository = LlmCallRepository(database)
     val runMaintenanceRepository = RunMaintenanceRepository(database)
     val configRepository = PipelineConfigRepository(appContext)
