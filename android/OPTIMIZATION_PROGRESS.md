@@ -553,6 +553,28 @@ has been requested.
   Existing direct role-cap behavior is intentional and remains unchanged;
   lower output limits are not assumed to fix this observed truncation.
 
+## 1.0.2 comparison truncation diagnostics
+
+- Comparison cards now disclose the measured arm, operation and reported output
+  count for truncated responses, including JSON-repair truncation. They explain
+  that incomplete output is not a comparison result and identical-cap automatic
+  retries were suppressed. No model, key, output-cap or budget setting changes.
+- Typed telemetry parsing excludes other experiments and raw provider error text.
+  Legacy absent measurements do not become a diagnosis or zero-token count;
+  malformed records produce an explicit incomplete-evidence notice. Artifact-read
+  cancellation propagates instead of being rendered as unreadable data.
+- 499 JVM executions, zero failures/errors/skips; lintDebug, screenshot verification
+  and signed release assembly passed. Version gate against 3cf060a passed.
+  APK read-back 1.0.2 (35), v2/v3 verified; SHA-256
+  `e5f80062b333d66452168808eb46f12000faf6ecdf12a71ff2d1327227c1202b`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-102/`.
+- S25 retained-data install succeeded, installed version read back as 1.0.2 (35).
+  Historical failed-comparison UI acceptance passed: the actual 1.0.1 trial
+  displays default-arm final-plan truncation and 65,536 reported output tokens,
+  with the incomplete-result and retry guidance. Screenshot/XML archived beside
+  the APK. No new paid trial. The long diagnostic list required substantial
+  scrolling; section navigation remains a usability follow-up.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

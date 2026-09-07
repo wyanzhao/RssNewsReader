@@ -50,7 +50,7 @@ data class LlmTotals(val calls: Int = 0, val inputTokens: Long = 0, val outputTo
 
 data class DiagnosticsEvent(val id: Long, val message: String, val error: Boolean, val retryTag: String? = null)
 
-data class ComparisonStatus(val status: String, val preference: String)
+typealias ComparisonStatus = com.dailynews.pipeline.observability.ComparisonDiagnostics
 
 data class DiagnosticsUiState(
     val runs: List<RunSummary> = emptyList(),
@@ -182,13 +182,16 @@ class DiagnosticsViewModel(
                         violations,
                         artifacts.readText(entity.runId, "part1_shortlist.json"),
                         artifacts.readText(entity.runId, "part1_plan.json"),
-                        artifacts.names(entity.runId).filter { it.startsWith("comparisons/") && it.endsWith("/manifest.json") }.map { name ->
-                            runCatching {
-                                val manifest = com.dailynews.model.ArtifactJson.codec.decodeFromString<kotlinx.serialization.json.JsonObject>(requireNotNull(artifacts.readText(entity.runId, name)))
-                                ComparisonStatus((manifest["status"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "unknown",
-                                    (manifest["preference"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty())
-                            }.getOrElse { ComparisonStatus("unreadable", "") }
-                        },
+                        artifacts.names(entity.runId).let { names -> names.filter { it.startsWith("comparisons/") && it.endsWith("/manifest.json") }.map { name ->
+                            try {
+                                val prefix = name.removeSuffix("manifest.json")
+                                val telemetry = names.filter { path ->
+                                    path.startsWith(prefix) && path.removePrefix(prefix).matches(Regex("(baseline|candidate)/telemetry/[0-9]+\\.json"))
+                                }.map { path -> path.removePrefix(prefix).substringBefore('/') to artifacts.readText(entity.runId, path) }
+                                ComparisonStatus.parse(requireNotNull(artifacts.readText(entity.runId, name)), telemetry)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                            catch (_: Exception) { ComparisonStatus("unreadable", "") }
+                        } },
                         chain,
                     )
                 }

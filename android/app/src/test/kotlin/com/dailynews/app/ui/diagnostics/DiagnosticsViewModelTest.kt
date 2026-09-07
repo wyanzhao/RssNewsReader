@@ -103,6 +103,24 @@ class DiagnosticsViewModelTest {
     }
 
     @Test
+    fun comparisonFailureLoadsOnlyItsOwnArmMeasurements() {
+        runBlocking {
+            database.runs().upsert(runEntity("comparison-source", "2026-09-07T10:00:00Z"))
+            val store = ArtifactStore(database)
+            store.write("comparison-source", "comparisons/experiment/manifest.json", """{"status":"failed","preference":"AI"}""".toByteArray())
+            val measurement = """{"step":"llm_attempt_measurement","message":"{\"attemptId\":\"request:0\",\"operation\":\"part1_plan\",\"contractAttempt\":0,\"physicalAttempt\":0,\"outcome\":\"truncated\",\"outputTokens\":65536}"}"""
+            store.write("comparison-source", "comparisons/experiment/baseline/telemetry/6.json", measurement.toByteArray())
+            store.write("comparison-source", "comparisons/other/candidate/telemetry/6.json", measurement.toByteArray())
+        }
+        val state = awaitState(newViewModel("comparison-source")) { !it.artifactsLoading && it.comparisons.isNotEmpty() }
+        val comparison = state.comparisons.single()
+        assertEquals("failed", comparison.status)
+        assertEquals("baseline", comparison.truncations.single().arm)
+        assertEquals(65_536L, comparison.truncations.single().outputTokens)
+        assertFalse(comparison.unreadableTelemetry)
+    }
+
+    @Test
     fun acceptedExclusionReasonsAreLoadedAndCorruptArtifactIsVisible() {
         runBlocking {
             database.runs().upsert(runEntity("excluded", "2026-09-07T10:00:00Z"))

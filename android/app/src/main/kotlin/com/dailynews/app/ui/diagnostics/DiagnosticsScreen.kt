@@ -488,11 +488,23 @@ fun LazyListScope.diagnosticsContent(
                         "running" -> "进行中（尚无完整结果）"
                         "cancelled" -> "已取消"
                         "timeout" -> "已超时"
-                        "failed", "incomplete" -> "未完成，请发起新试验"
+                        "failed", "incomplete" -> "未完成"
                         else -> "状态无法读取"
                     }
                     Text("偏好对比：$label", style = MaterialTheme.typography.titleLarge)
                     Text(comparison.preference)
+                    comparison.truncations.forEach { failure ->
+                        val arm = if (failure.arm == "baseline") "默认组" else "偏好组"
+                        val operation = when (failure.operation) {
+                            "part1_shortlist" -> "短名单"
+                            "part1_plan" -> "最终选题"
+                            else -> "模型请求"
+                        }
+                        Text("$arm · $operation：输出被截断", color = MaterialTheme.colorScheme.error)
+                        failure.outputTokens?.let { Text("服务商报告输出 $it token（可能包含推理）") }
+                        Text("本次结果不完整，已停止同上限自动重试。请检查模型与输出设置；降低上限不保证成功。")
+                    }
+                    if (comparison.unreadableTelemetry) Text("部分测量记录无法读取，原因信息可能不完整。")
                     Text("通过菜单导出产物；只有已完成试验可用于两组对比。")
                 }
             }
