@@ -36,12 +36,29 @@ data class Part1ShortlistPayload(val links: List<String>, val excluded: List<Sho
  * [Part1Plan] remains link-keyed.
  */
 @Serializable
+data class EventDevelopmentDraft(
+    @SerialName("baseline_date") val baselineDate: String,
+    @SerialName("change_zh") val changeZh: String,
+    @SerialName("evidence_ref") val evidenceRef: String,
+    @SerialName("evidence_quote") val evidenceQuote: String,
+)
+
+@Serializable
+data class EventDevelopment(
+    @SerialName("baseline_date") val baselineDate: String,
+    @SerialName("change_zh") val changeZh: String,
+    @SerialName("evidence_link") val evidenceLink: String,
+    @SerialName("evidence_quote") val evidenceQuote: String,
+)
+
+@Serializable
 data class Part1PlanDraftItem(
     val ref: String,
     @SerialName("summary_zh") val summaryZh: String,
     @SerialName("also_refs") val alsoRefs: List<String>,
     @SerialName("event_key") val eventKey: String = "",
     @SerialName("noise_bucket") val noiseBucket: String = "selected",
+    val development: EventDevelopmentDraft? = null,
 )
 
 @Serializable
@@ -59,6 +76,7 @@ data class Part1PlanItem(
     @SerialName("also_links") val alsoLinks: List<String>,
     @SerialName("event_key") val eventKey: String = "",
     @SerialName("noise_bucket") val noiseBucket: String = "selected",
+    val development: EventDevelopment? = null,
 )
 
 @Serializable
@@ -142,7 +160,7 @@ object EditorialJsonSchemas {
         """{"type":"object","additionalProperties":false,"properties":{"refs":{"type":"array","items":{"type":"string"}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}}},"required":["refs","excluded"]}""",
     )
     val part1Plan: JsonObject = schema(
-        """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"also_refs":{"type":"array","items":{"type":"string"}},"event_key":{"type":"string"},"noise_bucket":{"type":"string"}},"required":["ref","summary_zh","also_refs","event_key","noise_bucket"]}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}},"shortfall":{"type":"integer"},"notes":{"type":"array","items":{"type":"string"}}},"required":["items","shortfall","notes","excluded"]}""",
+        """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"also_refs":{"type":"array","items":{"type":"string"}},"event_key":{"type":"string"},"noise_bucket":{"type":"string"},"development":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"baseline_date":{"type":"string"},"change_zh":{"type":"string"},"evidence_ref":{"type":"string"},"evidence_quote":{"type":"string"}},"required":["baseline_date","change_zh","evidence_ref","evidence_quote"]}]}},"required":["ref","summary_zh","also_refs","event_key","noise_bucket","development"]}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}},"shortfall":{"type":"integer"},"notes":{"type":"array","items":{"type":"string"}}},"required":["items","shortfall","notes","excluded"]}""",
     )
     val missingPart2: JsonObject = schema(
         """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"noise_bucket":{"type":"string"},"event_key":{"type":"string"}},"required":["ref","summary_zh","noise_bucket","event_key"]}}},"required":["items"]}""",

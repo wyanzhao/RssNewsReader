@@ -361,7 +361,8 @@ class LlmEditorialEngine(
         readCheckpoint(runId, "part1_plan", planFingerprint)?.let {
             val recovered = codec.decodeFromString<Part1Plan>(it)
             val errors = EditorialContracts.validatePart1(context, recovered, topN) +
-                ShortlistContracts.finalPlanErrors(recovered, shortlistContext.articles.map { it.link })
+                ShortlistContracts.finalPlanErrors(recovered, shortlistContext.articles.map { it.link }) +
+                com.dailynews.pipeline.editorial.EventDevelopmentContracts.errors(recovered, shortlistContext)
             require(errors.isEmpty()) { "recovered plan fails current contracts: ${errors.joinToString()}" }
             writeCheckpoint(runId, "part1_plan", planFingerprint, it)
             return Part1Result(recovered)
@@ -399,7 +400,8 @@ class LlmEditorialEngine(
             // lost items — to a truncated or repaired response — publish as if
             // it were complete.
             val errors = EditorialContracts.validatePart1(context, decoded, topN) +
-                ShortlistContracts.finalPlanErrors(decoded, shortlistContext.articles.map { it.link })
+                ShortlistContracts.finalPlanErrors(decoded, shortlistContext.articles.map { it.link }) +
+                com.dailynews.pipeline.editorial.EventDevelopmentContracts.errors(decoded, shortlistContext)
             if (errors.isEmpty()) {
                 writeCheckpoint(runId, "part1_plan", planFingerprint, codec.encodeToString(decoded))
                 return Part1Result(decoded)

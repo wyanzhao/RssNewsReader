@@ -87,6 +87,11 @@ def render_arm(run, label):
         source = by_link[item['link']]
         lines += [f"{rank}. {source['title']}", f"   {source['source']} — {item['link']}",
                   f"   {item['summary_zh']}", '']
+        if item.get('development'):
+            progress = item['development']
+            lines += [f"   Model-claimed development since {progress['baseline_date']}: {progress['change_zh']}",
+                      f"   Evidence source: {progress['evidence_link']}",
+                      f"   Source excerpt (not independent verification): {progress['evidence_quote']}", '']
         for link in item.get('also_links', []):
             lines += [f"   Merged source: {by_link[link]['title']} — {link}"]
     if run['plan'].get('excluded'):

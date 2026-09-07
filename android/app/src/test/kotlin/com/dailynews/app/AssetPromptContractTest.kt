@@ -28,6 +28,14 @@ class AssetPromptContractTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val source = AssetPromptSource(context)
 
+    @Test fun planPromptNamesDevelopmentEvidenceFields() {
+        val prompt = source.part1Plan(TOP_N)
+        wireNames<com.dailynews.model.EventDevelopmentDraft>().forEach { name ->
+            assertTrue(name in prompt, "Missing development field: $name")
+        }
+        assertTrue("development" in prompt)
+    }
+
     @Test fun planPromptNamesWatchedHistoryFields() {
         val prompt = source.part1Plan(TOP_N)
         wireNames<com.dailynews.pipeline.context.WatchedEventHistory>().forEach { name ->

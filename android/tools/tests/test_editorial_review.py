@@ -21,6 +21,16 @@ class PacketTests(unittest.TestCase):
                     'part1_shortlist_context.json': {'meta': {'run_id': str(path)}, 'articles': [a]}, 'run_config.json': {'topN': 30}}
         with zipfile.ZipFile(path, 'w') as archive:
             for name, value in contents.items(): archive.writestr(name, json.dumps(value))
+    def test_development_assessment_is_visible_as_model_claim_with_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'run.zip'; self.fixture(p); run=review.load_run(p)
+            run['plan']['items'][0]['development'] = {'baseline_date':'2026-01-02', 'change_zh':'新增实验结果',
+                'evidence_link':'https://example.test/a', 'evidence_quote':'Measured result'}
+            text=review.render_arm(run, 'A')
+            self.assertIn('Model-claimed development since 2026-01-02: 新增实验结果', text)
+            self.assertIn('Evidence source: https://example.test/a', text)
+            self.assertIn('Source excerpt (not independent verification): Measured result', text)
+
     def test_pair_hides_paths_and_per_arm_feedback(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); a = root/'baseline.zip'; b = root/'candidate.zip'

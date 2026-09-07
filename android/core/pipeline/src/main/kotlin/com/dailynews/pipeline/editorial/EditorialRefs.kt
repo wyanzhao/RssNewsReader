@@ -41,6 +41,11 @@ object EditorialRefs {
                 alsoLinks = alsoLinks,
                 eventKey = item.eventKey,
                 noiseBucket = item.noiseBucket,
+                development = item.development?.let { progress ->
+                    val evidenceLink = refs.resolve(progress.evidenceRef)
+                    if (evidenceLink == null) errors += refs.unknown("part1 item $index development evidence_ref", progress.evidenceRef)
+                    com.dailynews.model.EventDevelopment(progress.baselineDate, progress.changeZh, evidenceLink.orEmpty(), progress.evidenceQuote)
+                },
             )
         }
         val excluded = draft.excluded.map { entry ->

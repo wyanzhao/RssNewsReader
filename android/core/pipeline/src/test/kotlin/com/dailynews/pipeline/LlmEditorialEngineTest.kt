@@ -41,6 +41,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import org.junit.jupiter.api.Test
 
 /** KEEP: fail-closed editorial contracts independent of the run/article storage shape. */
@@ -61,6 +62,12 @@ class LlmEditorialEngineTest {
             names(Part1PlanDraftItem.serializer().descriptor),
             EditorialJsonSchemas.part1Plan.getValue("properties").jsonObject
                 .getValue("items").jsonObject.getValue("items").jsonObject.getValue("properties").jsonObject.keys,
+        )
+        assertEquals(
+            names(com.dailynews.model.EventDevelopmentDraft.serializer().descriptor),
+            EditorialJsonSchemas.part1Plan.getValue("properties").jsonObject.getValue("items").jsonObject
+                .getValue("items").jsonObject.getValue("properties").jsonObject.getValue("development").jsonObject
+                .getValue("anyOf").jsonArray.last().jsonObject.getValue("properties").jsonObject.keys,
         )
         assertEquals(
             names(MissingPart2DraftItem.serializer().descriptor),
@@ -428,7 +435,12 @@ class LlmEditorialEngineTest {
         val artifacts = lowVolumeArtifacts()
         val watch = com.dailynews.model.EventWatch("compiler", "Compiler", "2026-01-02")
         val requests = mutableListOf<LlmRequest>()
-        val responses = ArrayDeque(listOf(LlmResponse(shortlistDraft(5)), LlmResponse(planDraft(listOf("a1", "a2", "a3", "a4", "a5"), 25))))
+        val sourceQuote = artifacts.llmContext.allArticles.first().summaryEn.take(30)
+        val assessed = ArtifactJson.codec.decodeFromString<Part1PlanDraft>(planDraft(listOf("a1", "a2", "a3", "a4", "a5"), 25))
+            .let { plan -> plan.copy(items = plan.items.mapIndexed { index, item ->
+                if (index == 0) item.copy(eventKey = "compiler", development = com.dailynews.model.EventDevelopmentDraft("2026-01-02", "本次披露后续研究进展。", "a1", sourceQuote)) else item
+            }) }
+        val responses = ArrayDeque(listOf(LlmResponse(shortlistDraft(5)), LlmResponse(ArtifactJson.codec.encodeToString(assessed))))
         val cache = object : com.dailynews.pipeline.ports.EditorialCacheStore {
             override suspend fun find(cacheKey: String): EditorialCacheRecord? = null
             override suspend fun recentSince(since: java.time.Instant) = emptyList<EditorialCacheRecord>()
@@ -445,8 +457,9 @@ class LlmEditorialEngineTest {
             prompts = TestPrompts,
             shortlistContexts = com.dailynews.pipeline.context.ShortlistContextBuilder(cache, history),
         )
-        engine.edit("watched-run", artifacts.llmContext, artifacts.part1Brief.copy(watchedEvents = listOf(watch)),
+        val output = engine.edit("watched-run", artifacts.llmContext, artifacts.part1Brief.copy(watchedEvents = listOf(watch)),
             artifacts.part2Context, artifacts.contextBudget, 30, 20, Part2Mode.LAZY, LlmExecutionConfig())
+        assertEquals(artifacts.llmContext.allArticles.first().link, output.part1.items.first().development?.evidenceLink)
         assertEquals(2, requests.size)
         val sent = ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.context.Part1ShortlistContext>(com.dailynews.llm.JsonExtractor.extractObject(requests.last().userContent).toString())
         assertEquals(watch.eventKey, sent.watchedHistory.single().eventKey)

@@ -436,6 +436,37 @@ has been requested.
   action were observed. No provider configuration changes or real LLM calls.
   Device UI evidence does not substitute for semantic novelty validation.
 
+## B3 explicit source-bound development assessments (0.9.3)
+
+- Selected previously covered events require a structured `development` assessment:
+  latest baseline report date, Chinese account of new facts, one current selected
+  source reference and a verbatim 10–400-character excerpt from that article's
+  provided body or feed summary. Source IDs resolve to unchanged authoritative
+  links in the persisted Part 1 plan; history links cannot become evidence refs.
+- The runtime checks baseline date, missing/oversized/link-bearing descriptions,
+  source membership in the selected event and exact current-source quote matching.
+  Known cached event IDs cannot be renamed to bypass comparison. Both fresh
+  plans and recovered checkpoints pass these checks. Violations use
+  existing bounded contract repair with concrete feedback; no synthesized claims.
+- New events and events without usable historical evidence use explicit null.
+  A structurally valid assessment remains a model judgment: matching a quotation
+  does not prove the claimed implication, semantic novelty or notification value.
+- Tests cover ID resolution, unknown IDs, missing/wrong historical comparison,
+  fabricated excerpts, unrelated sources, merged-source evidence, legacy missing
+  history, schema/prompt field parity and the actual engine request/output path.
+- The offline review packet displays each assessment as a model claim beside its
+  source quotation. Six review-tool tests pass.
+- Full checks passed: 484 JVM executions with no failures/errors/skips,
+  lintDebug, Roborazzi verification and signed release assembly. Version gate
+  passed against 652569b. APK read-back 0.9.3 (32), v2/v3 verified; SHA-256:
+  `fd56e06d65cd85a0d3b3bfecdfaa84d940fdf132ccf25339001b5179167a82fc`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-093/`.
+- S25 retained-data upgrade, version read-back and existing story/follow action
+  checks passed. No real model calls or provider-setting changes were made.
+- Assessments persist in exported plan artifacts;
+  user-facing change presentation, notification deduplication and real-provider
+  semantic evaluation still need implementation/acceptance.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
