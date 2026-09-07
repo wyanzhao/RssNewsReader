@@ -348,10 +348,10 @@ private fun TodayStatusCard(
                     TextButton(onClick = onCancelRun) { Text("停止生成") }
                 }
                 run?.status == "RUNNING" -> {
-                    Text("正在执行 ${run.classification.lowercase()} 流程")
+                    Text(com.dailynews.app.ui.common.activeGenerationLabel(state.runSteps))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     TextButton(onClick = onCancelRun) { Text("停止生成") }
-                    state.runSteps.filterNot { it.step == "stage_timing" || it.step == "llm_attempt_measurement" }.takeLast(5)
+                    state.runSteps.filterNot { it.step == "stage_timing" || it.step == "stage_started" || it.step == "llm_attempt_measurement" }.takeLast(5)
                         .forEach { log -> Text("• ${log.step} · ${log.message}", style = MaterialTheme.typography.bodySmall) }
                 }
                 failed -> {

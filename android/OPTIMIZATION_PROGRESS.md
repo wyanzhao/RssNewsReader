@@ -111,6 +111,28 @@ has been requested.
   `817f72e739da7749ed5a260f2e6e5b52d45f2216ae8e095268f3ee4392b98d38`.
   Mapping archived beside APK. No GitHub publication.
 
+## 0.7.3 active generation phases
+
+- Added bounded best-effort stage-start events alongside completion timing records.
+  The brief screen and diagnostics now identify model shortlisting, event/summary
+  drafting, report assembly and publication review using actual active stages.
+- Nested model completion returns to the parent editorial phase. Missing, unknown
+  or malformed telemetry uses a generic running label rather than claiming a
+  model request. Historical terminal status remains authoritative.
+- Regression coverage verifies stage-start visibility before completion, nested
+  phase transitions and malformed/missing event handling. Telemetry write failures
+  still cannot replace an operation's outcome.
+- Full JVM suite: 434 executions, zero failures/errors/skips; lint and screenshot
+  checks passed. Version gate passed against `380a150`. Signed 0.7.3 (22) installed
+  on S25 preserving data; mapping archived beside APK. SHA-256:
+  `8a0de4cb3bbd16c0c97999799d17fd0e7057865920ab57d363bdecf4c2f505f4`.
+
+- Forced deep-idle test on S25 observed `mForceIdle=true`, `mState=IDLE` both
+  immediately and after 30 seconds. Afterwards `unforce`, battery reset and wake
+  restored `mForceIdle=false`, ACTIVE and USB-powered state. Generation outcome
+  remains pending UI inspection after unlock; this does not yet prove successful
+  generation while deep idle or long-standby reliability.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

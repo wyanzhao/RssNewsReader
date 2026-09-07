@@ -277,7 +277,7 @@ internal fun buildState(
         runs = runRows,
         selectedRunId = selectedId,
         detail = detail,
-        advice = advice,
+        advice = if (entity?.status == "RUNNING") advice.copy(headline = com.dailynews.app.ui.common.activeGenerationLabel(detailBundle.logs)) else advice,
         stage = stage,
         blockingReasons = resolved.blockingReasons,
         warnings = resolved.warnings,

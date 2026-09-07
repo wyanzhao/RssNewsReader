@@ -20,8 +20,7 @@ class StageTimerTest {
         val sink = object : RunLogSink {
             override suspend fun log(runId: String, step: String, level: LogLevel, message: String) {
                 assertEquals("run", runId)
-                assertEquals(StageTimer.LOG_STEP, step)
-                records += ArtifactJson.codec.decodeFromString<StageTiming>(message)
+                if (step == StageTimer.LOG_STEP) records += ArtifactJson.codec.decodeFromString<StageTiming>(message)
             }
         }
         var ticks = 0L
@@ -34,6 +33,20 @@ class StageTimerTest {
         assertFailsWith<CancellationException> { timer.measure("run", "test") { throw CancellationException("stopped") } }
         assertEquals(listOf(123L, 7L, 0L), records.map { it.elapsedMs })
         assertEquals(listOf("success", "failed", "cancelled"), records.map { it.outcome })
+    }
+
+    @Test
+    fun `stage start is observable before operation completes`() = runBlocking {
+        val events = mutableListOf<String>()
+        val sink = object : RunLogSink {
+            override suspend fun log(runId: String, step: String, level: LogLevel, message: String) {
+                events += step
+            }
+        }
+        StageTimer(sink).measure("run", "review") {
+            assertEquals(listOf(StageTimer.START_STEP), events)
+        }
+        assertEquals(listOf(StageTimer.START_STEP, StageTimer.LOG_STEP), events)
     }
 
     @Test
