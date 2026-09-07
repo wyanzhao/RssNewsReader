@@ -84,7 +84,8 @@ interface ArticleDao {
                          ORDER BY ri.reportDate DESC, ri.part LIMIT 1), a.summaryEn) AS summaryZh,
                a.articleText AS articleText,
                a.pubDateUtc AS pubDateUtc, a.pubDateIso AS pubDateIso,
-               a.favoritedAtUtc AS favoritedAtUtc
+               a.favoritedAtUtc AS favoritedAtUtc,
+               a.note, a.tagsJson, a.readingIndex, a.readingOffset, a.readingContentKey
         FROM articles a WHERE a.linkKey = :linkKey
     """)
     fun observeDetail(linkKey: String): Flow<ArticleDetail?>
@@ -108,6 +109,10 @@ interface ArticleDao {
     suspend fun pendingEnrichment(fromIso: String, limit: Int): List<ArticleEntity>
     @Query("UPDATE articles SET readAtUtc = :readAtUtc WHERE linkKey = :linkKey") suspend fun markRead(linkKey: String, readAtUtc: String)
     @Query("UPDATE articles SET favoritedAtUtc = :favoritedAtUtc WHERE linkKey = :linkKey") suspend fun setFavorite(linkKey: String, favoritedAtUtc: String?)
+    @Query("UPDATE articles SET note = :note, tagsJson = :tagsJson, favoritedAtUtc = CASE WHEN :keepSaved THEN COALESCE(favoritedAtUtc, :now) ELSE favoritedAtUtc END WHERE linkKey = :key")
+    suspend fun saveAnnotations(key: String, note: String, tagsJson: String, keepSaved: Boolean, now: String): Int
+    @Query("UPDATE articles SET readingIndex = :index, readingOffset = :offset, readingContentKey = :contentKey WHERE linkKey = :key")
+    suspend fun saveReadingPosition(key: String, index: Int, offset: Int, contentKey: String): Int
     @Query("UPDATE articles SET reportedDate = :reportDate WHERE linkKey IN (:linkKeys)") suspend fun markReported(linkKeys: List<String>, reportDate: String)
     @Query("SELECT link FROM articles WHERE favoritedAtUtc IS NOT NULL") fun observeSavedLinks(): Flow<List<String>>
     @Query("SELECT link FROM articles WHERE readAtUtc IS NOT NULL") fun observeReadLinks(): Flow<List<String>>
@@ -120,7 +125,7 @@ interface ArticleDao {
                a.favoritedAtUtc AS favoritedAtUtc,
                a.pubDateUtc AS pubDateUtc,
                a.pubDateIso AS pubDateIso,
-               a.readAtUtc AS readAtUtc
+               a.readAtUtc AS readAtUtc, a.note, a.tagsJson
         FROM articles a
         WHERE a.favoritedAtUtc IS NOT NULL
         ORDER BY a.favoritedAtUtc DESC
@@ -200,9 +205,9 @@ interface ArticleDao {
     @Query("UPDATE articles SET readAtUtc = :batchStamp WHERE readAtUtc IS NULL AND pubDateIso <> '' AND feedName = :feedName")
     suspend fun markAllReadForFeed(feedName: String, batchStamp: String): Int
     @Query("UPDATE articles SET readAtUtc = NULL WHERE readAtUtc = :batchStamp") suspend fun undoMarkAllRead(batchStamp: String): Int
-    @RawQuery(observedEntities = [ArticleEntity::class]) fun search(query: SupportSQLiteQuery): Flow<List<ArticleEntity>>
-    @RawQuery(observedEntities = [ArticleEntity::class]) fun searchReportedDates(query: SupportSQLiteQuery): Flow<List<ReportedDateRow>>
-    @Query("DELETE FROM articles WHERE favoritedAtUtc IS NULL AND fetchedAtUtc < :beforeUtc") suspend fun prune(beforeUtc: String): Int
+    @RawQuery(observedEntities = [ArticleEntity::class, ReportItemEntity::class, ReportEntity::class]) fun search(query: SupportSQLiteQuery): Flow<List<ArticleEntity>>
+    @RawQuery(observedEntities = [ArticleEntity::class, ReportItemEntity::class, ReportEntity::class]) fun searchReportedDates(query: SupportSQLiteQuery): Flow<List<ReportedDateRow>>
+    @Query("DELETE FROM articles WHERE favoritedAtUtc IS NULL AND note = '' AND tagsJson = '[]' AND fetchedAtUtc < :beforeUtc") suspend fun prune(beforeUtc: String): Int
     @Query("DELETE FROM articles") suspend fun clear()
 }
 

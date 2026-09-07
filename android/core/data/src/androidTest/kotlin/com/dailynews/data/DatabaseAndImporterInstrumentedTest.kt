@@ -389,7 +389,8 @@ class DatabaseAndImporterInstrumentedTest {
     @Test
     fun fullDeviceStateZipRoundTripsArticleCenteredDataAndPipelineConfig() = runBlocking {
         val configs = PipelineConfigRepository(context)
-        configs.save(com.dailynews.model.PipelineConfig(articleRetentionDays = 61))
+        configs.save(com.dailynews.model.PipelineConfig(articleRetentionDays = 61,
+            reading = com.dailynews.model.ReadingPreferences(24, 180)))
         val backups = StateBackupRepository(database, configs)
         database.feeds().insert(com.dailynews.data.db.FeedEntity(name = "Backup feed", url = "https://backup/feed"))
         com.dailynews.data.repo.FavoriteRepository(database).save(
@@ -398,6 +399,10 @@ class DatabaseAndImporterInstrumentedTest {
             "Backup feed",
             "备份摘要",
         )
+        val articles = com.dailynews.data.repo.ArticleRepository(database)
+        articles.saveAnnotations("https://backup/article", "编译器笔记", listOf("AI", "芯片"))
+        articles.saveReadingPosition("https://backup/article", 3, 180, "reading-content")
+        val savedArticle = database.articles().get("https://backup/article")
         ArtifactStore(database) { Instant.parse("2026-08-04T12:00:00Z") }
             .write("backup-run", "validation.json", "{\"passed\":true}".toByteArray())
         // Epic V: periodic digests are a separate table and must be in the backup
@@ -430,8 +435,11 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals(1, exported.articles)
         assertEquals(exported, restored)
         assertEquals("Backup article", database.articles().get("https://backup/article")?.title)
+        assertEquals(savedArticle, database.articles().get("https://backup/article"))
+        assertEquals(listOf("https://backup/article"), articles.search("编译 AI").first().map { it.link })
         assertEquals("Backup feed", database.feeds().allNow().single().name)
         assertEquals(61, configs.config.first().articleRetentionDays)
+        assertEquals(com.dailynews.model.ReadingPreferences(24, 180), configs.config.first().reading)
         assertEquals("{\"passed\":true}", ArtifactStore(database).readText("backup-run", "validation.json"))
         val digest = database.periodicReports().find("2026-W32")
         assertEquals("# DailyNews 周报 · 2026-W32", digest?.markdown)

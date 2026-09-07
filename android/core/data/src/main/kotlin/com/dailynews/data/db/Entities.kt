@@ -50,6 +50,11 @@ data class ArticleEntity(
     val readAtUtc: String? = null,
     val favoritedAtUtc: String? = null,
     val reportedDate: String? = null,
+    @ColumnInfo(defaultValue = "''") val note: String = "",
+    @ColumnInfo(defaultValue = "'[]'") val tagsJson: String = "[]",
+    @ColumnInfo(defaultValue = "0") val readingIndex: Int = 0,
+    @ColumnInfo(defaultValue = "0") val readingOffset: Int = 0,
+    @ColumnInfo(defaultValue = "''") val readingContentKey: String = "",
 )
 
 @Fts4(contentEntity = ArticleEntity::class)
@@ -256,6 +261,8 @@ data class FavoriteArticle(
     val pubDateUtc: String,
     val pubDateIso: String,
     val readAtUtc: String?,
+    val note: String = "",
+    val tagsJson: String = "[]",
 )
 
 /** Story-depth projection: how many distinct dates this event_key has been reported. */
@@ -298,6 +305,11 @@ data class ArticleDetail(
     val pubDateUtc: String,
     val pubDateIso: String,
     val favoritedAtUtc: String?,
+    val note: String = "",
+    val tagsJson: String = "[]",
+    val readingIndex: Int = 0,
+    val readingOffset: Int = 0,
+    val readingContentKey: String = "",
 )
 
 data class FeedUnreadCount(

@@ -251,6 +251,10 @@ private fun RunArtifactMetadata.toStateEntry(index: Int) = StateArtifactEntry(
 )
 
 private fun DeviceStateBackup.validate() {
+    articles.forEach { article ->
+        com.dailynews.model.ArticleAnnotations(article.note, ArtifactJson.codec.decodeFromString<List<String>>(article.tagsJson)).validated()
+        require(article.readingIndex in 0..100_000 && article.readingOffset in 0..10_000_000 && article.readingContentKey.length <= 64) { "invalid reading position" }
+    }
     reportItems.forEachIndexed { index, item ->
         item.development?.let { progress ->
             require(item.part == 1 && runCatching { java.time.LocalDate.parse(progress.baselineDate) }.isSuccess && progress.baselineDate < item.reportDate) {

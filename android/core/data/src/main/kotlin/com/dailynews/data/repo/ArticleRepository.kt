@@ -20,6 +20,7 @@ import com.dailynews.pipeline.ports.PooledArticle
 import com.dailynews.pipeline.ports.SweepFeedOutcome
 import com.dailynews.pipeline.ports.SweepWrite
 import com.dailynews.pipeline.text.TextUtils
+import kotlinx.serialization.builtins.serializer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -120,19 +121,29 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
             feed.name to FeedHealth(feed.name, feed.lastStatus, feed.lastError, feed.newestItemDateIso)
         }
 
-    fun search(query: String): Flow<List<ArticleEntity>> = database.articles().search(
-        SimpleSQLiteQuery(
-            "SELECT a.* FROM articles a JOIN articles_fts f ON f.docid = a.rowid WHERE articles_fts MATCH ? ORDER BY a.pubDateIso DESC",
-            arrayOf(ftsMatchExpression(query)),
-        ),
-    )
+    fun search(query: String): Flow<List<ArticleEntity>> = database.articles().search(readingQuery(query, false))
 
-    fun searchReportedDates(query: String): Flow<Set<String>> = database.articles().searchReportedDates(
-        SimpleSQLiteQuery(
-            "SELECT DISTINCT a.reportedDate AS reportedDate FROM articles a JOIN articles_fts f ON f.docid = a.rowid WHERE a.reportedDate IS NOT NULL AND articles_fts MATCH ?",
-            arrayOf(ftsMatchExpression(query)),
-        ),
-    ).map { rows -> rows.mapTo(linkedSetOf()) { it.reportedDate } }
+    fun searchReportedDates(query: String): Flow<Set<String>> = database.articles().searchReportedDates(readingQuery(query, true))
+        .map { rows -> rows.mapTo(linkedSetOf()) { it.reportedDate } }
+
+    private fun readingQuery(query: String, datesOnly: Boolean): SimpleSQLiteQuery {
+        val terms = com.dailynews.pipeline.text.readingSearchTerms(query)
+        require(terms.isNotEmpty()) { "Search query must not be blank" }
+        val args = mutableListOf<String>()
+        val clauses = terms.map { term ->
+            val escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            repeat(6) { args += "%$escaped%" }
+            """(a.title LIKE ? ESCAPE '\' OR a.summaryEn LIKE ? ESCAPE '\' OR a.feedName LIKE ? ESCAPE '\'
+                OR a.note LIKE ? ESCAPE '\' OR a.tagsJson LIKE ? ESCAPE '\'
+                OR EXISTS (SELECT 1 FROM report_items ri JOIN reports r ON r.reportDate = ri.reportDate
+                    WHERE ri.link = a.link AND r.status = 'SUCCESS' AND ri.summaryZh LIKE ? ESCAPE '\'))"""
+        }
+        val selection = if (datesOnly) "DISTINCT a.reportedDate AS reportedDate" else "a.*"
+        val dateGate = if (datesOnly) "a.reportedDate IS NOT NULL AND " else ""
+        // LIKE intentionally supports Chinese substrings and terms spread across annotations
+        // and published Chinese summaries, which the old English FTS index could not cover.
+        return SimpleSQLiteQuery("SELECT $selection FROM articles a WHERE $dateGate${clauses.joinToString(" AND ")} ORDER BY a.pubDateIso DESC, a.linkKey", args.toTypedArray())
+    }
 
     suspend fun markRead(link: String, now: Instant = Instant.now()) {
         database.articles().markRead(TextUtils.dedupLinkKey(link), now.toString())
@@ -147,6 +158,18 @@ class ArticleRepository(private val database: DailyNewsDatabase) : ArticlePoolPo
      * summaries, every link landed on the browser's offline error page, even though the
      * data had long been in the database and the money had long been paid.
      */
+    suspend fun saveAnnotations(link: String, note: String, tags: List<String>) {
+        val value = com.dailynews.model.ArticleAnnotations(note, tags).validated()
+        val encoded = com.dailynews.model.ArtifactJson.compact.encodeToString(kotlinx.serialization.builtins.ListSerializer(kotlin.String.serializer()), value.tags)
+        check(database.articles().saveAnnotations(TextUtils.dedupLinkKey(link), value.note, encoded,
+            value.note.isNotBlank() || value.tags.isNotEmpty(), Instant.now().toString()) == 1) { "文章已不在本地，未保存笔记" }
+    }
+
+    suspend fun saveReadingPosition(link: String, index: Int, offset: Int, contentKey: String) {
+        require(index in 0..100_000 && offset in 0..10_000_000 && contentKey.length <= 64)
+        database.articles().saveReadingPosition(TextUtils.dedupLinkKey(link), index, offset, contentKey)
+    }
+
     fun observeDetail(link: String): Flow<ArticleDetail?> =
         database.articles().observeDetail(TextUtils.dedupLinkKey(link))
 

@@ -20,7 +20,7 @@ import java.nio.file.StandardCopyOption
  * so every v9 export claimed to be v8 — and the import-side "reject higher-version
  * backups" guard could never fire. Two copies of one number will drift.
  */
-const val DAILYNEWS_SCHEMA_VERSION = 10
+const val DAILYNEWS_SCHEMA_VERSION = 11
 
 @androidx.room.TypeConverters(EventDevelopmentConverters::class)
 @Database(
@@ -249,6 +249,16 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE articles ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE articles ADD COLUMN tagsJson TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE articles ADD COLUMN readingIndex INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE articles ADD COLUMN readingOffset INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE articles ADD COLUMN readingContentKey TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun create(context: Context): DailyNewsDatabase {
             val appContext = context.applicationContext
             backupDatabaseVersionIfNeeded(appContext, 3, "dailynews-v3.db")
@@ -256,11 +266,12 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             backupDatabaseVersionIfNeeded(appContext, 7, "dailynews-v7.db")
             backupDatabaseVersionIfNeeded(appContext, 8, "dailynews-v8.db")
             backupDatabaseVersionIfNeeded(appContext, 9, "dailynews-v9.db")
+            backupDatabaseVersionIfNeeded(appContext, 10, "dailynews-v10.db")
             return Room.databaseBuilder(
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
         }
 
