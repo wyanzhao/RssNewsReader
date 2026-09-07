@@ -252,6 +252,39 @@ has been requested.
   excluded. Truncated-milestone faithfulness and independent blind evaluation
   remain open; see the source-bounded quality review for the next correction.
 
+## B1 source evidence projection (0.8.2)
+
+- Both prompts distinguish substantive official technical reports/data/releases
+  from promotion without new information, applying the same source standard to
+  all companies and preserving self-report attribution.
+- Before final editorial planning, an explicit trailing-ellipsis excerpt loses
+  its last unfinished sentence. `article_text_tail_omitted` makes that projection
+  visible; original raw and authority artifacts remain intact. Affected cached
+  summaries are withheld, while stable event keys remain available. The persisted
+  shortlist context is the exact projected material sent to the model.
+- This conservative projection does not detect unmarked truncation or prove
+  semantic faithfulness. Forty-five of this 47-article pool's raw excerpts have
+  trailing ellipses. The incomplete achieved-goal clause in research acceleration
+  is withheld; the complete future aim and RSS summary remain available.
+- Regression tests cover the milestone fragment, decimal/version punctuation,
+  Chinese ellipses, no-complete-sentence input, intact complete statements,
+  provenance flags, cache invalidation, identity preservation and idempotence.
+  Full JVM suite passed 447 executions with zero failures/errors/skips; lint,
+  screenshot verification and five offline review-tool tests passed. Version gate
+  against `0f495f9` passed. Signed 0.8.2 (26) verified v2/v3, installed preserving
+  S25 data; mapping archived beside APK. APK SHA-256:
+  `4f73a4c57f63866e546853ba1fd0c1743b672f0743a8210ca5102f18a76ce3f9`.
+- S25 experiment `comparison-44c08cc3-19f1-4143-9763-afe5f9b6095a` failed in
+  baseline planning: overlap, 31 items, then shortfall 6 instead of 5 for 25 items.
+  Four measured calls cost USD 0.01583322; candidate never started. No paired
+  quality conclusion is available. The bounded retry gate preserved the existing
+  report and all original artifacts, verified byte-for-byte.
+- Exported model input proves the research achieved-goal fragment was withheld
+  and its omission flag recorded. This verifies input containment, not the
+  accuracy or relevance of a generated report. B1 source-policy acceptance remains
+  open; next work advances full-chain recovery/cost diagnostics without repeatedly
+  spending on unchanged model-contract failures.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

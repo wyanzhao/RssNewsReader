@@ -307,7 +307,9 @@ class LlmEditorialEngine(
         val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
         persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
         writeCheckpoint(runId, "part1_shortlist", shortlistFingerprint, codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
-        val shortlistContext = shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback)
+        val shortlistContext = com.dailynews.pipeline.context.editorialEvidenceContext(
+            shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback),
+        )
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)
         // This is the payload the Part 1 plan call actually sends, and the largest single piece on the whole chain,

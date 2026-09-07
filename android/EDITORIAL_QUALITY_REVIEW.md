@@ -126,3 +126,20 @@ Baseline wording is more cautious but still completes a truncated achieved-goal
 sentence as a supervised research system, which remains insufficiently supported.
 The major research item should be summarized from available complete statements
 without inventing the missing milestone. Independent blind judgments remain open.
+
+
+## 0.8.2 evidence boundary and failed acceptance
+
+Official-source rules now preserve technical self-reports with attribution rather
+than automatically rejecting them as promotional. The editorial input projection
+withholds an explicitly ellipsis-terminated final fragment, records
+`article_text_tail_omitted`, and withholds potentially contaminated cached
+summaries. Raw source material remains available unchanged for audit.
+
+S25 experiment `comparison-44c08cc3-19f1-4143-9763-afe5f9b6095a` verifies that the
+research-acceleration achieved-goal fragment is absent from model input. It does
+not verify final quality: the baseline exhausted three plan attempts on overlap,
+more than 30 events and incorrect shortfall arithmetic; candidate never ran.
+Four calls cost USD 0.01583322. No partial pair is publishable. The remaining
+B1 acceptance is explicit, while full-chain A2/B2 accounting is the next bounded
+implementation task. No new same-input paid retry is implied by this record.

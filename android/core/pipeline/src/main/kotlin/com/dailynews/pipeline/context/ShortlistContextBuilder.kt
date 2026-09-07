@@ -30,6 +30,7 @@ data class ShortlistContextArticle(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("cached_event_key") val cachedEventKey: String? = null,
+    @SerialName("article_text_tail_omitted") val articleTextTailOmitted: Boolean = false,
 )
 
 @Serializable
