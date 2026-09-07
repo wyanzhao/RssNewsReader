@@ -134,7 +134,7 @@ fun ReaderScreen(
                     OutlinedTextField(
                         state.searchQuery,
                         { viewModel.onSearchQuery(it) },
-                        label = { Text("按标题 / 英文摘要搜索") },
+                        label = { Text("搜索标题、来源、摘要、标签、笔记") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DailyNewsSpacing.roomy),
                     )

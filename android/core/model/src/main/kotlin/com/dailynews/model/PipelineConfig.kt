@@ -94,9 +94,11 @@ data class PipelineConfig(
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
     @SerialName("article_feedback") val articleFeedback: List<ArticleFeedback> = emptyList(),
     val watches: WatchPreferences = WatchPreferences(),
+    val reading: ReadingPreferences = ReadingPreferences(),
 ) {
     fun normalized(): PipelineConfig = copy(
         watches = watches.normalized(),
+        reading = reading.normalized(),
         fetch = fetch.copy(
             hours = fetch.hours.coerceIn(1, 168),
             maxSummary = fetch.maxSummary.coerceIn(1, 4_000),

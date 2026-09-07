@@ -43,7 +43,7 @@ class DevelopmentPersistenceTest {
                 }
                 ArtifactJson.codec.decodeFromString<DeviceStateBackup>(requireNotNull(found))
             }
-            assertEquals(10, envelope.databaseVersion)
+            assertEquals(com.dailynews.data.db.DAILYNEWS_SCHEMA_VERSION, envelope.databaseVersion)
             assertEquals(progress, envelope.reportItems.single().development)
             database.reports().deleteItems("2026-09-07")
             backups.importZip(payload)

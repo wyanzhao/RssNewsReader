@@ -13,6 +13,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.dailynews.model.ArtifactJson
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +38,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun FavoritesScreen(viewModel: FavoritesViewModel, onOpenArticle: ((String) -> Unit)? = null) {
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
+    val query by viewModel.query.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -47,8 +51,9 @@ fun FavoritesScreen(viewModel: FavoritesViewModel, onOpenArticle: ((String) -> U
             contentPadding = PaddingValues(DailyNewsSpacing.roomy),
             verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.regular),
         ) {
+            item("search") { OutlinedTextField(query, { viewModel.query.value = it.take(200) }, label = { Text("搜索标题、摘要、标签、笔记") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             if (favorites.isEmpty()) {
-                item { EmptyState("还没有收藏", "在报告文章卡片上点收藏，稍后可以从这里继续阅读。") }
+                item { EmptyState(if (query.isBlank()) "还没有收藏" else "没有匹配结果", if (query.isBlank()) "在报告文章卡片上点收藏，稍后可以从这里继续阅读。" else "尝试其他中英文关键词，多个词用空格分隔。") }
             }
             items(favorites, key = { it.link }) { item ->
                 ArticleCard(
@@ -78,6 +83,9 @@ fun FavoritesScreen(viewModel: FavoritesViewModel, onOpenArticle: ((String) -> U
                     onShare = { shareText(context, "${item.title}\n${item.link}\n${item.summaryZh}") },
                     onOpenRelated = {},
                 )
+                val tags = ArtifactJson.codec.decodeFromString<List<String>>(item.tagsJson)
+                if (tags.isNotEmpty()) Text(tags.joinToString(" · "), style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                if (item.note.isNotBlank()) Text("笔记：${item.note.take(160)}", maxLines = 3, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
         }
     }

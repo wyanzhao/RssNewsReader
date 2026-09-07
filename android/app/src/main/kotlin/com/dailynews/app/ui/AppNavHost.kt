@@ -207,7 +207,7 @@ private fun AppNavHost(
         composable("article/{link}") { entry ->
             val link = Uri.decode(entry.arguments?.getString("link").orEmpty())
             val vm: ArticleDetailViewModel = viewModel(key = "article-$link", factory = viewModelFactory {
-                ArticleDetailViewModel(container.articleRepository, container.favoriteRepository, link)
+                ArticleDetailViewModel(container.articleRepository, container.favoriteRepository, link, container.configRepository)
             })
             ArticleDetailScreen(
                 vm,
