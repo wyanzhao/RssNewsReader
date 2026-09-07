@@ -49,3 +49,27 @@ internal fun llmUsageText(state: DiagnosticsUiState): String {
     val output = amount(state.llmCalls.map { it.outputTokens })
     return "$input+$output tokens"
 }
+
+internal fun recoveryCostSummary(state: DiagnosticsUiState): List<String> {
+    val chain = state.recoveryCosts ?: return emptyList()
+    if (chain.runIds.size < 2 && state.detail?.trigger != "recovery") return emptyList()
+    val amount = if (chain.reportedCalls == 0 && !chain.complete) "未知" else "${chain.reportedUsd} USD"
+    return listOf(
+        "恢复链路：${chain.runIds.size} 次运行（含本次）",
+        if (chain.complete) "全链路费用：$amount（服务回报）" else "全链路已知费用：$amount；总费用未知",
+        "费用回报：${chain.reportedCalls}/${chain.observedCalls} 次已观察调用",
+    ) + chain.issues.map { issue ->
+        when (issue.substringBefore(':')) {
+            "cycle" -> "恢复关系存在循环"
+            "depth_limit" -> "恢复链路超出检查上限"
+            "missing_run" -> "父运行记录缺失"
+            "identity_mismatch" -> "运行身份或报告日期不一致"
+            "missing_provenance", "invalid_provenance" -> "恢复来源记录缺失或损坏"
+            "unsettled_run" -> "存在进行中或中断运行，可能有未记录费用"
+            "measurement_gap", "duplicate_measurement", "invalid_measurement" -> "调用测量记录不完整或冲突"
+            "unknown_charge" -> "部分请求未回报费用"
+            "no_measurements" -> "没有可核验的调用记录，不能按零费用计算"
+            else -> "链路读取失败"
+        }
+    }.distinct()
+}

@@ -285,6 +285,35 @@ has been requested.
   open; next work advances full-chain recovery/cost diagnostics without repeatedly
   spending on unchanged model-contract failures.
 
+## A2/B2 recovery-chain accounting (0.8.3)
+
+- Traverses only `recovery.json.source_run_id` ancestry, with missing/corrupt
+  provenance, missing runs, date/identity mismatch, cycle and depth guards.
+  Valid decimal provider charges from source and resumed runs are summed, including
+  fully measured failed attempts. Conflicting duplicate measurements are excluded
+  from the known subtotal; missing accounting never becomes zero.
+- Running/interrupted or unfinished model stages, measurement/audit-count gaps,
+  unavailable charges and absent historical records keep total cost unknown.
+  No ancestry is inferred from report dates or cache timestamps.
+- Recovery diagnostics shows the chain immediately under the verdict, including
+  known subtotal and charge coverage. Copied diagnostics includes the same text;
+  ZIP export writes a fresh `recovery_accounting.json` snapshot. This covers the
+  explicit recovery chain, not unrelated experiments or all fresh generations.
+- Full JVM evidence: 455 executions, zero failures/errors/skips. Lint and screenshot
+  verification passed. Screenshot fixture now waits for the visible diagnostics
+  empty state at normal font scale; at 200% that content is below the startup
+  failure banner and not composed. Existing image baselines were preserved.
+- Signed 0.8.3 (27), v2/v3 verified; version gate against `b57d749` passed. Installed
+  on S25 with `adb install -r`; mapping archived beside APK. Final APK SHA-256:
+  `7bdeca3afc5c5a367b0a130c512cb76a396bb3820297e249a2485e8747aebabf`.
+- S25 existing successful recovery `recovery-87219236-162a-4ea9-a384-240d5fd136cb`
+  resolves parent `rss-20260907T103301Z-bb002d29-a1`. UI and exported accounting
+  both show two runs, 3/4 charged calls, known subtotal USD 0.00923884 and total
+  unknown due to cancellation. No new model request was made for this acceptance.
+- Remaining A2/B2 scope includes full retry-chain provenance beyond explicit
+  recovery, baseline comparisons and the full interruption matrix. B1 quality
+  acceptance and A3/B3/C1/C2 remain open.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
@@ -312,5 +341,5 @@ Recovery ancestry already persists as `recovery.json.source_run_id` in
 RunOrchestrator. Full-chain cost work should traverse that explicit artifact,
 check cycles/missing ancestors, and aggregate measured attempts with unknown
 cancelled calls retained. Do not infer ancestry from dates or cache timestamps.
-The current diagnostics totals still describe the selected run, so A2/B2
-full-chain accounting remains open.
+Explicit recovery-chain accounting is now implemented and verified above; other
+retry-chain and full-matrix acceptance remains open.

@@ -73,6 +73,7 @@ class V3ScreenMatrixScreenshotTest {
                                 when (name) {
                                     "reader" -> addOption(AwaitComposeText("这里暂时没有内容"))
                                     "report" -> addOption(AwaitComposeText("这一天没有报告"))
+                                    "diagnostics" -> if (scale == 1f) addOption(AwaitComposeText("还没有运行记录"))
                                 }
                             },
                         ) {

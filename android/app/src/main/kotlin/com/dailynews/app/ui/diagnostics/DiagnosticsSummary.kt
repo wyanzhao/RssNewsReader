@@ -49,6 +49,7 @@ fun buildDiagnosticsSummary(state: DiagnosticsUiState): String = buildString {
         appendLine("LLM：${totals.calls} 次 · ${llmUsageText(state)} · ${totals.failed} 次失败")
     }
     llmMeasurementSummary(state).forEach { appendLine(it) }
+    recoveryCostSummary(state).forEach { appendLine(it) }
     stageTimingsFor(state.logs).takeIf { it.isNotEmpty() }?.let { timings ->
         appendLine("阶段耗时（编辑全流程包含模型调用）：")
         timings.forEach { appendLine("- ${stageTimingText(it)}") }

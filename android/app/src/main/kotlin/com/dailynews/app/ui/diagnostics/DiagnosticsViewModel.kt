@@ -73,6 +73,7 @@ data class DiagnosticsUiState(
     val budgetArtifact: ArtifactPayload = ArtifactPayload(),
     /** Contract-violation artifacts: name → content. An empty list means this run was never sent back. */
     val comparisons: List<ComparisonStatus> = emptyList(),
+    val recoveryCosts: com.dailynews.pipeline.observability.RecoveryAccounting? = null,
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
     val finalPlan: com.dailynews.model.Part1Plan? = null,
@@ -89,6 +90,7 @@ internal data class DiagnosticDetails(
     val artifactsLoading: Boolean = false,
     val resolved: ResolvedArtifacts = ResolvedArtifacts(),
     val comparisons: List<ComparisonStatus> = emptyList(),
+    val recoveryCosts: com.dailynews.pipeline.observability.RecoveryAccounting? = null,
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
     val finalPlan: com.dailynews.model.Part1Plan? = null,
@@ -106,6 +108,7 @@ private sealed interface ArtifactTexts {
         val shortlist: String?,
         val plan: String?,
         val comparisons: List<ComparisonStatus>,
+        val recoveryCosts: com.dailynews.pipeline.observability.RecoveryAccounting,
     ) : ArtifactTexts
 }
 
@@ -130,7 +133,7 @@ internal fun llmTotalsFor(calls: List<LlmCallEntity>): LlmTotals = LlmTotals(
 class DiagnosticsViewModel(
     initialRunId: String?,
     private val savedState: SavedStateHandle,
-    runs: RunRepository,
+    private val runs: RunRepository,
     private val runLogs: RunLogRepository,
     private val llmCalls: LlmCallRepository,
     private val artifacts: ArtifactStore,
@@ -170,6 +173,9 @@ class DiagnosticsViewModel(
                         .filter { it.startsWith("contract_violations/") }
                         .sorted()
                         .mapNotNull { name -> artifacts.readText(entity.runId, name)?.let { name to it } }
+                    val chain = try { runs.recoveryAccounting(entity.runId, artifacts) }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { com.dailynews.pipeline.observability.RecoveryAccounting(emptyList(), "0", 0, 0, false, listOf("read_error")) }
                     ArtifactTexts.Loaded(
                         artifacts.readText(entity.runId, "validation.json"),
                         artifacts.readText(entity.runId, "context_budget.json"),
@@ -183,6 +189,7 @@ class DiagnosticsViewModel(
                                     (manifest["preference"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty())
                             }.getOrElse { ComparisonStatus("unreadable", "") }
                         },
+                        chain,
                     )
                 }
                 emit(loaded)
@@ -196,6 +203,7 @@ class DiagnosticsViewModel(
                         artifactsLoading = false,
                         resolved = resolveDiagnosticsArtifacts(artifactTexts.validation, artifactTexts.budget, entity, logs),
                         comparisons = artifactTexts.comparisons,
+                        recoveryCosts = artifactTexts.recoveryCosts,
                         finalPlan = artifactTexts.plan?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1Plan>(it) }.getOrNull() },
                         finalPlanError = artifactTexts.plan?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1Plan>(it) }.isFailure } ?: false,
                         shortlistAudit = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.getOrNull() },
@@ -250,6 +258,9 @@ class DiagnosticsViewModel(
         val runId = selected.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
+                val accounting = runs.recoveryAccounting(runId, artifacts)
+                artifacts.write(runId, "recovery_accounting.json", com.dailynews.model.ArtifactJson.codec.encodeToString(
+                    com.dailynews.pipeline.observability.RecoveryAccounting.serializer(), accounting).toByteArray())
                 check(write { output -> artifacts.exportZip(runId, output) }) { "无法写入所选文件" }
             }
                 .onSuccess { postEvent("产物已导出", error = false) }
@@ -314,6 +325,7 @@ internal fun buildState(
         feedResults = resolved.feedResults,
         budget = detailBundle.resolved.budget,
         comparisons = detailBundle.comparisons,
+        recoveryCosts = detailBundle.recoveryCosts,
         shortlistAudit = detailBundle.shortlistAudit,
         shortlistAuditError = detailBundle.shortlistAuditError,
         finalPlan = detailBundle.finalPlan,

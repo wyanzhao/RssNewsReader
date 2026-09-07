@@ -9,8 +9,44 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.flow.first
 
 class RunRepository(private val database: DailyNewsDatabase) {
+    suspend fun recoveryAccounting(runId: String, artifacts: com.dailynews.data.files.ArtifactStore) =
+        com.dailynews.pipeline.observability.recoveryAccounting(runId) load@{ id ->
+            val row = database.runs().get(id) ?: return@load null
+            val issues = mutableListOf<String>()
+            val provenance = artifacts.readText(id, "recovery.json")
+            val parent = if (provenance == null) {
+                if (row.trigger == "recovery") issues += "missing_provenance"
+                null
+            } else {
+                val decoded = runCatching {
+                    val obj = ArtifactJson.codec.decodeFromString<kotlinx.serialization.json.JsonObject>(provenance)
+                    require((obj["mode"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "frozen_input")
+                    requireNotNull((obj["source_run_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content).also { require(it.isNotBlank()) }
+                }
+                if (decoded.isFailure) issues += "invalid_provenance"
+                decoded.getOrNull()
+            }
+            val logs = database.runLogs().observe(id).first()
+            val measurements = logs.filter { it.step == com.dailynews.pipeline.observability.LlmAttemptMeasurement.LOG_STEP }.mapNotNull {
+                runCatching { ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.observability.LlmAttemptMeasurement>(it.message) }
+                    .getOrElse { issues += "invalid_measurement"; null }
+            }
+            val starts = logs.count { it.step == "stage_started" && it.message.startsWith("llm.") }
+            val finishes = logs.count { log ->
+                log.step == "stage_timing" && runCatching {
+                    val obj = ArtifactJson.codec.decodeFromString<kotlinx.serialization.json.JsonObject>(log.message)
+                    (obj["stage"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.startsWith("llm.") == true
+                }.getOrDefault(false)
+            }
+            com.dailynews.pipeline.observability.AccountingRun(id, row.reportDate, row.status, parent,
+                database.llmCalls().count(id), measurements, issues,
+                mayHaveUnrecordedCalls = starts > finishes || (starts > 0 && measurements.isEmpty()) || row.classification.contains("INTERRUPT", ignoreCase = true) ||
+                    (row.status == "FAILED" && logs.any { it.message.contains("cancel", ignoreCase = true) }))
+        }
+
     fun observeRecent(limit: Int = 50) = database.runs().observeRecent(limit.coerceIn(1, 200))
     fun observeDetail(runId: String) = database.runs().observeDetail(runId)
     suspend fun started(raw: RawRun, reportDate: String, attempt: Int, trigger: String = "unknown") {

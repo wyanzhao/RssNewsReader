@@ -18,6 +18,14 @@ class LlmMeasurementSummaryTest {
         llmCalls = List(rows.size + extraCalls) { LlmCallEntity(it.toLong(), "run", "EDITOR", "p", "m", retryIndex = 0, outcome = "success", createdAtUtc = "now") },
     )
 
+    @Test fun recoveryTotalsDistinguishUnknownFromZeroAndKeepOrdinaryRunsUnchanged() {
+        val original = state(row("a:0"))
+        val chain = com.dailynews.pipeline.observability.RecoveryAccounting(listOf("run", "parent"), "0.12", 1, 2, false, listOf("unknown_charge:parent"))
+        assertTrue(recoveryCostSummary(original.copy(recoveryCosts = chain)).any { "总费用未知" in it })
+        assertTrue(recoveryCostSummary(original.copy(recoveryCosts = chain.copy(complete = true, issues = emptyList()))).any { "全链路费用：0.12 USD" in it })
+        assertTrue(recoveryCostSummary(original.copy(recoveryCosts = chain.copy(runIds = listOf("run")))).isEmpty())
+    }
+
     @Test fun exactDecimalCostIncludesReworkAndPhysicalRepair() {
         val summary = llmMeasurementSummary(state(row("a:0"), row("b:0", contract = 1), row("b:1", physical = 1, contract = 1)))
         assertTrue("首轮成功：否" in summary)

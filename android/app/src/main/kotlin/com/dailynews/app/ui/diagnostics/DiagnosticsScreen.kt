@@ -351,6 +351,17 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    val chainCosts = recoveryCostSummary(state)
+    if (chainCosts.isNotEmpty()) {
+        item(key = "recovery-chain-cost") {
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy)) {
+                    chainCosts.forEach { Text(it) }
+                }
+            }
+        }
+    }
+
     // 2 — recent runs picker
     val filteredRuns = if (onlyFailedRuns) state.runs.filter { it.classification in abnormalClassifications } else state.runs
     collapsibleSection(
