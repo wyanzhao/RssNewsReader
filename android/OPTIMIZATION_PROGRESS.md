@@ -129,9 +129,12 @@ has been requested.
 
 - Forced deep-idle test on S25 observed `mForceIdle=true`, `mState=IDLE` both
   immediately and after 30 seconds. Afterwards `unforce`, battery reset and wake
-  restored `mForceIdle=false`, ACTIVE and USB-powered state. Generation outcome
-  remains pending UI inspection after unlock; this does not yet prove successful
-  generation while deep idle or long-standby reliability.
+  restored `mForceIdle=false`, ACTIVE and USB-powered state. After unlock, the
+  final run was FAILED at editorial_contract: 47 input articles, shortlist 34,
+  required 40–45, three attempts, 41 seconds. This is not successful background
+  report acceptance. The prompt excludes noise and duplicate events while the
+  validator imposes a hard floor; resolving the quantity/quality conflict requires
+  an explicit shortlist policy decision. No constraint has been silently relaxed.
 
 ## Remaining authorized scope
 
