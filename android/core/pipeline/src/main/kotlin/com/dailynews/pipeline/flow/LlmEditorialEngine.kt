@@ -39,6 +39,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import com.dailynews.pipeline.observability.LlmAttemptMeasurement
+import com.dailynews.pipeline.observability.recordMeasurement
 import com.dailynews.pipeline.observability.StageTimer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
@@ -587,6 +589,7 @@ class LlmEditorialEngine(
             responseSchema = schema,
             reasoningEffort = binding.roleModel.reasoningEffort,
         )
+        val invocationId = java.util.UUID.randomUUID().toString()
         var lastTransportAttempt = 0
         return try {
             StageTimer(logs).measure(runId, "llm.$operation") {
@@ -595,6 +598,13 @@ class LlmEditorialEngine(
                     beforeAttempt = counter::take,
                     onAttempt = { jsonAttempt, response, outcome ->
                         lastTransportAttempt = jsonAttempt
+                        logs.recordMeasurement(runId, LlmAttemptMeasurement(
+                            attemptId = "$invocationId:$jsonAttempt",
+                            operation = operation, batch = batch,
+                            contractAttempt = retryIndex, physicalAttempt = jsonAttempt,
+                            outcome = outcome.substringBefore(':'), inputTokens = response?.inputTokens,
+                            outputTokens = response?.outputTokens, billedCostUsd = response?.billedCostUsd,
+                        ))
                         audit.record(
                             runId,
                             role,

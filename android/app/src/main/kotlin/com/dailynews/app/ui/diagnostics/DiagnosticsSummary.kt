@@ -46,8 +46,9 @@ fun buildDiagnosticsSummary(state: DiagnosticsUiState): String = buildString {
     }
     state.llmCalls.takeIf { it.isNotEmpty() }?.let {
         val totals = state.llmTotals
-        appendLine("LLM：${totals.calls} 次 · ${totals.inputTokens}+${totals.outputTokens} tokens · ${totals.failed} 次失败")
+        appendLine("LLM：${totals.calls} 次 · ${llmUsageText(state)} · ${totals.failed} 次失败")
     }
+    llmMeasurementSummary(state).forEach { appendLine(it) }
     stageTimingsFor(state.logs).takeIf { it.isNotEmpty() }?.let { timings ->
         appendLine("阶段耗时（编辑全流程包含模型调用）：")
         timings.forEach { appendLine("- ${stageTimingText(it)}") }

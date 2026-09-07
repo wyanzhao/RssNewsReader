@@ -344,7 +344,7 @@ private fun TodayStatusCard(
                 run?.status == "RUNNING" -> {
                     Text("正在执行 ${run.classification.lowercase()} 流程")
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    state.runSteps.filterNot { it.step == "stage_timing" }.takeLast(5)
+                    state.runSteps.filterNot { it.step == "stage_timing" || it.step == "llm_attempt_measurement" }.takeLast(5)
                         .forEach { log -> Text("• ${log.step} · ${log.message}", style = MaterialTheme.typography.bodySmall) }
                 }
                 failed -> {

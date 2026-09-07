@@ -21,6 +21,27 @@ import java.util.concurrent.TimeUnit
 
 class ProviderContractTest {
     @Test
+    fun `only openrouter charges are interpreted as USD and malformed accounting stays unknown`() = runBlocking {
+        for (type in listOf(ProviderType.OPENROUTER, ProviderType.OPENAI_COMPAT)) {
+            MockWebServer().use { server ->
+                server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"role":"assistant","content":"{}"}}],"usage":{"cost":0.0000123}}"""))
+                server.start()
+                val provider = OpenAiCompatProvider(
+                    ProviderConfig("p", type, server.url("/v1").toString(), "alias"),
+                    ApiKeySource { "test-secret" }, OkHttpClient(),
+                )
+                val response = provider.complete(LlmRequest("m", "s", "u", 100))
+                assertEquals(if (type == ProviderType.OPENROUTER) "0.0000123" else null, response.billedCostUsd)
+            }
+        }
+        val json = kotlinx.serialization.json.Json
+        for (value in listOf("null", "{}", "-1", "1e999", "\"not-money\"")) {
+            assertEquals(null, reportedUsd(json.parseToJsonElement(value)))
+        }
+        assertEquals("0", reportedUsd(json.parseToJsonElement("0")))
+    }
+
+    @Test
     fun `max token truncation fails fast instead of repeating the same capped request`() = runBlocking {
         var calls = 0
         val provider = object : LlmProvider {

@@ -187,6 +187,12 @@ class LlmEditorialEngineTest {
         assertTrue("part1_shortlist_context.json" in capturedArtifacts)
         assertTrue(capturedArtifacts.getValue("part1_shortlist_context.json").contains("prefer compiler research"))
         assertEquals(4, capturedRequests.size)
+        val measurements = capturedLogs.filter { it.startsWith("llm_attempt_measurement/INFO:") }.map {
+            ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.observability.LlmAttemptMeasurement>(it.substringAfter(": "))
+        }
+        assertEquals(listOf(0, 0, 1, 2), measurements.map { it.contractAttempt })
+        assertEquals(4, measurements.map { it.attemptId }.distinct().size)
+        assertTrue(measurements.all { it.physicalAttempt == 0 })
         assertTrue(capturedRequests.all { "prefer compiler research" in it.userContent })
         val violationPaths = capturedArtifacts.keys.filter { it.startsWith("contract_violations/part1_plan-") }
         assertEquals(3, violationPaths.size)

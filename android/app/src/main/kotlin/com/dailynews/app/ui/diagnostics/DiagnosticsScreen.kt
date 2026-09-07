@@ -403,6 +403,18 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    val measurements = llmMeasurementSummary(state)
+    if (measurements.isNotEmpty()) {
+        item(key = "llm-measurements") {
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy), verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                    Text("生成质量与费用", style = MaterialTheme.typography.titleLarge)
+                    measurements.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
+        }
+    }
+
     // 7 — LLM calls
     val timings = stageTimingsFor(state.logs)
     if (timings.isNotEmpty()) {
@@ -423,7 +435,7 @@ fun LazyListScope.diagnosticsContent(
             titleRes = R.string.llm_calls,
             expanded = llmExpanded,
             onToggle = onToggleLlmExpanded,
-            subtitle = "${totals.calls} 次 · ${totals.inputTokens}+${totals.outputTokens} tokens · ${totals.failed} 次失败",
+            subtitle = "${totals.calls} 次 · ${llmUsageText(state)} · ${totals.failed} 次失败",
         ) {
             items(state.llmCalls, key = { "llm-${it.id}" }) { call -> LlmCallRow(call) }
         }

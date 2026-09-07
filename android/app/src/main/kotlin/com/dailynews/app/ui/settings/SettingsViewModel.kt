@@ -270,8 +270,16 @@ class SettingsViewModel(
     private fun launchOperation(block: suspend () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             busy.value = true
-            runCatching { block() }.onFailure { providerMessage.value = it.message ?: it::class.simpleName }
-            busy.value = false
+            providerMessage.value = null
+            try {
+                block()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                providerMessage.value = error.message ?: error::class.simpleName
+            } finally {
+                busy.value = false
+            }
         }
     }
 

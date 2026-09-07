@@ -28,6 +28,8 @@ data class LlmResponse(
     val inputTokens: Long? = null,
     val outputTokens: Long? = null,
     val stopReason: String? = null,
+    /** Provider-reported account charge in USD, as a decimal; null means unavailable. */
+    val billedCostUsd: String? = null,
 )
 
 enum class ProviderType {

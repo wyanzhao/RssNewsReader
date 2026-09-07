@@ -51,6 +51,21 @@ elapsed-time measurements, not provider billing estimates. Older runs have no
 stage timing data. A fetch that fails before a run ID is assigned also has no
 stage timing record; its error remains in the existing diagnostics.
 
+Each physical LLM request now records its operation, contract round, request/JSON
+repair index, accounting coverage and outcome separately. Diagnostics shows whether
+a successful run needed retries, including contract rework, and explicitly marks
+missing telemetry as unknown. JSON parsing success alone does not count as report
+success. Failed or interrupted runs are not labeled first-pass successes.
+
+For OpenRouter, `usage.cost` is preserved as a decimal account charge in USD and
+summed across all recorded attempts, including rejected plans and repairs. Missing
+charges remain unknown; a partial sum is labeled with coverage and never called a
+total. Other OpenAI-compatible services and Anthropic are not assigned OpenRouter
+billing semantics. These figures exclude unreported upstream BYOK charges and
+credit purchase fees. See [OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+Connection-test and save results are also shown in a snackbar, so they remain
+visible when the inline message is below the fold.
+
 ## Modules
 
 - `core:model` — serializable artifact and configuration contracts (pure JVM)

@@ -102,6 +102,7 @@ class OpenAiCompatProvider(
             inputTokens = decoded.usage?.promptTokens,
             outputTokens = decoded.usage?.completionTokens,
             stopReason = choice.finishReason,
+            billedCostUsd = if (config.type.usesOpenRouterProtocol) reportedUsd(decoded.usage?.cost) else null,
         )
     }
 
@@ -214,6 +215,13 @@ private data class OpenAiChoice(
 
 @Serializable
 private data class OpenAiUsage(
+    val cost: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("prompt_tokens") val promptTokens: Long? = null,
     @SerialName("completion_tokens") val completionTokens: Long? = null,
 )
+
+/** Invalid accounting data cannot break an otherwise usable completion. */
+internal fun reportedUsd(value: kotlinx.serialization.json.JsonElement?): String? =
+    (value as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBigDecimalOrNull()
+        ?.takeIf { it.signum() >= 0 && it.precision() <= 30 && kotlin.math.abs(it.scale()) <= 18 }
+        ?.stripTrailingZeros()?.toPlainString()

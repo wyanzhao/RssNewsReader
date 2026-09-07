@@ -26,10 +26,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +57,10 @@ import com.dailynews.llm.StructuredMode
 fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(state.providerMessage) {
+        state.providerMessage?.let { snackbars.showSnackbar(it.take(240)) }
+    }
     BackHandler(enabled = state.section != SettingsSection.OVERVIEW) {
         viewModel.selectSection(SettingsSection.OVERVIEW)
     }
@@ -72,6 +79,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
         }
     }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbars) },
         topBar = {
             TopAppBar(
                 title = { Text(sectionTitle(state.section)) },
