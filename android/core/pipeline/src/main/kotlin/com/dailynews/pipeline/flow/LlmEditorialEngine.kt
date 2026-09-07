@@ -621,6 +621,8 @@ class LlmEditorialEngine(
     private suspend fun persistArtifact(runId: String, path: String, text: String) {
         try {
             artifacts.write(runId, path, text.toByteArray(Charsets.UTF_8))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             runCatching { logs.log(runId, "artifact", LogLevel.ERROR, "snapshot $path failed: ${error.message}") }
             throw IllegalStateException("required editorial artifact $path could not be persisted", error)

@@ -314,6 +314,39 @@ has been requested.
   recovery, baseline comparisons and the full interruption matrix. B1 quality
   acceptance and A3/B3/C1/C2 remain open.
 
+## B2 editorial interruption matrix (0.8.4)
+
+- Parameterized fault injection now covers eight editorial boundaries using fresh
+  engine instances and persisted checkpoint fixtures. The tests require
+  cancellation to propagate and only accepted, committed stages to be reused:
+
+| Interruption boundary | New model calls on recovery |
+| --- | ---: |
+| Shortlist request | 2 |
+| Shortlist artifact write | 2 |
+| Before shortlist checkpoint commit | 2 |
+| After shortlist checkpoint commit | 1 |
+| Shortlist context artifact write | 1 |
+| Final plan request | 1 |
+| Before plan checkpoint commit | 1 |
+| After plan checkpoint commit | 0 |
+
+- Tests first exposed two real failures: cancellation during required artifact
+  writes was wrapped as ordinary storage failure. `persistArtifact` now rethrows
+  CancellationException; real IOException still blocks and retains its cause.
+  No partial report or implicit artifact reconstruction was introduced.
+- Full checks passed before the additional storage assertion; final pipeline
+  suite rerun passed after that test was added. Combined recorded JVM executions:
+  464, zero failures/errors/skips. Lint and screenshot verification passed with
+  unchanged baselines. Version gate against `a8e990d` passed.
+- Signed APK read-back 0.8.4 (28), v2/v3 verified, installed on S25 with retained
+  data. Historical recovery and USD 0.00923884 known chain cost remain visible.
+  APK SHA-256 `6794fb7b89e385935981192b8bb823d0707180a3b4fcbe68808b9d4ae9cc6d5b`;
+  mapping archived beside APK. No paid model requests used for this acceptance.
+- These are JVM boundary injections plus an install/read smoke test, not evidence
+  of Android process-death/long-standby behavior. Remaining A3/B2 device matrix,
+  B1 quality review and B3/C1/C2 product work remain open.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

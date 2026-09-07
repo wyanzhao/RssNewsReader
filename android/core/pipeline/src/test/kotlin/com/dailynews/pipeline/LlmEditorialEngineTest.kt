@@ -547,6 +547,76 @@ class LlmEditorialEngineTest {
         assertEquals(afterResume, calls)
     }
 
+    enum class StopPoint(val resumeCalls: Int) {
+        SHORTLIST_REQUEST(2), SHORTLIST_ARTIFACT(2), SHORTLIST_BEFORE_SAVE(2), SHORTLIST_AFTER_SAVE(1),
+        SHORTLIST_CONTEXT(1), PLAN_REQUEST(1), PLAN_BEFORE_SAVE(1), PLAN_AFTER_SAVE(0),
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(StopPoint::class)
+    fun `cancellation at every editorial boundary preserves only committed stages`(point: StopPoint) = runBlocking {
+        val inputs = lowVolumeArtifacts(cachedPart2 = false)
+        val stored = mutableMapOf<Pair<String, String>, String>()
+        var inject = true
+        var calls = 0
+        fun stop(at: StopPoint) {
+            if (inject && point == at) throw kotlinx.coroutines.CancellationException("injected $at")
+        }
+        val checkpoints = object : com.dailynews.pipeline.ports.EditorialCheckpointStore {
+            override suspend fun read(runId: String, stage: String) = stored[runId to stage]
+            override suspend fun write(runId: String, stage: String, content: String) {
+                stop(if (stage == "part1_shortlist") StopPoint.SHORTLIST_BEFORE_SAVE else StopPoint.PLAN_BEFORE_SAVE)
+                stored[runId to stage] = content
+                stop(if (stage == "part1_shortlist") StopPoint.SHORTLIST_AFTER_SAVE else StopPoint.PLAN_AFTER_SAVE)
+            }
+        }
+        val sink = object : ArtifactSink {
+            override suspend fun write(runId: String, relativePath: String, content: ByteArray) {
+                if (relativePath == "part1_shortlist.json") stop(StopPoint.SHORTLIST_ARTIFACT)
+                if (relativePath == "part1_shortlist_context.json") stop(StopPoint.SHORTLIST_CONTEXT)
+            }
+        }
+        fun engine() = LlmEditorialEngine(ProviderResolver { _, _ ->
+            ProviderBinding("test", object : LlmProvider {
+                override suspend fun complete(request: LlmRequest): LlmResponse {
+                    calls++
+                    val shortlist = request.system == "shortlist"
+                    stop(if (shortlist) StopPoint.SHORTLIST_REQUEST else StopPoint.PLAN_REQUEST)
+                    return LlmResponse(if (shortlist) shortlistDraft(5) else planDraft(ids(5), 25))
+                }
+            }, RoleModel("test", "model", 8192), "fixed")
+        }, TestPrompts, artifacts = sink, checkpoints = checkpoints)
+        suspend fun execute(id: String, engine: com.dailynews.pipeline.flow.EditorialEngine) = engine.edit(
+            id, inputs.llmContext, inputs.part1Brief, inputs.part2Context, inputs.contextBudget,
+            30, 20, Part2Mode.LAZY, LlmExecutionConfig())
+        assertFailsWith<kotlinx.coroutines.CancellationException> { execute("stopped", engine()) }
+        inject = false
+        val before = calls
+        val recovered = execute("resumed", engine().forRecovery("stopped"))
+        assertEquals(point.resumeCalls, calls - before, point.name)
+        assertEquals(5, recovered.part1.items.size)
+        assertTrue(stored.containsKey("resumed" to "part1_plan"))
+    }
+
+    @Test fun `ordinary artifact storage failure stays blocking`() = runBlocking {
+        val input = lowVolumeArtifacts(cachedPart2 = false)
+        var calls = 0
+        val engine = LlmEditorialEngine(ProviderResolver { _, _ -> ProviderBinding("test", object : LlmProvider {
+            override suspend fun complete(request: LlmRequest): LlmResponse {
+                calls++
+                return LlmResponse(shortlistDraft(5))
+            }
+        }, RoleModel("test", "model", 8192)) }, TestPrompts,
+            artifacts = object : ArtifactSink {
+                override suspend fun write(runId: String, relativePath: String, content: ByteArray) { throw java.io.IOException("storage unavailable") }
+            })
+        val error = assertFailsWith<IllegalStateException> {
+            engine.edit("failed", input.llmContext, input.part1Brief, input.part2Context, input.contextBudget, 30, 20, Part2Mode.LAZY, LlmExecutionConfig())
+        }
+        assertTrue(generateSequence(error as Throwable) { it.cause }.take(10).any { it is java.io.IOException })
+        assertEquals(1, calls)
+    }
+
     private fun ids(count: Int) = (1..count).map { "a$it" }
 
     /** The shortlist now also uses short ids: the model writes brief ids, not echoed URLs. */
