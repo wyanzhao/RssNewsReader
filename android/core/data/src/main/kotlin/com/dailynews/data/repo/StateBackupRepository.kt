@@ -251,6 +251,20 @@ private fun RunArtifactMetadata.toStateEntry(index: Int) = StateArtifactEntry(
 )
 
 private fun DeviceStateBackup.validate() {
+    reportItems.forEachIndexed { index, item ->
+        item.development?.let { progress ->
+            require(item.part == 1 && runCatching { java.time.LocalDate.parse(progress.baselineDate) }.isSuccess && progress.baselineDate < item.reportDate) {
+                "reportItems[$index] has invalid development baseline"
+            }
+            require(progress.changeZh.isNotBlank() && com.dailynews.pipeline.editorial.EditorialContracts.summaryLintErrors(progress.changeZh, "development", 200).isEmpty()) {
+                "reportItems[$index] has invalid development description"
+            }
+            require(progress.evidenceQuote.length in 10..400 && progress.evidenceQuote.isNotBlank()) { "reportItems[$index] has invalid development quote" }
+            val links = ArtifactJson.codec.decodeFromString<List<String>>(item.alsoLinksJson) + item.link
+            require(progress.evidenceLink in links) { "reportItems[$index] has unrelated development evidence" }
+        }
+    }
+
     seenLinks.forEachIndexed { index, entry ->
         require(entry.linkKey.isNotBlank()) { "seen_links[$index] has a blank linkKey" }
         require(runCatching { java.time.LocalDate.parse(entry.firstSeenDate) }.isSuccess) {

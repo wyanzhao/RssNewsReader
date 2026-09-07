@@ -111,7 +111,7 @@ class Migration7To8InstrumentedTest {
 
         val migrated = helper.runMigrationsAndValidate(
             fullChainDatabaseName,
-            9,
+            com.dailynews.data.db.DAILYNEWS_SCHEMA_VERSION,
             true,
             DailyNewsDatabase.MIGRATION_3_4,
             DailyNewsDatabase.MIGRATION_4_5,
@@ -119,6 +119,7 @@ class Migration7To8InstrumentedTest {
             DailyNewsDatabase.MIGRATION_6_7,
             DailyNewsDatabase.MIGRATION_7_8,
             DailyNewsDatabase.MIGRATION_8_9,
+            DailyNewsDatabase.MIGRATION_9_10,
         )
 
         migrated.query("SELECT linkKey, favoritedAtUtc FROM articles").use { cursor ->

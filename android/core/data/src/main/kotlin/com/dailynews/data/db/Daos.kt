@@ -358,19 +358,19 @@ interface ReportDao {
     @Query("SELECT * FROM report_items WHERE reportDate = :date ORDER BY part, position") fun observeItems(date: String): Flow<List<ReportItemEntity>>
 
     // Epic V story history: Part 1 items for the same event_key, date descending, via index_report_items_eventKey.
-    @Query("SELECT * FROM report_items WHERE eventKey = :eventKey AND part = 1 AND eventKey <> '' ORDER BY reportDate DESC, position")
+    @Query("SELECT ri.* FROM report_items ri INNER JOIN reports r ON r.reportDate = ri.reportDate WHERE r.status = 'SUCCESS' AND ri.eventKey = :eventKey AND ri.part = 1 AND ri.eventKey <> '' ORDER BY ri.reportDate DESC, ri.position")
     fun observeStory(eventKey: String): Flow<List<ReportItemEntity>>
 
     /**
-     * How many days each story line has been reported. The UI only shows the
-     * story-history entry when >= 2 — opening a single-article story would
-     * only show itself, an empty promise.
+     * Number of successful coverage days, used by the multi-day badge.
+     * First-day stories remain accessible through the event-follow menu.
      */
     @Query(
         """
-        SELECT eventKey, COUNT(DISTINCT reportDate) AS days FROM report_items
-        WHERE part = 1 AND eventKey <> '' AND eventKey IN (:eventKeys)
-        GROUP BY eventKey
+        SELECT ri.eventKey, COUNT(DISTINCT ri.reportDate) AS days FROM report_items ri
+        INNER JOIN reports r ON r.reportDate = ri.reportDate
+        WHERE r.status = 'SUCCESS' AND ri.part = 1 AND ri.eventKey <> '' AND ri.eventKey IN (:eventKeys)
+        GROUP BY ri.eventKey
         """,
     )
     fun observeStoryDepth(eventKeys: List<String>): Flow<List<StoryDepth>>

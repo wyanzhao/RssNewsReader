@@ -95,7 +95,7 @@ class ReportAssembler {
                 val article = articleByLink.getValue(TextUtils.cleanText(item.link))
                 val alsoLinks = item.alsoLinks.map { raw -> articleByLink.getValue(TextUtils.cleanText(raw)).link }
                 val eventKey = EditorialCacheKeys.eventKey(item.eventKey, article.title, article.link)
-                add(ReportItem(1, index + 1, article.link, article.title, article.source, article.pubDateUtc, article.pubDateIso, item.summaryZh, alsoLinks, eventKey))
+                add(ReportItem(1, index + 1, article.link, article.title, article.source, article.pubDateUtc, article.pubDateIso, item.summaryZh, alsoLinks, eventKey, item.development))
             }
             var part2Position = 0
             renderedPart2.groups.forEach { group ->

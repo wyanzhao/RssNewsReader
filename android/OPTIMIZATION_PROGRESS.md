@@ -467,6 +467,38 @@ has been requested.
   user-facing change presentation, notification deduplication and real-provider
   semantic evaluation still need implementation/acceptance.
 
+## B3 durable evidence and reader disclosure (1.0.0)
+
+- Room 9→10 adds nullable structured development evidence to permanent report
+  items. Assembly and publish retain the assessment; old rows remain null. The
+  database converter is registered on the database, schema 10 is exported, the
+  production migration list and pre-migration backup fuse include v9, and the
+  full-chain migration test now targets the shared current version constant.
+- State backup export/import includes typed evidence through report items. The
+  envelope/future-version guard uses schema version 10; import validates dates,
+  description bounds and selected-source membership before mutating settings or
+  tables. Reports retain evidence without article-pool or debug-artifact storage.
+- Report cards and story history show new facts labeled as AI judgment relative
+  to a named report date. Readers can expand the original excerpt and open its
+  exact source URL. Old reports are not retroactively assigned novelty claims.
+- Audit found failed reports in story queries; history and multi-day counts now
+  join only successful reports, matching the editorial comparison baseline.
+- Tests cover assembly/publish/backup roundtrip, legacy null migration, full-chain
+  device migration, exact source-opening semantics and light/dark story rendering.
+  Final checks passed: 490 JVM executions and 31 S25 database/instrumentation
+  tests, no failures/errors/skips; lintDebug, Roborazzi verification and release
+  assembly passed. Light/dark UI screenshots were visually inspected.
+- Version gate passed against 79e8744. Signed APK read-back 1.0.0 (33), v2/v3
+  verified; SHA-256:
+  `2552ff9a835fd86b6f114ec5ba3fb35a715ece71f1586c8a25f5498892d0dc7d`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-100/`.
+- Retained-data S25 upgrade succeeded. The existing story and follow action
+  remained visible after Room opened the migrated database; old reports show no
+  invented development label. Screenshot: `s25-100-migrated-story.png`. No new
+  model call or provider-setting changes were made.
+- Notification delivery, real-model novelty quality and personalized weekly review
+  remain open. UI screenshots use labeled test fixtures, not real model output.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

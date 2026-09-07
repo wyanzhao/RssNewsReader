@@ -14,13 +14,15 @@ import java.nio.file.StandardCopyOption
 /**
  * Single source of truth for the Room schema version.
  *
- * Both `@Database(version=)` and the state-backup envelope must read it. Previously
+ * Both `@androidx.room.TypeConverters(EventDevelopmentConverters::class)
+@Database(version=)` and the state-backup envelope must read it. Previously
  * the envelope carried its own literal default; on v8→v9 only one half was updated,
  * so every v9 export claimed to be v8 — and the import-side "reject higher-version
  * backups" guard could never fire. Two copies of one number will drift.
  */
-const val DAILYNEWS_SCHEMA_VERSION = 9
+const val DAILYNEWS_SCHEMA_VERSION = 10
 
+@androidx.room.TypeConverters(EventDevelopmentConverters::class)
 @Database(
     entities = [
         FeedEntity::class,
@@ -240,17 +242,25 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             }
         }
 
+        /** Keep source-bound progress with the report, independent of artifact/pool retention. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE report_items ADD COLUMN development TEXT DEFAULT NULL")
+            }
+        }
+
         fun create(context: Context): DailyNewsDatabase {
             val appContext = context.applicationContext
             backupDatabaseVersionIfNeeded(appContext, 3, "dailynews-v3.db")
             backupDatabaseVersionIfNeeded(appContext, 4, "dailynews-v4.db")
             backupDatabaseVersionIfNeeded(appContext, 7, "dailynews-v7.db")
             backupDatabaseVersionIfNeeded(appContext, 8, "dailynews-v8.db")
+            backupDatabaseVersionIfNeeded(appContext, 9, "dailynews-v9.db")
             return Room.databaseBuilder(
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
             .build()
         }
 

@@ -131,6 +131,7 @@ fun StoryContent(
                                 pubDateUtc = item.pubDateUtc,
                                 pubDateIso = item.pubDateIso,
                                 summaryZh = item.summaryZh,
+                                development = item.development,
                             ),
                             saved = false,
                             read = false,

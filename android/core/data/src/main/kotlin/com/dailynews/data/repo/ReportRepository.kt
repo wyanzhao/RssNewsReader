@@ -82,6 +82,7 @@ class ReportRepository(
                     item.summaryZh,
                     ArtifactJson.compact.encodeToString(item.alsoLinks),
                     item.eventKey,
+                    item.development,
                 )
             })
             val reportedKeys = report.items.flatMap { item -> listOf(item.link) + item.alsoLinks }

@@ -307,6 +307,7 @@ data class ReportItem(
     @SerialName("also_links") val alsoLinks: List<String> = emptyList(),
     /** Cross-day thread id. `also_links` only clusters within this report; this field connects the same event to previous days' reports. */
     @SerialName("event_key") val eventKey: String = "",
+    val development: EventDevelopment? = null,
 )
 
 @Serializable

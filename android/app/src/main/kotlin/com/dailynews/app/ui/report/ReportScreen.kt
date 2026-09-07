@@ -409,7 +409,7 @@ private fun ReportArticleCard(
     ArticleCard(
         article = ArticleCardModel(
             item.link, item.title, item.source, item.pubDateUtc, item.pubDateIso, item.summaryZh,
-            rank, alsoLinks, storyDays,
+            rank, alsoLinks, storyDays, development = item.development,
         ),
         saved = saved,
         read = read,

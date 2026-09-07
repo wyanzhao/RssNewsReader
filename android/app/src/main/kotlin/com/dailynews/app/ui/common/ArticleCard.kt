@@ -62,6 +62,7 @@ data class ArticleCardModel(
      * four of an event without long-pressing all 30 cards one by one.
      */
     val storyDays: Int? = null,
+    val development: com.dailynews.model.EventDevelopment? = null,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -156,6 +157,7 @@ fun ArticleCard(
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
+                article.development?.let { EventDevelopmentContent(it, onOpenRelated) }
                 val storyDays = article.storyDays?.takeIf { it >= 2 }
                 if (article.relatedLinks.isNotEmpty() || storyDays != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {

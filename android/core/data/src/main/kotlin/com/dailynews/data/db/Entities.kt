@@ -1,5 +1,7 @@
 package com.dailynews.data.db
 
+import androidx.room.ColumnInfo
+import com.dailynews.model.EventDevelopment
 import androidx.room.Entity
 import androidx.room.Fts4
 import androidx.room.Index
@@ -183,6 +185,8 @@ data class ReportItemEntity(
      * EditorialCacheKeys so it is never empty.
      */
     val eventKey: String = "",
+    @ColumnInfo(defaultValue = "NULL")
+    val development: EventDevelopment? = null,
 )
 
 /**

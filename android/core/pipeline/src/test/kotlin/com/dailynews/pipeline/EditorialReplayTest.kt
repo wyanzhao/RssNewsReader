@@ -38,6 +38,18 @@ class EditorialReplayTest {
         assertTrue(ReportReviewer.review(report.markdown, context.meta.reportPath, context, validation, part1, part2).passed)
     }
 
+    @Test fun `assembly preserves structured development on permanent report items`() {
+        ReplayAvailability.require()
+        val context = codec.decodeFromString<LlmContext>(FixtureFactory.text("replay/2026-08-03/llm_context.json"))
+        val validation = codec.decodeFromString<ValidationResult>(FixtureFactory.text("replay/2026-08-03/validation.json"))
+        val part1 = codec.decodeFromString<Part1Plan>(FixtureFactory.text("replay/2026-08-03/part1_plan.json"))
+        val part2 = codec.decodeFromString<Part2Draft>(FixtureFactory.text("replay/2026-08-03/part2_draft.json"))
+        val progress = com.dailynews.model.EventDevelopment("2026-08-01", "本次披露新进展。", part1.items.first().link, "Source evidence kept verbatim")
+        val assessed = part1.copy(items = part1.items.mapIndexed { index, item -> if (index == 0) item.copy(development = progress) else item })
+        val report = ReportAssembler().assemble(context, validation, assessed, part2, 30, context.meta.reportPath)
+        assertEquals(progress, report.items.first().development)
+    }
+
     @Test
     fun `top N twenty derives shortfall and rejects duplicates`() {
         ReplayAvailability.require()

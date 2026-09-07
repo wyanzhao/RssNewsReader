@@ -8,6 +8,7 @@ import com.dailynews.data.db.*
 import com.dailynews.data.repo.ReportRepository
 import com.dailynews.model.AssembledReport
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -30,6 +31,8 @@ class EditorialHistoryPersistenceTest {
             assertEquals("2026-01-02", event?.coveredOn)
             assertEquals("https://example.org/2026-01-02", event?.link)
             assertNull(repository.latestBefore("other-event", "2026-09-07"))
+            assertEquals(listOf("2026-09-07", "2026-01-02", "2026-01-01"), repository.story("compiler").first().map { it.reportDate })
+            assertEquals(mapOf("compiler" to 3), repository.storyDepth(listOf("compiler")).first())
             assertTrue(repository.before("2026-09-07", "2026-08-31").isEmpty())
         } finally { database.close() }
     }
