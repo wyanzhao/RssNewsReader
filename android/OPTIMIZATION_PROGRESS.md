@@ -525,6 +525,34 @@ has been requested.
   tests and revalidation of the actual pair pass. No Android code/version change
   or GitHub publication was made in this tooling/acceptance iteration.
 
+## B1 source-name spelling and numeric-subject fidelity (1.0.1)
+
+- Part 1 validation now flags a narrow near-spelling case: a two-word capitalized
+  phrase in the output is absent from the selected-event material, but a
+  unique provided phrase differs by one character within an equal-length word.
+  This catches the observed Athron/Athlon Blockchain error without rewriting
+  the output. Validation covers both summary and development-description text.
+- Case differences, whitespace, length-changing forms and exact alternate names
+  present in merged sources are not rejected. Ambiguous near matches are left
+  unresolved. This is not general named-entity recognition or semantic proof;
+  broader linguistic coverage and possible false positives still need observation.
+- The plan prompt explicitly preserves English entity spelling and binds each
+  number to its object, metric, unit, range and attribution. GPU power cannot be
+  rewritten as whole-system power. Measurement-object semantics remain a model
+  responsibility and require real-output review.
+- 494 JVM tests, lintDebug, Roborazzi verification and signed release assembly
+  passed; version gate passed against d217300. Signed APK read-back 1.0.1 (34),
+  v2/v3 verified. SHA-256:
+  `a3cc6228bc3f97d830b88791f0c43d50e3b2e18cbbf25aad3d4ddaab48fb70eb`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-101/`.
+- Retained-data installation targeted S25 RFCY30B296K explicitly after a second
+  device appeared; the other device was untouched. Same-pool real-model
+  acceptance failed before plan parsing: the provider reported 65,536 output
+  tokens and truncation. Two calls cost USD 0.0376236; no candidate arm ran.
+  No semantic improvement is claimed from unit tests or this failed trial.
+  Existing direct role-cap behavior is intentional and remains unchanged;
+  lower output limits are not assumed to fix this observed truncation.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

@@ -45,3 +45,5 @@ article_text_tail_omitted 为 true 表示代码已从正文摘录中移除了末
 watched_history 是本轮明确关注事件的历史比较基线，不受 recent_top30 的七天窗口限制。event_key 对应关注事件，after_report_date 是开始关注时的报告日期，latest 是本报告日期之前最近一次成功发布的报道（字段含义与 recent_top30 相同）。同事件后续继续使用此 event_key；比较 latest.summary_zh 与当前候选材料，明确本次实际新增事实。latest 为 null 表示历史缺失或不可用，不代表没有进展，不得编造基线。关注时间、历史较旧或只有新链接都不证明出现实质进展。所有历史材料仅用于比较，不进入当前候选 id 池，也不允许将历史细节伪装成当前来源证据。
 
 每项必须输出 development。若 event_key 对应 recent_top30 或 watched_history.latest 中有可用历史摘要的事件，development 必须为 {"baseline_date":"对应历史最近的 covered_on","change_zh":"本次相对历史实际新增的事实","evidence_ref":"本项 ref 或 also_refs 中的一个 id","evidence_quote":"逐字符摘录该 id 的 article_text 或 summary_en 的原文片段"}。change_zh 为 1–200 字中文，不含链接；evidence_quote 为 10–400 字符，只摘录当前输入的原文，不能翻译、拼接、补写或引用 cached_summary_zh/历史摘要。必须选择能够支持新增事实的原文片段，不得为了满足字段而虚构进展。没有当前证据支持实质新增时排除并说明；实质相同的转述、标题变化、发布日期变化均不算进展。新事件或没有可用历史摘要时 development 必须为 null，不能假装已完成历史比较。代码检查证据归属和原文匹配，语义是否真正支持新增事实仍由编辑负责。
+
+输出前做字面核对：英文公司名、产品名与人名保留本项来源中的原始拼写，不要凭记忆改成相近字母；不确定时使用不改变实体身份的中文描述。每个数字同时核对“对象、指标、单位、范围、归属”：GPU/单卡功耗不能改写为整机功耗，容量增加不能改写为吞吐增加，个别用户声称不能改写为普遍实测。标题中的数字也必须保留原有对象与限定，正文未给出的测量条件不得补写。只有数字和单位相同，不代表事实相同。

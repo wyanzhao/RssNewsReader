@@ -206,3 +206,26 @@ projected article material in addition to prior controls. Ref numbering may
 differ with shortlist order. An explicit exclusion list must account for the whole
 source pool. Eight tool tests pass. Android code/APK did not
 change in this acceptance-only iteration.
+
+
+## 1.0.1 acceptance: truncated before final-plan validation
+
+Experiment `comparison-8ff0432f-7444-41b5-888c-0863f5814d57` on S25 used
+the same 47-article pool and requested preference. Evidence is archived at
+`build/acceptance/2026-09-07/comparison-101.zip`. Only the default arm ran:
+shortlist succeeded (35 selected), then the final-plan response was truncated.
+The provider reported 65,536 output tokens for that attempt. This number may
+include reasoning; it does not establish visible response size or a model loop.
+
+| Stage | Measured milliseconds | Input tokens | Output tokens | USD | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Shortlist | 20,463 | 10,432 | 1,805 | 0.0024673 | Success |
+| Plan | 228,897 | 15,922 | 65,536 | 0.0351563 | Truncated |
+
+Total measured charge is USD 0.0376236 across two physical calls. No final
+plan passed parsing, so this trial cannot validate the spelling guard or the
+GPU-versus-system measurement-subject prompt change. The experiment terminated
+as failed without publishing a report. Identical-cap truncation retries remain
+suppressed by StructuredLlm. Existing direct user-role output caps are deliberate;
+changing them to hidden per-operation limits would require revisiting that
+contract, and this failure alone does not show that a smaller cap would succeed.

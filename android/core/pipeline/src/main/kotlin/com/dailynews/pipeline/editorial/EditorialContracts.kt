@@ -107,6 +107,12 @@ object EditorialContracts {
             } else {
                 errors += summaryLintErrors(item.summaryZh, "part1 item $index summary_zh", PART1_SUMMARY_HARD_CAP)
             }
+            val sourceMaterial = (listOf(item.link) + item.alsoLinks).mapNotNull { articleByLink[TextUtils.cleanText(it)] }
+                .flatMap { listOf(it.title, it.source, it.summaryEn, it.articleText) }
+            errors += SourceNameContracts.errors(item.summaryZh, sourceMaterial, "part1 item $index summary_zh")
+            item.development?.let { progress ->
+                errors += SourceNameContracts.errors(progress.changeZh, sourceMaterial, "part1 item $index development.change_zh")
+            }
             item.alsoLinks.forEach { rawAlsoLink ->
                 val alsoLink = TextUtils.cleanText(rawAlsoLink)
                 when {
