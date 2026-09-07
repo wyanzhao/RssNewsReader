@@ -549,7 +549,7 @@ class LlmEditorialEngineTest {
 
     /** The shortlist now also uses short ids: the model writes brief ids, not echoed URLs. */
     private fun shortlistDraft(count: Int) =
-        ArtifactJson.compact.encodeToString(Part1ShortlistDraft(ids(count)))
+        ArtifactJson.compact.encodeToString(Part1ShortlistDraft(ids(count), ((count + 1)..28).map { com.dailynews.model.ShortlistExclusionDraft("a$it", "同事件重复且无新增事实") }))
 
     private fun planDraft(refs: List<String>, shortfall: Int) = ArtifactJson.compact.encodeToString(
         Part1PlanDraft(refs.map { Part1PlanDraftItem(it, "中文事件摘要", emptyList()) }, shortfall),

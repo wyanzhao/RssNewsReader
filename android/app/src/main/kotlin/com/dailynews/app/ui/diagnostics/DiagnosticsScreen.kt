@@ -437,6 +437,21 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    if (state.shortlistAuditError) {
+        item(key = "shortlist-audit-error") { Text("选题排除清单无法读取，请导出产物检查", color = MaterialTheme.colorScheme.error) }
+    }
+    state.shortlistAudit?.takeIf { it.excluded.isNotEmpty() }?.let { audit ->
+        item(key = "shortlist-audit-heading") { Text("选题说明：入选 ${audit.links.size} 篇，排除 ${audit.excluded.size} 篇", style = MaterialTheme.typography.titleLarge) }
+        items(audit.excluded.size, key = { "shortlist-excluded-$it" }) { index ->
+            val excluded = audit.excluded[index]
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy)) {
+                    Text(excluded.reason)
+                    Text(excluded.link, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
     val measurements = llmMeasurementSummary(state)
     if (measurements.isNotEmpty()) {
         item(key = "llm-measurements") {

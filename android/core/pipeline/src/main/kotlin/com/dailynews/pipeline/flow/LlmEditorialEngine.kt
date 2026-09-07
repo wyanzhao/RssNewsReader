@@ -238,26 +238,23 @@ class LlmEditorialEngine(
     ): Part1Result {
         val binding = providers.resolve(EditorialRole.EDITOR, llmExecution)
         val maxTarget = minOf(context.allArticles.size, topN + 15)
-        val minTarget = when {
-            context.allArticles.isEmpty() -> 0
-            context.allArticles.size >= topN + 10 -> topN + 10
-            else -> 1
-        }
+        val minTarget = minOf(context.allArticles.size, topN + 10)
         // Index built from the brief the model is handed, so the ids it reads and the
         // ids resolved here come from one assignment.
         val briefRefs = ArticleRefIndex(brief.articles.map { it.id to it.link })
         var shortlistFeedback = ""
         var acceptedLinks: List<String>? = null
+        var acceptedExclusions = emptyList<com.dailynews.model.ShortlistExclusion>()
         var lastShortlistErrors = emptyList<String>()
         val bindingInput = codec.encodeToString(binding.roleModel) + binding.configurationSignature + codec.encodeToString(llmExecution)
         val authorityInput = stableRecoveryInput(codec.encodeToString(context))
-        val shortlistFingerprint = recoveryHash("shortlist-v1\n$topN\n$bindingInput\n$authorityInput\n" +
+        val shortlistFingerprint = recoveryHash("shortlist-v2\n$topN\n$bindingInput\n$authorityInput\n" +
             stableRecoveryInput(codec.encodeToString(brief)) + prompts.part1Shortlist(topN) + EditorialJsonSchemas.part1Shortlist)
         readCheckpoint(runId, "part1_shortlist", shortlistFingerprint)?.let {
-            val saved = codec.decodeFromString<Part1ShortlistPayload>(it).links
-            require(saved.size in minTarget..maxTarget && saved.distinct().size == saved.size &&
-                saved.all { link -> brief.articles.any { article -> article.link == link } }) { "recovered shortlist fails current contracts" }
-            acceptedLinks = saved
+            val saved = codec.decodeFromString<Part1ShortlistPayload>(it)
+            require(com.dailynews.pipeline.editorial.ShortlistContracts.errors(saved, brief.articles.map { it.link }, minTarget, maxTarget).isEmpty()) { "recovered shortlist fails current contracts" }
+            acceptedLinks = saved.links
+            acceptedExclusions = saved.excluded
         }
         if (acceptedLinks == null) for (retryIndex in 0..2) {
             val shortlistObject = callObject(
@@ -278,7 +275,7 @@ class LlmEditorialEngine(
                 val errors = listOf("schema: ${decodedShortlist.exceptionOrNull()?.message}")
                 recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
                 lastShortlistErrors = errors
-                shortlistFeedback = "\n\nPrevious shortlist JSON violated the schema: ${decodedShortlist.exceptionOrNull()?.message}. Return {\"refs\":[...]} only."
+                shortlistFeedback = "\n\nPrevious shortlist JSON violated the schema: ${decodedShortlist.exceptionOrNull()?.message}. Return {\"refs\":[...],\"excluded\":[{\"ref\":\"a7\",\"reason\":\"specific reason\"}]} only."
                 continue
             }
             val resolved = shortlist.refs.map { it to briefRefs.resolve(it) }
@@ -291,12 +288,15 @@ class LlmEditorialEngine(
                 continue
             }
             val chosen = resolved.mapNotNull { it.second }
-            val errors = buildList {
-                if (chosen.size != chosen.distinct().size) add("shortlist references the same article twice")
-                if (chosen.size !in minTarget..maxTarget) add("shortlist size ${chosen.size} outside $minTarget..$maxTarget")
+            val excluded = shortlist.excluded.mapNotNull { entry ->
+                briefRefs.resolve(entry.ref)?.let { com.dailynews.model.ShortlistExclusion(it, entry.reason) }
             }
+            val errors = com.dailynews.pipeline.editorial.ShortlistContracts.errors(
+                Part1ShortlistPayload(chosen, excluded), brief.articles.map { it.link }, minTarget, maxTarget,
+            ) + shortlist.excluded.filter { briefRefs.resolve(it.ref) == null }.map { "unknown excluded ref: ${it.ref}" }
             if (errors.isEmpty()) {
                 acceptedLinks = chosen
+                acceptedExclusions = excluded
                 break
             }
             recordViolation(runId, "part1_shortlist", retryIndex, shortlistObject, errors)
@@ -304,8 +304,8 @@ class LlmEditorialEngine(
             shortlistFeedback = "\n\nPrevious shortlist violated deterministic contracts: ${errors.joinToString("; ")}. Correct every issue."
         }
         val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
-        persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links)))
-        writeCheckpoint(runId, "part1_shortlist", shortlistFingerprint, codec.encodeToString(Part1ShortlistPayload(links)))
+        persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
+        writeCheckpoint(runId, "part1_shortlist", shortlistFingerprint, codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
         val shortlistContext = shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback)
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)

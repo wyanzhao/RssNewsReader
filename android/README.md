@@ -213,3 +213,7 @@ allowed range, because truncation is a hard failure with no retry and the caps
 are estimated generously. Models whose own completion cap is lower may reject
 or truncate the request; lower the cap in Settings. Devices that already saved
 a different value keep it; change it in Settings.
+
+### 候选不足时的选题说明
+
+短名单低于正常目标时，模型必须逐项解释所有未入选文章。应用校验入选与排除引用完整覆盖本次文章池、无重复或池外链接，并限制原因长度与格式。运行诊断可查看排除原因及原文链接；结构校验不代表排除判断必然合理。排除清单随检查点保存，恢复时重新校验。

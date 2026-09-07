@@ -70,6 +70,8 @@ data class DiagnosticsUiState(
     val validationArtifact: ArtifactPayload = ArtifactPayload(),
     val budgetArtifact: ArtifactPayload = ArtifactPayload(),
     /** Contract-violation artifacts: name → content. An empty list means this run was never sent back. */
+    val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
+    val shortlistAuditError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
     val loading: Boolean = true,
     val artifactsLoading: Boolean = false,
@@ -81,6 +83,8 @@ internal data class DiagnosticDetails(
     val calls: List<LlmCallEntity> = emptyList(),
     val artifactsLoading: Boolean = false,
     val resolved: ResolvedArtifacts = ResolvedArtifacts(),
+    val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
+    val shortlistAuditError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
 )
 
@@ -91,6 +95,7 @@ private sealed interface ArtifactTexts {
         val budget: String?,
         /** name → content. One is written every time the LLM is sent back; previously completely invisible inside the app. */
         val violations: List<Pair<String, String>>,
+        val shortlist: String?,
     ) : ArtifactTexts
 }
 
@@ -159,6 +164,7 @@ class DiagnosticsViewModel(
                         artifacts.readText(entity.runId, "validation.json"),
                         artifacts.readText(entity.runId, "context_budget.json"),
                         violations,
+                        artifacts.readText(entity.runId, "part1_shortlist.json"),
                     )
                 }
                 emit(loaded)
@@ -171,6 +177,8 @@ class DiagnosticsViewModel(
                         calls = calls,
                         artifactsLoading = false,
                         resolved = resolveDiagnosticsArtifacts(artifactTexts.validation, artifactTexts.budget, entity, logs),
+                        shortlistAudit = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.getOrNull() },
+                        shortlistAuditError = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.isFailure } ?: false,
                         contractViolations = artifactTexts.violations,
                     )
                 }
@@ -284,6 +292,8 @@ internal fun buildState(
         counts = resolved.counts,
         feedResults = resolved.feedResults,
         budget = detailBundle.resolved.budget,
+        shortlistAudit = detailBundle.shortlistAudit,
+        shortlistAuditError = detailBundle.shortlistAuditError,
         logs = detailBundle.logs,
         llmCalls = detailBundle.calls,
         llmTotals = llmTotalsFor(detailBundle.calls),

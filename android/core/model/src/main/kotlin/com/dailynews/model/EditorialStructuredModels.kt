@@ -11,13 +11,19 @@ import kotlinx.serialization.json.jsonObject
  *
  * The persisted [Part1ShortlistPayload] stays link-keyed — the same division of labor
  * as [Part1Plan]: the model writes ids, Kotlin resolves them back to authoritative
- * links, and the artifact shape is unchanged.
+ * links. Optional link-keyed exclusion reasons preserve auditable shortfalls.
  */
 @Serializable
-data class Part1ShortlistDraft(val refs: List<String>)
+data class Part1ShortlistDraft(val refs: List<String>, val excluded: List<ShortlistExclusionDraft> = emptyList())
 
 @Serializable
-data class Part1ShortlistPayload(val links: List<String>)
+data class ShortlistExclusionDraft(val ref: String, val reason: String)
+
+@Serializable
+data class ShortlistExclusion(val link: String, val reason: String)
+
+@Serializable
+data class Part1ShortlistPayload(val links: List<String>, val excluded: List<ShortlistExclusion> = emptyList())
 
 /**
  * Model-side Part 1 plan draft.
@@ -131,7 +137,7 @@ data class PeriodicDigest(
  */
 object EditorialJsonSchemas {
     val part1Shortlist: JsonObject = schema(
-        """{"type":"object","additionalProperties":false,"properties":{"refs":{"type":"array","items":{"type":"string"}}},"required":["refs"]}""",
+        """{"type":"object","additionalProperties":false,"properties":{"refs":{"type":"array","items":{"type":"string"}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}}},"required":["refs","excluded"]}""",
     )
     val part1Plan: JsonObject = schema(
         """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"also_refs":{"type":"array","items":{"type":"string"}},"event_key":{"type":"string"},"noise_bucket":{"type":"string"}},"required":["ref","summary_zh","also_refs","event_key","noise_bucket"]}},"shortfall":{"type":"integer"},"notes":{"type":"array","items":{"type":"string"}}},"required":["items","shortfall","notes"]}""",

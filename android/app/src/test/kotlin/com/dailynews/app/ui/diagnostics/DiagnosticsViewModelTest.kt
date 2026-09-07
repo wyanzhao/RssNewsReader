@@ -103,6 +103,20 @@ class DiagnosticsViewModelTest {
     }
 
     @Test
+    fun acceptedExclusionReasonsAreLoadedAndCorruptArtifactIsVisible() {
+        runBlocking {
+            database.runs().upsert(runEntity("excluded", "2026-09-07T10:00:00Z"))
+            ArtifactStore(database).write("excluded", "part1_shortlist.json", """{"links":["https://example.test/1"],"excluded":[{"link":"https://example.test/2","reason":"广告促销"}]}""".toByteArray())
+        }
+        val valid = awaitState(newViewModel("excluded")) { !it.artifactsLoading && it.shortlistAudit != null }
+        assertEquals("广告促销", valid.shortlistAudit?.excluded?.single()?.reason)
+        assertFalse(valid.shortlistAuditError)
+        runBlocking { ArtifactStore(database).write("excluded", "part1_shortlist.json", "broken".toByteArray()) }
+        val corrupt = awaitState(newViewModel("excluded")) { !it.artifactsLoading && it.shortlistAuditError }
+        assertNull(corrupt.shortlistAudit)
+    }
+
+    @Test
     fun nullInitialRunIdAutoSelectsTheMostRecentRun() {
         runBlocking {
             database.runs().upsert(runEntity("run-old", "2026-08-03T10:00:00Z"))

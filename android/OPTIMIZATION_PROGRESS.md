@@ -133,8 +133,37 @@ has been requested.
   final run was FAILED at editorial_contract: 47 input articles, shortlist 34,
   required 40–45, three attempts, 41 seconds. This is not successful background
   report acceptance. The prompt excludes noise and duplicate events while the
-  validator imposes a hard floor; resolving the quantity/quality conflict requires
-  an explicit shortlist policy decision. No constraint has been silently relaxed.
+  validator imposed a hard floor. The user subsequently authorized the explicit
+  exclusion-accounting policy documented in 0.7.4 below.
+
+## 0.7.4 user-authorized shortlist shortfall policy
+
+- The user explicitly chose fewer than 40 candidates when every excluded article
+  is explained and checked against the source pool. Below the normal target,
+  selected and excluded references must completely cover the authoritative pool.
+- Foreign references, duplicate/overlapping membership, omitted articles without
+  reasons, blank/oversized/URL-bearing reasons and an empty selected list reject
+  the draft. The normal maximum still applies. No deterministic news scoring was
+  introduced; substantive editorial judgment remains with the model.
+- Persisted shortlist artifacts and recovery checkpoints include link-keyed
+  exclusions; recovery revalidates coverage and reason constraints. A fingerprint
+  revision prevents older checkpoints from bypassing the new contract.
+- Diagnostics presents each accepted reason with its authoritative article link;
+  malformed artifacts show an explicit read error. Structural/source validation
+  does not establish that the editorial reason itself is correct.
+- Regression cases include 34 selected out of 47 with all 13 exclusions, missing
+  exclusions, foreign/duplicate references, invalid reasons, empty selection,
+  checkpoint reuse and accepted/corrupt diagnostic-artifact loading.
+- Full JVM suite: 439 executions, zero failures/errors/skips; lint and screenshot
+  verification passed. Version gate passed against `d8592c5`. Signed 0.7.4 (23)
+  installed preserving data; mapping archived beside APK. SHA-256:
+  `85ce665ba7ae05c9af8197426a7afca480ace9f252251164f439f2e731c7e1d8`.
+- S25 visibly displayed the actual model-shortlisting phase during live generation.
+  The live 0.7.4 run succeeded in 39 seconds: 47 source articles, 21 shortlisted,
+  26 excluded with individual reasons, final Top 18. The exported ZIP was audited:
+  selected/excluded links are disjoint, unique and exactly cover the raw pool;
+  every exclusion has a nonblank bounded reason. This verifies the below-target
+  path on device, but is not a blinded editorial-quality comparison.
 
 ## Remaining authorized scope
 
