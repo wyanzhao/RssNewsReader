@@ -69,6 +69,26 @@ has been requested.
   acceptance still remain; only ordinary background execution and explicit
   cancellation/recovery have been observed so far.
 
+## 0.7.1 device follow-up
+
+- ADB force-stop during generation, followed by relaunch, marked the original
+  run INTERRUPTED (20 seconds). WorkManager automatically reran the manual work;
+  that new run succeeded in 48 seconds. The screen was off during part of this
+  run and the foreground service remained present. USB power was connected and
+  deviceidle remained ACTIVE, so this is not a deep-Doze or long-standby result.
+- The test exposed a silent KEEP collision: a recovery request submitted while
+  the automatic rerun was active did not start. This was not checkpoint recovery.
+- Recovery submission now awaits the enqueue transaction and checks its exact
+  request ID; an ignored request reports that generation is already running or
+  queued. Submission failures are visible; cancellation still propagates.
+- On signed 0.7.1 (20), S25 confirmed the collision message during an active run;
+  the test generation was then cancelled through the app. The saved Top 30 was
+  present after the in-place upgrade. App JVM suite: 139 executions, no failures,
+  errors or skips; lint and screenshot verification passed. Version gate passed
+  against `def3f47`; signed APK verified and installed with data preserved.
+- APK SHA-256: `4568641b226745219928261552d0957886df0c8f99e9911a780a5308eef20eee`.
+  Mapping is archived beside the APK. No GitHub publication.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

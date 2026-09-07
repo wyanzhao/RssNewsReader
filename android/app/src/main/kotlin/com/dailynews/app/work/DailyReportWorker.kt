@@ -240,10 +240,17 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
 
         fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK) }
 
-        fun enqueueRecovery(context: Context, sourceRunId: String, reportDate: String) {
+        suspend fun enqueueRecovery(context: Context, sourceRunId: String, reportDate: String): Boolean {
             require(sourceRunId.isNotBlank())
             LocalDate.parse(reportDate)
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request(false, sourceRunId, reportDate))
+            val manager = WorkManager.getInstance(context)
+            val recovery = request(false, sourceRunId, reportDate)
+            return withContext(kotlinx.coroutines.Dispatchers.IO) {
+                manager.enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, recovery).result.get()
+                // KEEP reports operation success even when another request won. Query
+                // this exact ID after the transaction, rather than racing a precheck.
+                manager.getWorkInfoById(recovery.id).get() != null
+            }
         }
 
         fun enqueue(context: Context, scheduled: Boolean) {

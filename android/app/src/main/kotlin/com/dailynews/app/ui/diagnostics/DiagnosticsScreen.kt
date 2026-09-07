@@ -109,7 +109,22 @@ fun DiagnosticsScreen(
             confirmLabel = "恢复运行",
             onConfirm = {
                 confirmRecovery = false
-                state.detail?.let { DailyReportWorker.enqueueRecovery(context, it.runId, it.reportDate) }
+                state.detail?.let { run ->
+                    scope.launch {
+                        val message = try {
+                            if (DailyReportWorker.enqueueRecovery(context, run.runId, run.reportDate)) {
+                                "恢复任务已提交，可在最近运行中查看进度"
+                            } else {
+                                "已有生成任务正在运行或排队，本次恢复未启动；请等待完成或先停止生成"
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            "恢复任务提交失败，请稍后重试"
+                        }
+                        snackbars.showSnackbar(message)
+                    }
+                }
             },
             onDismiss = { confirmRecovery = false },
         )
