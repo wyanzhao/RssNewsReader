@@ -165,6 +165,19 @@ has been requested.
   every exclusion has a nonblank bounded reason. This verifies the below-target
   path on device, but is not a blinded editorial-quality comparison.
 
+## B1 source-audit groundwork
+
+- Added `tools/editorial_review.py`: prepares one-arm source audits or two-arm
+  blinded-label packets from diagnostic ZIPs. Rejects differing source pools,
+  non-feedback config/brief drift, history drift, and shared cache drift. Source
+  filenames and per-arm feedback are absent from the reviewer evidence; unblinding
+  is separate. Runtime provenance still requires independent verification.
+- Three offline tooling tests passed. Generated the current 47-article audit packet
+  locally and recorded bounded findings in `EDITORIAL_QUALITY_REVIEW.md`.
+- Current baseline has no explicit editorial feedback. No preference-improvement
+  or completed blind-comparison claim is made. Candidate generation and blind
+  judgments remain open.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
