@@ -47,6 +47,33 @@ import org.junit.jupiter.api.Test
 /** KEEP: deterministic branch, retry, audit, and best-effort bookkeeping contracts. */
 class RunOrchestratorTest {
     @Test
+    fun `execution cursor is durable after snapshots and before editorial`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val harness = Harness(raw)
+        var bound = false
+        val result = harness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md",
+            config.copy(part1MaxItems = 10), onPrepared = { id ->
+                assertEquals(raw.meta.runId, id)
+                assertTrue(setOf("raw.json", "run_config.json", "run_feeds.json", "validation.json").all { it in harness.artifacts })
+                assertEquals(0, harness.editorCalls)
+                bound = true
+            }))
+        assertIs<RunExecutionResult.Success>(result)
+        assertTrue(bound)
+    }
+
+    @Test
+    fun `failed cursor persistence cannot spend tokens or publish`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val harness = Harness(raw)
+        val result = harness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", config,
+            onPrepared = { error("disk unavailable") }))
+        assertEquals("work_checkpoint", assertIs<RunExecutionResult.Failed>(result).stage)
+        assertEquals(0, harness.editorCalls)
+        assertEquals(0, harness.reportWrites)
+    }
+
+    @Test
     fun `success writes report before top n and publishes ledgers best effort`() = runBlocking {
         val (raw, _, config) = FixtureFactory.goldenRaw()
         val harness = Harness(raw, failLedgers = true)

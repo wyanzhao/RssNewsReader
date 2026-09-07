@@ -12,6 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.flow.first
 
 class RunRepository(private val database: DailyNewsDatabase) {
+    suspend fun get(runId: String) = database.runs().get(runId)
     suspend fun recoveryAccounting(runId: String, artifacts: com.dailynews.data.files.ArtifactStore) =
         com.dailynews.pipeline.observability.recoveryAccounting(runId) load@{ id ->
             val row = database.runs().get(id) ?: return@load null

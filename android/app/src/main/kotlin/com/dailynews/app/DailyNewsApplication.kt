@@ -10,6 +10,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
 class DailyNewsApplication : Application() {
+    private val startupReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+    suspend fun awaitStartup() = startupReady.await()
     lateinit var container: AppContainer
         private set
 
@@ -29,7 +31,11 @@ class DailyNewsApplication : Application() {
                 container.feedRepository.seedIfEmpty()
                 val config = container.configRepository.config.first()
                 ReportScheduler(this@DailyNewsApplication).ensureScheduled(config.scheduleTime, config.sweepIntervalMinutes)
-            }.onFailure { startupFailure = it.message ?: it::class.simpleName }
+            }.onSuccess { startupReady.complete(Unit) }
+                .onFailure {
+                    startupFailure = it.message ?: it::class.simpleName
+                    startupReady.completeExceptionally(it)
+                }
         }
     }
 }

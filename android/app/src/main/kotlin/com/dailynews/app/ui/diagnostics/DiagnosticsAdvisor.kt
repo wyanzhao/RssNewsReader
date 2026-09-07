@@ -98,8 +98,9 @@ fun advise(input: DiagnosticsAdviceInput): DiagnosticsAdvice = when {
     input.classification == "DEFERRED" || input.stage == "network_preflight" ->
         DiagnosticsAdvice("没拿到可用网络，本次已顺延；如果只在灭屏时发生，去设置里允许后台运行", DiagnosticsAction.RUN_NOW)
     // R5
-    input.stage == "watchdog" || input.stage == "stopped" ->
-        DiagnosticsAdvice("运行超时或被系统停止，重跑通常能过", DiagnosticsAction.RUN_NOW)
+    input.stage == "watchdog" -> DiagnosticsAdvice("运行超过时限，已停止", DiagnosticsAction.RUN_NOW)
+    input.stage == "stopped" ->
+        DiagnosticsAdvice("运行已停止，可能由主动取消或系统中止引起", DiagnosticsAction.RUN_NOW)
     // R6
     input.stage == "context_budget" -> DiagnosticsAdvice("上下文超出预算被硬拦", DiagnosticsAction.OPEN_PIPELINE_SETTINGS)
     // R7: deterministic editorial contract failures need the persisted artifacts.

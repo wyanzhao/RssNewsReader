@@ -44,9 +44,25 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     override suspend fun doWork(): Result {
         val app = applicationContext as DailyNewsApplication
+        // Startup must mark the old process's RUNNING rows before this worker can create a new one.
+        app.awaitStartup()
         val container = app.container
-        val recoverySource = inputData.getString(KEY_RECOVERY_SOURCE)
-        val date = inputData.getString(KEY_REPORT_DATE)?.let(LocalDate::parse) ?: LocalDate.now()
+        val fallbackDate = inputData.getString(KEY_REPORT_DATE)?.let(LocalDate::parse) ?: LocalDate.now()
+        val binding = try {
+            container.reportWorkRepository.read(id.toString())?.also {
+                val previous = requireNotNull(container.runRepository.get(it.runId)) { "worker recovery run was removed" }
+                require(previous.reportDate == it.reportDate) { "worker recovery date mismatch" }
+                if (previous.status == "SUCCESS") return Result.success()
+                require(previous.status == "FAILED") { "worker recovery run is not terminal" }
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            container.runRepository.recordPreflightFailure(fallbackDate, "recovery", "work_checkpoint",
+                error.message ?: "worker recovery cursor rejected", runAttemptCount + 1)
+            return Result.failure()
+        }
+        val recoverySource = binding?.runId ?: inputData.getString(KEY_RECOVERY_SOURCE)
+        val date = binding?.reportDate?.let(LocalDate::parse) ?: fallbackDate
         val scheduled = inputData.getBoolean(KEY_SCHEDULED, false)
         val trigger = if (recoverySource != null) "recovery" else if (scheduled) "scheduled" else "manual"
         val config = container.configRepository.config.first()
@@ -118,6 +134,7 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                         config = config,
                         trigger = trigger,
                         recoverySourceRunId = recoverySource,
+                        onPrepared = { runId -> container.reportWorkRepository.bind(id.toString(), runId, date.toString()) },
                     ),
                 )
             }

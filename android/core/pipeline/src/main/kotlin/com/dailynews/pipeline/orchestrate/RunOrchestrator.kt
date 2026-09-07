@@ -50,6 +50,8 @@ data class RunRequest(
     val config: PipelineConfig,
     val trigger: String = "manual",
     val recoverySourceRunId: String? = null,
+    /** Persist the execution owner after frozen inputs exist and before any model request. */
+    val onPrepared: suspend (String) -> Unit = {},
 )
 
 class DamagedInputException(message: String, val damagedRunId: String? = null, cause: Throwable? = null) :
@@ -198,6 +200,12 @@ class RunOrchestrator(
         validation: ValidationResult,
     ): RunExecutionResult {
         val runId = raw.meta.runId
+        try {
+            request.onPrepared(runId)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            return unexpectedFailure(request, runId, "work_checkpoint", error.message ?: "execution cursor failed", error)
+        }
         return try {
             val timer = StageTimer(logSink)
             val artifacts = timer.measure(runId, "context") {
