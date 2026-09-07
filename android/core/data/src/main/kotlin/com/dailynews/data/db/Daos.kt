@@ -284,6 +284,9 @@ interface LlmUsageMonthDao {
 
 @Dao
 interface ReportDao {
+    @Query("SELECT ri.* FROM report_items ri INNER JOIN reports r ON r.reportDate = ri.reportDate WHERE ri.part = 1 AND r.status = 'SUCCESS' AND ri.eventKey = :eventKey AND ri.reportDate < :beforeDate ORDER BY ri.reportDate DESC, ri.position LIMIT 1")
+    suspend fun latestEventBefore(eventKey: String, beforeDate: String): ReportItemEntity?
+
     @Query("SELECT ri.* FROM report_items ri INNER JOIN reports r ON r.reportDate = ri.reportDate WHERE ri.part = 1 AND r.status = 'SUCCESS' AND ri.reportDate >= :sinceDate AND ri.reportDate < :beforeDate ORDER BY ri.reportDate DESC, ri.position")
     suspend fun editorialHistory(beforeDate: String, sinceDate: String): List<ReportItemEntity>
 

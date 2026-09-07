@@ -117,6 +117,10 @@ data class EditorialOutput(
 
 fun interface ShortlistContextFactory {
     suspend fun build(context: LlmContext, links: List<String>): Part1ShortlistContext
+    suspend fun build(context: LlmContext, links: List<String>, watches: List<com.dailynews.model.EventWatch>): Part1ShortlistContext =
+        build(context, links).copy(watchedHistory = com.dailynews.model.WatchPreferences(events = watches).normalized().events.map {
+            com.dailynews.pipeline.context.WatchedEventHistory(it.eventKey, it.afterReportDate)
+        })
 }
 
 internal object NoCacheShortlistContextFactory : ShortlistContextFactory {
@@ -308,7 +312,7 @@ class LlmEditorialEngine(
         persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
         writeCheckpoint(runId, "part1_shortlist", shortlistFingerprint, codec.encodeToString(Part1ShortlistPayload(links, acceptedExclusions)))
         val shortlistContext = com.dailynews.pipeline.context.editorialEvidenceContext(
-            shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback),
+            shortlistContexts.build(context, links, brief.watchedEvents).copy(editorFeedback = brief.editorFeedback),
         )
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)

@@ -151,6 +151,30 @@ class ShortlistContextBuilderTest {
         assertTrue(result.recentTopN.all { it.summaryZh.length == 400 })
     }
 
+    @Test
+    fun `watched events retain older published baseline with explicit missing and invalid states`() = kotlinx.coroutines.runBlocking {
+        val (raw, feeds, config) = FixtureFactory.goldenRaw()
+        val context = LlmContextBuilder().build(raw, QcValidator().validate(raw, feeds).result, "2026-04-10", "/report.md", config).llmContext
+        val old = com.dailynews.pipeline.ports.PublishedEditorialEvent("https://source.example/launch", "Compiler launch", "Source", "编译器发布测试版。", "compiler", "2026-01-02")
+        val records = listOf(old, old.copy(coveredOn = "2026-01-01", summaryZh = "编译器处于研发阶段。"),
+            old.copy(eventKey = "invalid", summaryZh = "污染 https://evil.example"),
+            old.copy(eventKey = "today", coveredOn = "2026-04-10"))
+        val watches = listOf("compiler", "missing", "invalid", "today").map { com.dailynews.model.EventWatch(it, it, "2026-01-02") }
+        val result = ShortlistContextBuilder(FakeCache(emptyList()), com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ -> records })
+            .build(context, listOf(context.allArticles.first().link), watches)
+        assertTrue(result.recentTopN.isEmpty())
+        assertEquals(watches.map { it.eventKey }, result.watchedHistory.map { it.eventKey })
+        assertEquals(old.summaryZh, result.watchedHistory.first().latest?.summaryZh)
+        assertEquals(old.link, result.watchedHistory.first().latest?.link)
+        assertTrue(result.watchedHistory.drop(1).all { it.latest == null })
+        assertEquals(listOf(context.allArticles.first().link), result.articles.map { it.link })
+        val json = com.dailynews.model.ArtifactJson.codec
+        assertEquals(result, json.decodeFromString(com.dailynews.pipeline.context.Part1ShortlistContext.serializer(),
+            json.encodeToString(com.dailynews.pipeline.context.Part1ShortlistContext.serializer(), result)))
+        val empty = ShortlistContextBuilder(FakeCache(emptyList())).build(context, emptyList(), emptyList())
+        assertTrue(empty.watchedHistory.isEmpty())
+    }
+
     private class FakeCache(private val records: List<EditorialCacheRecord>) : EditorialCacheStore, com.dailynews.pipeline.ports.EditorialHistoryStore {
         override suspend fun before(reportDate: String, sinceDate: String) = records.mapNotNull { record ->
             record.updatedAtUtc?.let { timestamp ->

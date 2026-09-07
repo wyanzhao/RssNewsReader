@@ -45,6 +45,14 @@ data class RecentTopNEvent(
 )
 
 @Serializable
+data class WatchedEventHistory(
+    @SerialName("event_key") val eventKey: String,
+    @SerialName("after_report_date") val afterReportDate: String,
+    /** null explicitly means no usable published baseline, not no new developments. */
+    val latest: RecentTopNEvent? = null,
+)
+
+@Serializable
 data class Part1ShortlistContext(
     val meta: LlmMeta,
     @SerialName("article_count") val articleCount: Int,
@@ -56,6 +64,7 @@ data class Part1ShortlistContext(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
+    @SerialName("watched_history") val watchedHistory: List<WatchedEventHistory> = emptyList(),
 )
 
 /** Lookback window for cross-day lead continuity. The day count in the prompt copy is pinned to this constant by AssetPromptContractTest. */
@@ -74,6 +83,24 @@ class ShortlistContextBuilder(
     private val cache: EditorialCacheStore,
     private val history: com.dailynews.pipeline.ports.EditorialHistoryStore = com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ -> emptyList() },
 ) : ShortlistContextFactory {
+    override suspend fun build(context: LlmContext, links: List<String>, watches: List<com.dailynews.model.EventWatch>): Part1ShortlistContext {
+        val base = build(context, links)
+        val requested = com.dailynews.model.WatchPreferences(events = watches).normalized().events
+        val baselines = requested.map { watch ->
+            val record = history.latestBefore(watch.eventKey, context.meta.date)
+            val valid = record?.takeIf {
+                it.eventKey == watch.eventKey && it.coveredOn < context.meta.date &&
+                    runCatching { java.time.LocalDate.parse(it.coveredOn) }.isSuccess &&
+                    it.link.isNotBlank() && it.summaryZh.isNotBlank() &&
+                    EditorialContracts.summaryLintErrors(it.summaryZh, "watched summary_zh", 400).isEmpty()
+            }
+            WatchedEventHistory(watch.eventKey, watch.afterReportDate, valid?.let {
+                RecentTopNEvent(it.title, it.source, watch.eventKey, it.coveredOn, it.link, it.summaryZh)
+            })
+        }
+        return base.copy(watchedHistory = baselines)
+    }
+
     override suspend fun build(context: LlmContext, links: List<String>): Part1ShortlistContext {
         val byLink = context.allArticles.associateBy(Article::link)
         require(links.all(byLink::containsKey)) { "shortlist contains links absent from all_articles" }

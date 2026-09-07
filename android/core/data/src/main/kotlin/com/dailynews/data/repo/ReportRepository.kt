@@ -34,6 +34,10 @@ class ReportRepository(
     private val database: DailyNewsDatabase,
     context: Context,
 ) : ReportSink, FailureReportSink, TopNReportSink, com.dailynews.pipeline.ports.EditorialHistoryStore {
+    override suspend fun latestBefore(eventKey: String, reportDate: String) = database.reports().latestEventBefore(eventKey, reportDate)?.let {
+        com.dailynews.pipeline.ports.PublishedEditorialEvent(it.link, it.title, it.source, it.summaryZh, it.eventKey, it.reportDate)
+    }
+
     override suspend fun before(reportDate: String, sinceDate: String) = database.reports().editorialHistory(reportDate, sinceDate).map {
         com.dailynews.pipeline.ports.PublishedEditorialEvent(it.link, it.title, it.source, it.summaryZh, it.eventKey, it.reportDate)
     }

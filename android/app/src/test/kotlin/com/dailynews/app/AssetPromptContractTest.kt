@@ -28,6 +28,15 @@ class AssetPromptContractTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val source = AssetPromptSource(context)
 
+    @Test fun planPromptNamesWatchedHistoryFields() {
+        val prompt = source.part1Plan(TOP_N)
+        wireNames<com.dailynews.pipeline.context.WatchedEventHistory>().forEach { name ->
+            assertTrue(name in prompt, "Missing watch baseline field: $name")
+        }
+        assertTrue("watched_history" in prompt)
+        assertTrue("watched_events" in source.part1Shortlist(TOP_N))
+    }
+
     @Test
     fun planPromptNamesPublishedHistoryEvidenceFields() {
         val prompt = source.part1Plan(TOP_N)

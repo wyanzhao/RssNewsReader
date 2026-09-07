@@ -50,6 +50,10 @@ data class PublishedEditorialEvent(
 
 fun interface EditorialHistoryStore {
     suspend fun before(reportDate: String, sinceDate: String): List<PublishedEditorialEvent>
+    /** Latest successful published coverage, independent of the routine seven-day window. */
+    suspend fun latestBefore(eventKey: String, reportDate: String): PublishedEditorialEvent? =
+        before(reportDate, "0001-01-01").filter { it.eventKey == eventKey && it.coveredOn < reportDate }
+            .maxByOrNull { it.coveredOn }
 }
 
 interface ReportSink {

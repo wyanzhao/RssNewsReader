@@ -114,6 +114,7 @@ class LlmContextBuilder {
                 )
             },
             editorFeedback = feedback.takeLast(30),
+            watchedEvents = config.watches.normalized().events,
         )
     }
 

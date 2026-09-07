@@ -411,6 +411,31 @@ has been requested.
   detection or complete B3 notifications, older watched-event baselines or weekly
   review. Existing published reports are not rewritten or fact-corrected.
 
+## B3 long-lived watched-event comparison (0.9.2)
+
+- Explicit event watches now travel as typed `watched_events` in the frozen
+  brief. The engine passes that run's list to the context builder; it does not
+  re-read mutable settings or parse prose feedback to choose historical queries.
+- Each normalized watch (maximum 20) resolves the latest successful Part 1
+  published snapshot strictly before the report date, regardless of the recent
+  seven-day window. Room performs a bounded LIMIT 1 query per event; no schema
+  migration, article-pool access or cache-derived history is introduced.
+- `watched_history` preserves the event key, follow baseline date and latest
+  source-linked published summary. Missing or lint-invalid history is explicit
+  null, not a claim of no developments. History never joins the candidate ID pool.
+- Tests cover old successful coverage, exclusion of failed/same-day/other-event
+  reports, invalid summaries, absent history, brief serialization and the actual
+  plan-request payload using deterministic model responses. Semantic judgments
+  by a real provider and meaningful notification behavior remain unverified.
+- Full verification passed: 477 JVM executions, no failures/errors/skips,
+  lintDebug, Roborazzi verification and signed release assembly. Version gate
+  passed against 94ab6a0. APK read-back 0.9.2 (31), v2/v3 verified; SHA-256:
+  `a2f098a10ffc30db6cc27661f35da38fc537fe26831726b145777147b9a44b8e`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-092/`.
+- S25 retained-data upgrade passed; installed version, existing story and follow
+  action were observed. No provider configuration changes or real LLM calls.
+  Device UI evidence does not substitute for semantic novelty validation.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

@@ -424,6 +424,37 @@ class LlmEditorialEngineTest {
         assertTrue("contract_attempt=1 transport_attempt=3" in error.message.orEmpty())
     }
 
+    @Test fun `frozen brief watch reaches actual plan request with old source baseline`() = runBlocking {
+        val artifacts = lowVolumeArtifacts()
+        val watch = com.dailynews.model.EventWatch("compiler", "Compiler", "2026-01-02")
+        val requests = mutableListOf<LlmRequest>()
+        val responses = ArrayDeque(listOf(LlmResponse(shortlistDraft(5)), LlmResponse(planDraft(listOf("a1", "a2", "a3", "a4", "a5"), 25))))
+        val cache = object : com.dailynews.pipeline.ports.EditorialCacheStore {
+            override suspend fun find(cacheKey: String): EditorialCacheRecord? = null
+            override suspend fun recentSince(since: java.time.Instant) = emptyList<EditorialCacheRecord>()
+            override suspend fun upsert(records: List<EditorialCacheRecord>) = Unit
+            override suspend fun prune(before: java.time.Instant) = Unit
+        }
+        val history = com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ ->
+            listOf(com.dailynews.pipeline.ports.PublishedEditorialEvent("https://source.example/original", "Compiler beta", "Source", "已发布编译器测试版。", "compiler", "2026-01-02"))
+        }
+        val engine = LlmEditorialEngine(
+            providers = ProviderResolver { _, _ -> ProviderBinding("test", object : LlmProvider {
+                override suspend fun complete(request: LlmRequest): LlmResponse { requests += request; return responses.removeFirst() }
+            }, RoleModel("test", "model", 8192)) },
+            prompts = TestPrompts,
+            shortlistContexts = com.dailynews.pipeline.context.ShortlistContextBuilder(cache, history),
+        )
+        engine.edit("watched-run", artifacts.llmContext, artifacts.part1Brief.copy(watchedEvents = listOf(watch)),
+            artifacts.part2Context, artifacts.contextBudget, 30, 20, Part2Mode.LAZY, LlmExecutionConfig())
+        assertEquals(2, requests.size)
+        val sent = ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.context.Part1ShortlistContext>(com.dailynews.llm.JsonExtractor.extractObject(requests.last().userContent).toString())
+        assertEquals(watch.eventKey, sent.watchedHistory.single().eventKey)
+        assertEquals("已发布编译器测试版。", sent.watchedHistory.single().latest?.summaryZh)
+        assertTrue(sent.recentTopN.isEmpty())
+        assertTrue(sent.articles.none { it.link == "https://source.example/original" })
+    }
+
     private suspend fun runEngine(
         artifacts: com.dailynews.pipeline.context.ContextArtifacts,
         responses: ArrayDeque<LlmResponse>,

@@ -177,6 +177,9 @@ data class Part1Brief(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("watched_events") val watchedEvents: List<EventWatch> = emptyList(),
 )
 
 @Serializable

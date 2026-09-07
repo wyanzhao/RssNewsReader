@@ -41,6 +41,8 @@ class ArticleFeedbackContextTest {
         val signal = result.part1Brief.editorFeedback.last()
         val decoded = ArtifactJson.codec.decodeFromString<com.dailynews.model.WatchPreferences>(signal.substringAfter("："))
         assertEquals(watches, decoded)
+        assertEquals(watches.events, result.part1Brief.watchedEvents)
+        assertEquals(watches.events, ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1Brief>(ArtifactJson.codec.encodeToString(result.part1Brief)).watchedEvents)
         assertEquals(raw.articles, result.llmContext.allArticles)
         assertEquals(com.dailynews.model.WatchPreferences(), ArtifactJson.codec.decodeFromString<PipelineConfig>("{}").watches)
     }
