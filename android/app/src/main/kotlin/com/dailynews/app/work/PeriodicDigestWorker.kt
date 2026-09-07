@@ -44,7 +44,7 @@ class PeriodicDigestWorker(context: Context, params: WorkerParameters) : Corouti
         val runId = "${kind.name.lowercase()}-$periodKey"
         val config = container.configRepository.config.first()
         return try {
-            val input = repository.collectInput(kind, start, end)
+            val input = repository.collectInput(kind, start, end, config.watches)
             PeriodicDigestRenderer.emptyReason(input.items)?.let { reason ->
                 repository.publishFailure(kind, periodKey, start, end, reason)
                 return Result.success()

@@ -37,4 +37,6 @@ data class PeriodicDigestInput(
     @SerialName("period_end_date") val periodEndDate: String,
     @SerialName("report_dates") val reportDates: List<String>,
     val items: List<PeriodicDigestItem>,
+    val watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences(),
+    @SerialName("source_article_count") val sourceArticleCount: Int? = null,
 )

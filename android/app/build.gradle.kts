@@ -65,8 +65,8 @@ android {
         applicationId = "com.dailynews.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "1.0.3"
+        versionCode = 37
+        versionName = "1.0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

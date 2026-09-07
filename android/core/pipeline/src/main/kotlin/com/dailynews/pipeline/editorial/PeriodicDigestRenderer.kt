@@ -19,6 +19,12 @@ object PeriodicDigestRenderer {
             appendLine("# DailyNews ${if (input.kind == "WEEKLY") "周报" else "月报"} · ${input.period}")
             appendLine()
             appendLine("> ${input.periodStartDate} 至 ${input.periodEndDate} · 覆盖 ${input.reportDates.size} 份日报 · ${input.items.size} 条入选报道")
+            input.sourceArticleCount?.let { total ->
+                appendLine("> 本期已发布 $total 篇不同原文，本次提供 ${input.items.size} 篇材料；事件轨迹可能省略中间过程。")
+            }
+            if (input.watches.topics.isNotEmpty() || input.watches.events.isNotEmpty()) {
+                appendLine("> 按生成时的关注偏好回顾；内容基于已发布摘要，属于 AI 编辑判断。")
+            }
             appendLine()
             digest.sections.forEachIndexed { index, section ->
                 appendLine("## ${index + 1}. ${TextUtils.cleanText(section.heading)}")

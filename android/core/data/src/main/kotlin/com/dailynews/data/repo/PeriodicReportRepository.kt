@@ -3,7 +3,6 @@ package com.dailynews.data.repo
 import com.dailynews.data.db.DailyNewsDatabase
 import com.dailynews.data.db.PeriodicReportEntity
 import com.dailynews.data.db.PeriodicReportSummary
-import com.dailynews.data.db.ReportItemEntity
 import com.dailynews.model.ArtifactJson
 import com.dailynews.model.PeriodicDigest
 import com.dailynews.pipeline.flow.PeriodicDigestInput
@@ -39,7 +38,7 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
      * reports downgraded by markFailed did not pass review, and their content must not be
      * recirculated through a second round of editing.
      */
-    suspend fun collectInput(kind: PeriodKind, start: LocalDate, end: LocalDate): PeriodicDigestInput {
+    suspend fun collectInput(kind: PeriodKind, start: LocalDate, end: LocalDate, watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences()): PeriodicDigestInput {
         val rows = database.reports().publishedPart1Between(start.toString(), end.toString())
         return PeriodicDigestInput(
             period = periodKeyFor(kind, start),
@@ -47,41 +46,13 @@ class PeriodicReportRepository(private val database: DailyNewsDatabase) {
             periodStartDate = start.toString(),
             periodEndDate = end.toString(),
             reportDates = rows.map { it.reportDate }.distinct().sorted(),
-            items = boundedItems(rows),
+            items = com.dailynews.pipeline.flow.boundPeriodicMaterial(rows.map { row ->
+                PeriodicDigestItem(row.reportDate, row.title, row.source, row.link, row.summaryZh, row.eventKey)
+            }, watches, MAX_DIGEST_ITEMS),
+            watches = watches.normalized(),
+            sourceArticleCount = rows.distinctBy { it.link }.size,
         )
     }
-
-    /**
-     * Material trimming. It used to be "every Part 1 item across the whole period,
-     * verbatim, into a single call"; a measured monthly report was about 900 items ×
-     * 451 bytes = 406 KB ≈ 150–200k tokens: an instant 400 on a cheap model with a 32K
-     * window, and on a wide-window model it devoured about a fifth of the monthly budget
-     * in one shot, times three again for contract retries.
-     *
-     * Both steps preserve information content:
-     * 1. **Deduplicate by event_key, keeping the newest report of each story line.** The
-     *    product definition of the weekly report is "merge along event story lines"
-     *    anyway; seven days of running log for the same story line is a burden to the
-     *    model, not information. `ShortlistContextBuilder` has long done the same for
-     *    recent_top30.
-     * 2. If the cap is still exceeded after dedup, keep the most recent by descending
-     *    date, so the digest leans toward developments in the latter half of the period.
-     */
-    private fun boundedItems(rows: List<ReportItemEntity>): List<PeriodicDigestItem> = rows
-        .sortedByDescending { it.reportDate }
-        .distinctBy { it.eventKey.ifBlank { it.link } }
-        .take(MAX_DIGEST_ITEMS)
-        .sortedBy { it.reportDate }
-        .map { row ->
-            PeriodicDigestItem(
-                reportDate = row.reportDate,
-                title = row.title,
-                source = row.source,
-                link = row.link,
-                summaryZh = row.summaryZh,
-                eventKey = row.eventKey,
-            )
-        }
 
     /** Publish a success. A published periodic digest must not be overwritten by a later failure (same policy as ReportRepository). */
     suspend fun publish(

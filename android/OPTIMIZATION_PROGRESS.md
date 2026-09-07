@@ -604,6 +604,33 @@ has been requested.
   Same-report event keys are deduplicated; cross-run repeated-change suppression
   beyond the existing report notification identity remains a follow-up.
 
+## 1.0.4 personalized periodic review (local, not installed)
+
+- Weekly/monthly generation now freezes normalized current watch preferences in
+  its model input. Explicit event watches receive priority when material exceeds
+  the capacity limit; topics guide model editing without being treated as facts.
+- The previous newest-row-per-event cut contradicted the prompt's trajectory
+  request. Material selection now preserves breadth first, then an earliest and
+  preceding distinct article per retained event, with at most three per event
+  and the same 120-article total cap. Repeated publication of a single link keeps
+  only its latest supplied summary and cannot count as multiple developments.
+- Input and rendered output disclose the number of different source articles and
+  the number actually provided. The prompt forbids inventing a trajectory from a
+  single item, acknowledges omitted intermediate material, and requires citing
+  every referenced source. Previously published summaries remain secondary
+  editorial material, not independent fact-checking evidence.
+- Actual Room repository tests exclude failed and out-of-period reports and
+  verify preference normalization/source counts. Selection and rendering tests
+  cover crowded-period watch retention, trajectory bounds and duplicate links.
+- Full validation: 510 JVM executions, zero failures/errors/skips; lintDebug,
+  Roborazzi verification and signed release assembly passed. Version gate against
+  ba047a2 passed. APK read-back 1.0.4 (37), v2/v3 verified. SHA-256
+  `1a1d168cbab50ef6b86505d77a705dc8959249484ea70020241a85d629098a8c`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-104/`.
+- S25 remains on usable 1.0.3 (36). This local iteration was not installed and no
+  paid model trial was run. Personalized multi-day content quality and device
+  acceptance remain open. Group subsequent reading changes before device handoff.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
