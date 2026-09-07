@@ -29,6 +29,14 @@ class AssetPromptContractTest {
     private val source = AssetPromptSource(context)
 
     @Test
+    fun planPromptNamesPublishedHistoryEvidenceFields() {
+        val prompt = source.part1Plan(TOP_N)
+        wireNames<com.dailynews.pipeline.context.RecentTopNEvent>().forEach { name ->
+            assertTrue(name in prompt, "Missing published-history field: $name")
+        }
+    }
+
+    @Test
     fun renderedPromptsLeaveNoPlaceholderBehind() {
         val rendered = mapOf(
             AssetPromptSource.SHORTLIST_TEMPLATE to source.part1Shortlist(TOP_N),

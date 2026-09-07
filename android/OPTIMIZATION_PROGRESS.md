@@ -378,6 +378,39 @@ has been requested.
   assessment, meaningful-change notifications and personalized weekly review are
   still required for B3 completion; no notification behavior is claimed yet.
 
+## B1/B3 published evidence for progress comparison (0.9.1)
+
+- Inspection found that recent-event context discarded the published summary and
+  source link after validating the summary. The plan model could see titles and
+  event keys but could not compare previously reported facts against current
+  material. `recent_top30` now includes exact `summary_zh` and `link` from the
+  published snapshot, keeping latest eligible coverage per event and the existing
+  prior-date seven-day window, 150-event cap and 400-character summary lint.
+- Historical rows remain outside the candidate ID pool. The prompt explicitly
+  treats them as previous coverage, not independent verification or permission to
+  introduce facts absent from current source material. Missing legacy fields are
+  empty and cannot establish that a story has no new developments. The prompt
+  also states that the recent window is not complete event history.
+- The final shortlist payload retains byte-size warning diagnostics, not a hard
+  byte gate. Added summary material is bounded to 60,000 characters; actual
+  provider token/charge effects remain to be measured on matched runs.
+- Focused tests cover exact source/summary preservation and serialization, latest
+  coverage selection, same-day/expired exclusion, polluted/oversized summaries,
+  old JSON compatibility, bounded history and prompt wire-field consistency.
+- Full checks passed: 471 JVM test executions, no failures/errors/skips, lintDebug,
+  Roborazzi verification and release assembly. An existing cancellation test raced
+  dispatcher startup against a fixed 100 ms timeout; it now waits for response
+  headers before cancelling and retains the one-request/no-retry assertion.
+- Version gate passed against fafa066; signed APK read-back 0.9.1 (30), v2/v3
+  verified. SHA-256:
+  `174d257e49b0c07da6e617f39c10372657d79554f683ee73b24f1e39247e4001`.
+  APK and mapping archived under `build/acceptance/2026-09-07/release-091/`.
+  S25 upgrade used install -r; package version and existing story display were
+  read back successfully. No provider settings were changed or model calls made.
+- This supplies a usable comparison baseline; it does not prove semantic novelty
+  detection or complete B3 notifications, older watched-event baselines or weekly
+  review. Existing published reports are not rewritten or fact-corrected.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

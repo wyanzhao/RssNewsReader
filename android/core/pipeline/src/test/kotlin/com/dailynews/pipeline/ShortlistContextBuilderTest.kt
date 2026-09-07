@@ -102,6 +102,55 @@ class ShortlistContextBuilderTest {
         assertTrue(result.recentTopN.isEmpty())
     }
 
+    @Test
+    fun `history carries exact latest published evidence without adding candidates`() = kotlinx.coroutines.runBlocking {
+        val (raw, feeds, config) = FixtureFactory.goldenRaw()
+        val context = LlmContextBuilder().build(raw, QcValidator().validate(raw, feeds).result, "2026-04-10", "/report.md", config).llmContext
+        val baseline = com.dailynews.pipeline.ports.PublishedEditorialEvent(
+            "https://publisher.example/original?edition=1", "Compiler reaches beta", "Publisher",
+            "公司宣布编译器进入测试阶段，尚未正式发布。", "compiler-release", "2026-04-09",
+        )
+        val records = listOf(
+            baseline.copy(coveredOn = "2026-04-08", summaryZh = "公司公布编译器研发计划。"),
+            baseline,
+            baseline.copy(eventKey = "today", coveredOn = "2026-04-10"),
+            baseline.copy(eventKey = "expired", coveredOn = "2026-04-02"),
+            baseline.copy(eventKey = "poisoned", summaryZh = "参考 https://evil.example"),
+            baseline.copy(eventKey = "oversize", summaryZh = "字".repeat(401)),
+        )
+        val result = ShortlistContextBuilder(FakeCache(emptyList()), com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ -> records })
+            .build(context, listOf(context.allArticles.first().link))
+        val past = result.recentTopN.single()
+        assertEquals(baseline.link, past.link)
+        assertEquals(baseline.summaryZh, past.summaryZh)
+        assertEquals(baseline.coveredOn, past.coveredOn)
+        assertEquals(listOf(context.allArticles.first().link), result.articles.map { it.link })
+        assertFalse(result.articles.any { it.link == baseline.link })
+        val json = com.dailynews.model.ArtifactJson.codec
+        val encoded = json.encodeToString(com.dailynews.pipeline.context.Part1ShortlistContext.serializer(), result)
+        val decoded = json.decodeFromString(com.dailynews.pipeline.context.Part1ShortlistContext.serializer(), encoded)
+        assertEquals(result, decoded)
+    }
+
+    @Test
+    fun `legacy history is explicitly missing evidence and expanded history stays bounded`() = kotlinx.coroutines.runBlocking {
+        val legacy = com.dailynews.model.ArtifactJson.codec.decodeFromString(
+            com.dailynews.pipeline.context.RecentTopNEvent.serializer(),
+            """{"title":"Old title","source":"Source","event_key":"old","covered_on":"2026-04-09"}""",
+        )
+        assertEquals("", legacy.summaryZh)
+        assertEquals("", legacy.link)
+        val (raw, feeds, config) = FixtureFactory.goldenRaw()
+        val context = LlmContextBuilder().build(raw, QcValidator().validate(raw, feeds).result, "2026-04-10", "/report.md", config).llmContext
+        val records = (1..200).map {
+            com.dailynews.pipeline.ports.PublishedEditorialEvent("https://source.example/$it", "Event $it", "Source", "字".repeat(400), "event-$it", "2026-04-09")
+        }
+        val result = ShortlistContextBuilder(FakeCache(emptyList()), com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ -> records })
+            .build(context, emptyList())
+        assertEquals(com.dailynews.pipeline.context.RECENT_EVENT_CAP, result.recentTopN.size)
+        assertTrue(result.recentTopN.all { it.summaryZh.length == 400 })
+    }
+
     private class FakeCache(private val records: List<EditorialCacheRecord>) : EditorialCacheStore, com.dailynews.pipeline.ports.EditorialHistoryStore {
         override suspend fun before(reportDate: String, sinceDate: String) = records.mapNotNull { record ->
             record.updatedAtUtc?.let { timestamp ->

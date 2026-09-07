@@ -22,7 +22,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
 import org.junit.jupiter.api.Test
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
@@ -388,16 +390,24 @@ class FeedAndExtractionTest {
                 MockResponse().setBody("delayed body").setBodyDelay(5, TimeUnit.SECONDS),
             )
             server.start()
-            val fetcher = FeedFetcher(OkHttpClient())
-            val started = System.nanoTime()
-
-            assertFailsWith<TimeoutCancellationException> {
-                withTimeout(100) { fetcher.execute(server.url("/slow").toString(), "text/plain", retries = 2) }
+            val reading = CompletableDeferred<Unit>()
+            val client = OkHttpClient.Builder().eventListener(object : okhttp3.EventListener() {
+                override fun responseHeadersEnd(call: okhttp3.Call, response: okhttp3.Response) { reading.complete(Unit) }
+            }).build()
+            val fetcher = FeedFetcher(client)
+            val request = launch { fetcher.execute(server.url("/slow").toString(), "text/plain", retries = 2) }
+            try {
+                // Synchronize on a live response, not a 100 ms guess about dispatcher startup.
+                withTimeout(5_000) { reading.await() }
+                val started = System.nanoTime()
+                withTimeout(1_000) { request.cancelAndJoin() }
+                val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+                assertTrue(request.isCancelled)
+                assertTrue(elapsedMillis < 1_000, "cancellation took ${elapsedMillis}ms")
+                assertEquals(1, server.requestCount)
+            } finally {
+                request.cancelAndJoin()
             }
-
-            val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
-            assertTrue(elapsedMillis < 1_000, "cancellation took ${elapsedMillis}ms")
-            assertEquals(1, server.requestCount)
         }
     }
 

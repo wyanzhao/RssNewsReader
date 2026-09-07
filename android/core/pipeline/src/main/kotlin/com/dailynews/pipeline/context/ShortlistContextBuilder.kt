@@ -39,6 +39,9 @@ data class RecentTopNEvent(
     val source: String,
     @SerialName("event_key") val eventKey: String,
     @SerialName("covered_on") val coveredOn: String,
+    /** Published snapshot, used only to compare previous coverage; never a current candidate. */
+    val link: String = "",
+    @SerialName("summary_zh") val summaryZh: String = "",
 )
 
 @Serializable
@@ -61,9 +64,9 @@ const val RECENT_EVENT_WINDOW_DAYS = 7L
 /**
  * Hard cap on the entry count of `recent_top30[]`.
  *
- * Note: `part1_shortlist_context` is **not covered by context_budget accounting** (the budget only
- * covers llm_context / part1_brief / part2_context), so this payload has no external gate at all.
- * After dedup there are typically 120–180 entries; this adds one more safety floor.
+ * The final serialized shortlist context size is logged by the editorial engine;
+ * unlike the brief it has no hard byte gate. This entry cap plus summary lint bounds
+ * the added published-summary material to 400 characters per event.
  */
 const val RECENT_EVENT_CAP = 150
 
@@ -115,6 +118,8 @@ class ShortlistContextBuilder(
                         EditorialCacheKeys.eventKey(null, record.title, record.link)
                     },
                     coveredOn = record.coveredOn,
+                    link = record.link,
+                    summaryZh = record.summaryZh,
                 )
             }
             .sortedWith(compareByDescending<RecentTopNEvent> { it.coveredOn }.thenByDescending { it.eventKey })
