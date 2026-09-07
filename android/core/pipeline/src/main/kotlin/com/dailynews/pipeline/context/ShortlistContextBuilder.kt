@@ -7,9 +7,7 @@ import com.dailynews.pipeline.editorial.EditorialCacheKeys
 import com.dailynews.pipeline.editorial.EditorialContracts
 import com.dailynews.pipeline.editorial.EditorialRefs
 import com.dailynews.pipeline.flow.ShortlistContextFactory
-import com.dailynews.pipeline.ports.ClockProvider
 import com.dailynews.pipeline.ports.EditorialCacheStore
-import java.time.temporal.ChronoUnit
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -70,7 +68,7 @@ const val RECENT_EVENT_CAP = 150
 
 class ShortlistContextBuilder(
     private val cache: EditorialCacheStore,
-    private val clock: ClockProvider,
+    private val history: com.dailynews.pipeline.ports.EditorialHistoryStore = com.dailynews.pipeline.ports.EditorialHistoryStore { _, _ -> emptyList() },
 ) : ShortlistContextFactory {
     override suspend fun build(context: LlmContext, links: List<String>): Part1ShortlistContext {
         val byLink = context.allArticles.associateBy(Article::link)
@@ -102,20 +100,20 @@ class ShortlistContextBuilder(
                 cachedEventKey = EditorialCacheKeys.sanitizeEventKey(record?.eventKey).takeIf { it.isNotEmpty() },
             )
         }
-        val cutoff = clock.now().minus(RECENT_EVENT_WINDOW_DAYS, ChronoUnit.DAYS)
-        val recent = cache.recentSince(cutoff)
-            .filter { !it.part1SummaryZh.isNullOrBlank() && it.updatedAtUtc != null && !it.updatedAtUtc.isBefore(cutoff) }
-            .filter { EditorialContracts.summaryLintErrors(it.part1SummaryZh, "recent cached summary_zh", 400).isEmpty() }
+        val sinceDate = java.time.LocalDate.parse(context.meta.date).minusDays(RECENT_EVENT_WINDOW_DAYS).toString()
+        // Coverage is the report's date, not the cache write timestamp. Today's
+        // earlier run must not suppress the same day's recovery or regeneration.
+        val recent = history.before(context.meta.date, sinceDate)
+            .filter { it.coveredOn >= sinceDate && it.coveredOn < context.meta.date }
+            .filter { it.summaryZh.isNotBlank() && EditorialContracts.summaryLintErrors(it.summaryZh, "recent summary_zh", 400).isEmpty() }
             .map { record ->
                 RecentTopNEvent(
                     title = record.title,
                     source = record.source,
-                    // Empty keys are normalized before dedup; otherwise all records missing a key would collapse
-                    // into the same bucket, treating unrelated events as the same lead.
                     eventKey = EditorialCacheKeys.sanitizeEventKey(record.eventKey).ifEmpty {
                         EditorialCacheKeys.eventKey(null, record.title, record.link)
                     },
-                    coveredOn = record.updatedAtUtc!!.atZone(java.time.ZoneOffset.UTC).toLocalDate().toString(),
+                    coveredOn = record.coveredOn,
                 )
             }
             .sortedWith(compareByDescending<RecentTopNEvent> { it.coveredOn }.thenByDescending { it.eventKey })

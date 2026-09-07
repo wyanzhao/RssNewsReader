@@ -53,6 +53,7 @@ data class ProviderBinding(
     val providerId: String,
     val provider: LlmProvider,
     val roleModel: RoleModel,
+    val configurationSignature: String = "",
 )
 
 class EditorialLlmException(message: String, cause: Throwable) : RuntimeException(message, cause)
@@ -135,6 +136,8 @@ private object NoCacheShortlistContextFactory : ShortlistContextFactory {
 }
 
 fun interface EditorialEngine {
+    fun forRecovery(sourceRunId: String): EditorialEngine = error("this editorial engine does not support recovery")
+
     suspend fun edit(
         runId: String,
         context: LlmContext,
@@ -172,8 +175,31 @@ class LlmEditorialEngine(
     private val shortlistContexts: ShortlistContextFactory = NoCacheShortlistContextFactory,
     private val artifacts: ArtifactSink = NoOpArtifactSink,
     private val logs: RunLogSink = NoOpRunLogSink,
+    private val checkpoints: com.dailynews.pipeline.ports.EditorialCheckpointStore? = null,
+    private val recoverySourceRunId: String? = null,
 ) : EditorialEngine, Part2OnDemandGenerator {
     private val codec = ArtifactJson.codec
+
+    override fun forRecovery(sourceRunId: String): EditorialEngine {
+        require(sourceRunId.isNotBlank() && checkpoints != null) { "checkpoint storage is required for recovery" }
+        return LlmEditorialEngine(providers, prompts, audit, shortlistContexts, artifacts, logs, checkpoints, sourceRunId)
+    }
+
+    private suspend fun readCheckpoint(runId: String, stage: String, fingerprint: String): String? {
+        val source = recoverySourceRunId ?: return null
+        val serialized = requireNotNull(checkpoints).read(source, stage)
+        if (serialized == null) {
+            logs.log(runId, "recovery", LogLevel.INFO, "$stage has no accepted checkpoint; execute this stage")
+            return null
+        }
+        val payload = codec.decodeFromString<EditorialCheckpoint>(serialized).validate(fingerprint)
+        logs.log(runId, "recovery", LogLevel.INFO, "$stage loaded from $source; revalidating before reuse")
+        return payload
+    }
+
+    private suspend fun writeCheckpoint(runId: String, stage: String, fingerprint: String, payload: String) {
+        checkpoints?.write(runId, stage, checkpointJson(fingerprint, payload))
+    }
 
     override suspend fun edit(
         runId: String,
@@ -223,7 +249,17 @@ class LlmEditorialEngine(
         var shortlistFeedback = ""
         var acceptedLinks: List<String>? = null
         var lastShortlistErrors = emptyList<String>()
-        for (retryIndex in 0..2) {
+        val bindingInput = codec.encodeToString(binding.roleModel) + binding.configurationSignature + codec.encodeToString(llmExecution)
+        val authorityInput = stableRecoveryInput(codec.encodeToString(context))
+        val shortlistFingerprint = recoveryHash("shortlist-v1\n$topN\n$bindingInput\n$authorityInput\n" +
+            stableRecoveryInput(codec.encodeToString(brief)) + prompts.part1Shortlist(topN) + EditorialJsonSchemas.part1Shortlist)
+        readCheckpoint(runId, "part1_shortlist", shortlistFingerprint)?.let {
+            val saved = codec.decodeFromString<Part1ShortlistPayload>(it).links
+            require(saved.size in minTarget..maxTarget && saved.distinct().size == saved.size &&
+                saved.all { link -> brief.articles.any { article -> article.link == link } }) { "recovered shortlist fails current contracts" }
+            acceptedLinks = saved
+        }
+        if (acceptedLinks == null) for (retryIndex in 0..2) {
             val shortlistObject = callObject(
                 runId,
                 EditorialRole.EDITOR,
@@ -269,6 +305,7 @@ class LlmEditorialEngine(
         }
         val links = acceptedLinks ?: throw EditorialContractException("part1_shortlist", lastShortlistErrors)
         persistArtifact(runId, "part1_shortlist.json", codec.encodeToString(Part1ShortlistPayload(links)))
+        writeCheckpoint(runId, "part1_shortlist", shortlistFingerprint, codec.encodeToString(Part1ShortlistPayload(links)))
         val shortlistContext = shortlistContexts.build(context, links).copy(editorFeedback = brief.editorFeedback)
         val shortlistJson = codec.encodeToString(shortlistContext)
         persistArtifact(runId, "part1_shortlist_context.json", shortlistJson)
@@ -312,6 +349,15 @@ class LlmEditorialEngine(
         val refs = ArticleRefIndex(shortlistContext.articles.map { it.id to it.link })
         var feedback = ""
         var lastPlanErrors = emptyList<String>()
+        val planFingerprint = recoveryHash("plan-v1\n$topN\n$bindingInput\n$authorityInput\n" +
+            stableRecoveryInput(shortlistJson) + prompts.part1Plan(topN) + EditorialJsonSchemas.part1Plan)
+        readCheckpoint(runId, "part1_plan", planFingerprint)?.let {
+            val recovered = codec.decodeFromString<Part1Plan>(it)
+            val errors = EditorialContracts.validatePart1(context, recovered, topN)
+            require(errors.isEmpty()) { "recovered plan fails current contracts: ${errors.joinToString()}" }
+            writeCheckpoint(runId, "part1_plan", planFingerprint, it)
+            return Part1Result(recovered)
+        }
         repeat(3) { retryIndex ->
             val output = callObject(
                 runId,
@@ -345,7 +391,10 @@ class LlmEditorialEngine(
             // lost items — to a truncated or repaired response — publish as if
             // it were complete.
             val errors = EditorialContracts.validatePart1(context, decoded, topN)
-            if (errors.isEmpty()) return Part1Result(decoded)
+            if (errors.isEmpty()) {
+                writeCheckpoint(runId, "part1_plan", planFingerprint, codec.encodeToString(decoded))
+                return Part1Result(decoded)
+            }
             recordViolation(runId, "part1_plan", retryIndex, output, errors)
             lastPlanErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: " +

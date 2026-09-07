@@ -39,6 +39,19 @@ interface EditorialCacheStore {
     suspend fun prune(before: Instant)
 }
 
+data class PublishedEditorialEvent(
+    val link: String,
+    val title: String,
+    val source: String,
+    val summaryZh: String,
+    val eventKey: String?,
+    val coveredOn: String,
+)
+
+fun interface EditorialHistoryStore {
+    suspend fun before(reportDate: String, sinceDate: String): List<PublishedEditorialEvent>
+}
+
 interface ReportSink {
     suspend fun publish(report: AssembledReport)
     suspend fun markFailed(reportDate: String, reason: String) = Unit

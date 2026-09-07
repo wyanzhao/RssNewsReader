@@ -35,20 +35,39 @@ has been requested.
 - The feedback/timing signed APK was verified with v2/v3 signatures, installed
   using `adb install -r`, and started successfully. Existing application data was
   not cleared.
-- After the user configured the model, a real run collected and validated 37
-  articles but failed its first shortlist request with HTTP 401 (`Missing
-  Authentication header`). The independent in-app connection test also returned
-  401. The configured endpoint was the standard OpenRouter endpoint. Request
-  construction and the local HTTP contract test verify Bearer authentication;
-  they do not prove what reached the remote server on that device. The user has
-  been asked to re-save the key in-app. No secret was requested in chat.
-- Consequently, successful live generation, standby continuation, network
-  recovery and process-interruption acceptance remain unverified. Returning to
-  the app did preserve the failed run and its diagnostic evidence.
-- The complete measurement and immediate-result UI implementation passed 407 JVM
-  test executions, lint and screenshot verification. The signed candidate also
-  passed signature and version gates. The configured S25 has not yet been
-  upgraded to that candidate, to avoid interrupting in-progress key entry.
+- The first configured request and connection probe returned HTTP 401. After
+  the user re-saved the key, real generation on 0.6.1 succeeded while the app was
+  in the background: 39 articles, Top 19, two model calls, no request/contract
+  retry, provider-reported cost 0.00501725 USD. This is one observed run, not a
+  quality, long-standby or performance benchmark.
+- Stage recovery is implemented: frozen raw/config/feed snapshots; validated
+  shortlist/plan checkpoints; checksum and per-stage input/prompt/schema/
+  configured-provider/model/app-build binding; explicit diagnostic recovery;
+  fresh validation/audit/review; and a stop-generation action.
+- S25 cancellation test stopped a run after its shortlist was accepted (42
+  articles, source duration 19 seconds). Recovery visibly loaded and revalidated
+  that shortlist and executed only the missing plan stage.
+- That test exposed a pre-existing same-day continuity error: cache updates from
+  the same day's earlier report suppressed its regeneration, producing Top 0.
+  Fixed continuity to read actual successful report dates strictly before the
+  target date. Added empty-digest publication guards in both orchestrator and
+  repository, preserving existing reports. Regression tests cover real report
+  dates versus UTC cache timestamps, failed/same-day exclusion, and rejected
+  empty replacement. This finding was not treated as a successful recovery.
+- After the fix, S25 recovered the same interrupted source to a valid Top 30 in
+  28 seconds, with one new model call, no request/contract retry, and reported
+  incremental cost 0.0065095 USD. The source's cancelled request has unknown
+  accounting; this is not a claim about full-chain cost or percentage savings.
+- Current full JVM execution count: 417, zero failures/errors/skips. Lint and
+  screenshot verification passed; baselines were not replaced. Signed release
+  candidate 0.7.0 (19) was verified and installed preserving app data.
+- Current 0.7.0 data/migration instrumentation rerun passed all 30 tests on S25.
+  Updated the legacy lazy-Part-2 fixture to include its published Part 1 and
+  verify that generating Part 2 preserves it.
+- Local device evidence is under `android/build/acceptance/2026-09-07/` (ignored
+  build output). Screen-off/Doze, network recovery and abrupt process-kill
+  acceptance still remain; only ordinary background execution and explicit
+  cancellation/recovery have been observed so far.
 
 ## Remaining authorized scope
 
@@ -59,12 +78,10 @@ has been requested.
    the configured release device, restoring any temporary device settings.
 3. Compare preference-aware editing on identical article pools with blinded
    relevance, no-progress duplication and missed-important-event judgments.
-4. Implement verified stage resume. Recovery must reuse only accepted artifacts,
-   bind inputs/configuration/prompt/schema/provider/model versions, invalidate on
-   drift, retain bounded retry budgets and publication gates, and revalidate
-   resumed artifacts. An exact-input cache alone is not a complete interrupted-
-   run recovery workflow: the original input snapshot needs an explicit recovery
-   path, with a separate fresh-generation path when the article pool changes.
+4. Extend stage-recovery acceptance to abrupt process termination and the full
+   interruption matrix; implement full-chain accounting without inventing the
+   cost of cancelled requests. Frozen-input and fresh-generation paths now exist
+   separately; the original snapshot and all publication gates remain required.
 5. Separate event-following from long-lived topic subscriptions; identify actual
    developments with source evidence, meaningful notifications and weekly review.
 6. Add searchable favorite tags/notes, reading position, font/spacing controls,

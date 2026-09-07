@@ -45,9 +45,10 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
     override suspend fun doWork(): Result {
         val app = applicationContext as DailyNewsApplication
         val container = app.container
-        val date = LocalDate.now()
+        val recoverySource = inputData.getString(KEY_RECOVERY_SOURCE)
+        val date = inputData.getString(KEY_REPORT_DATE)?.let(LocalDate::parse) ?: LocalDate.now()
         val scheduled = inputData.getBoolean(KEY_SCHEDULED, false)
-        val trigger = if (scheduled) "scheduled" else "manual"
+        val trigger = if (recoverySource != null) "recovery" else if (scheduled) "scheduled" else "manual"
         val config = container.configRepository.config.first()
         // A later offline alarm must never replace an already-published success with a
         // synthetic preflight failure notification for the same date.
@@ -116,6 +117,7 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
                         reportPath = File(applicationContext.filesDir, "reports/rss-report-$date.md").absolutePath,
                         config = config,
                         trigger = trigger,
+                        recoverySourceRunId = recoverySource,
                     ),
                 )
             }
@@ -217,6 +219,8 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     companion object {
         internal const val KEY_SCHEDULED = "scheduled"
+        internal const val KEY_RECOVERY_SOURCE = "recovery_source"
+        internal const val KEY_REPORT_DATE = "report_date"
         internal const val UNIQUE_WORK = "daily-report"
         internal const val FOREGROUND_WATCHDOG_MILLIS = 1_200_000L
 
@@ -233,6 +237,14 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
          */
         internal const val DEGRADED_WATCHDOG_MILLIS = 480_000L
         internal const val MAX_PROVIDER_NETWORK_WORK_ATTEMPTS = 3
+
+        fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK) }
+
+        fun enqueueRecovery(context: Context, sourceRunId: String, reportDate: String) {
+            require(sourceRunId.isNotBlank())
+            LocalDate.parse(reportDate)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request(false, sourceRunId, reportDate))
+        }
 
         fun enqueue(context: Context, scheduled: Boolean) {
             WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request(scheduled))
@@ -256,8 +268,8 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
          * the device is genuinely offline, because only SweepWorker's WorkInfo is observed
          * by the UI. Failing fast within the retry bound is the feedback the user tapped for.
          */
-        internal fun request(scheduled: Boolean) = OneTimeWorkRequestBuilder<DailyReportWorker>()
-                .setInputData(workDataOf(KEY_SCHEDULED to scheduled))
+        internal fun request(scheduled: Boolean, recoverySource: String? = null, reportDate: String? = null) = OneTimeWorkRequestBuilder<DailyReportWorker>()
+                .setInputData(workDataOf(KEY_SCHEDULED to scheduled, KEY_RECOVERY_SOURCE to recoverySource, KEY_REPORT_DATE to reportDate))
                 .apply {
                     if (scheduled) {
                         setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

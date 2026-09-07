@@ -18,7 +18,10 @@ import kotlinx.coroutines.withContext
 class ArtifactStore(
     private val database: DailyNewsDatabase,
     private val now: () -> Instant = Instant::now,
-) : ArtifactSink {
+) : ArtifactSink, com.dailynews.pipeline.ports.EditorialCheckpointStore {
+    override suspend fun read(runId: String, stage: String): String? = readText(runId, "resume/$stage.json")
+    override suspend fun write(runId: String, stage: String, content: String) = write(runId, "resume/$stage.json", content.toByteArray(Charsets.UTF_8))
+
     override suspend fun write(runId: String, relativePath: String, content: ByteArray) = withContext(Dispatchers.IO) {
         require(runId.isNotBlank()) { "runId is required" }
         validateName(relativePath)

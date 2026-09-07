@@ -61,7 +61,7 @@ class RunOrchestratorTest {
         assertTrue("top10.md" in harness.artifacts)
         assertEquals(
             setOf(
-                "raw.json", "validation.json", "llm_context.json", "part1_brief.json",
+                "raw.json", "run_config.json", "run_feeds.json", "validation.json", "llm_context.json", "part1_brief.json",
                 "part2_context.json", "context_budget.json", "part1_plan.json",
                 "part2_draft.json", "top10.md",
             ),
@@ -87,7 +87,7 @@ class RunOrchestratorTest {
         assertEquals(0, harness.editorCalls)
         assertEquals(1, harness.failureWrites)
         assertEquals(0, harness.reportWrites)
-        assertEquals(setOf("raw.json", "validation.json"), harness.artifacts.keys)
+        assertEquals(setOf("raw.json", "run_config.json", "run_feeds.json", "validation.json"), harness.artifacts.keys)
     }
 
     @Test
@@ -205,7 +205,7 @@ class RunOrchestratorTest {
         assertEquals(1, harness.reportDowngrades)
         assertEquals(
             setOf(
-                "raw.json", "validation.json", "llm_context.json", "part1_brief.json",
+                "raw.json", "run_config.json", "run_feeds.json", "validation.json", "llm_context.json", "part1_brief.json",
                 "part2_context.json", "context_budget.json", "part1_plan.json", "part2_draft.json",
             ),
             harness.artifacts.keys,
@@ -226,6 +226,51 @@ class RunOrchestratorTest {
         assertEquals(setOf("validation.json"), harness.artifacts.keys)
     }
 
+    @Test
+    fun `recovery never fetches and still obeys audit and review gates`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val request = RunRequest(LocalDate.parse("2026-04-10"), "/report.md", config, recoverySourceRunId = "failed-source")
+        val accepted = Harness(raw)
+        assertIs<RunExecutionResult.Success>(accepted.orchestrator.run(request))
+        assertEquals(0, accepted.fetchCalls)
+        assertEquals(1, accepted.recoveryCalls)
+        val auditRejected = Harness(raw, failAudit = true)
+        assertIs<RunExecutionResult.Failed>(auditRejected.orchestrator.run(request))
+        assertEquals(0, auditRejected.editorCalls)
+        assertEquals(0, auditRejected.reportWrites)
+        val reviewRejected = Harness(raw, failReview = true)
+        assertIs<RunExecutionResult.Failed>(reviewRejected.orchestrator.run(request))
+        assertEquals(1, reviewRejected.reportDowngrades)
+        assertTrue("topN" !in reviewRejected.publishOrder)
+        assertTrue("cache" !in reviewRejected.publishOrder)
+    }
+
+    @Test
+    fun `recovery rejection is terminal and never silently becomes a fresh run`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val harness = Harness(raw, rejectRecovery = true)
+        val failed = assertIs<RunExecutionResult.Failed>(harness.orchestrator.run(
+            RunRequest(LocalDate.parse("2026-04-10"), "/report.md", config, recoverySourceRunId = "old-run"),
+        ))
+        assertEquals("recovery", failed.stage)
+        assertEquals("rejected-run", failed.runId)
+        assertEquals(1, harness.recoveryCalls)
+        assertEquals(0, harness.fetchCalls)
+        assertEquals(0, harness.editorCalls)
+    }
+
+    @Test
+    fun `empty editorial selection cannot publish or overwrite an existing digest`() = runBlocking {
+        val (raw, _, config) = FixtureFactory.goldenRaw()
+        val harness = Harness(raw, emptyEditorial = true)
+        val result = assertIs<RunExecutionResult.Failed>(harness.orchestrator.run(RunRequest(LocalDate.parse("2026-04-10"), "/report.md", config)))
+        assertEquals("editorial", result.stage)
+        assertEquals(0, harness.reportWrites)
+        assertEquals(0, harness.reportDowngrades)
+        assertTrue("part1_plan.json" in harness.artifacts)
+        assertTrue(harness.publishOrder.isEmpty())
+    }
+
     private class Harness(
         private val raw: RawRun,
         private val failLedgers: Boolean = false,
@@ -236,8 +281,11 @@ class RunOrchestratorTest {
         private val failAudit: Boolean = false,
         private val failReview: Boolean = false,
         private val damagedInput: Boolean = false,
+        private val rejectRecovery: Boolean = false,
+        private val emptyEditorial: Boolean = false,
     ) {
         private val feeds = FixtureFactory.goldenRaw().second
+        var recoveryCalls = 0
         var fetchCalls = 0
         var editorCalls = 0
         var diagnosticCalls = 0
@@ -247,7 +295,7 @@ class RunOrchestratorTest {
         val publishOrder = mutableListOf<String>()
         val artifacts = linkedMapOf<String, String>()
 
-        private val editorial = EditorialEngine { _, context, _, part2Context, _, topN, _, part2Mode, _ ->
+        private val baseEditorial = EditorialEngine { _, context, _, part2Context, _, topN, _, part2Mode, _ ->
             editorCalls += 1
             if (failEditorial) {
                 val detail = if (editorialNetworkFailure) "Unable to resolve host api.deepseek.com" else "provider rejected request"
@@ -258,7 +306,7 @@ class RunOrchestratorTest {
                 )
             }
             val part1 = Part1Plan(
-                items = context.allArticles.take(topN).map { Part1PlanItem(it.link, "中文事件摘要", emptyList()) },
+                items = if (emptyEditorial) emptyList() else context.allArticles.take(topN).map { Part1PlanItem(it.link, "中文事件摘要", emptyList()) },
                 shortfall = maxOf(0, topN - context.allArticles.size),
             )
             val groups = part2Context.groups.map { group ->
@@ -277,6 +325,10 @@ class RunOrchestratorTest {
                 if (part2Mode == com.dailynews.model.Part2Mode.LAZY) Part2Draft(0, groups.map { it.copy(articleCount = 0, articles = emptyList()) })
                 else Part2Draft(context.allArticles.size, groups),
             )
+        }
+
+        private val editorial = object : EditorialEngine by baseEditorial {
+            override fun forRecovery(sourceRunId: String): EditorialEngine = baseEditorial
         }
 
         private val cache = object : EditorialCacheStore {
@@ -302,6 +354,11 @@ class RunOrchestratorTest {
         }
 
         val orchestrator = RunOrchestrator(
+            recovery = com.dailynews.pipeline.ports.RunRecoveryPort { _, _, _ ->
+                recoveryCalls++
+                if (rejectRecovery) throw com.dailynews.pipeline.ports.RecoveryRejectedException("rejected-run", IllegalArgumentException("config drift"))
+                raw
+            },
             fetch = FetchPort { _, _, _, _ ->
                 fetchCalls += 1
                 if (damagedInput) throw DamagedInputException("raw.json is truncated", "damaged-run")

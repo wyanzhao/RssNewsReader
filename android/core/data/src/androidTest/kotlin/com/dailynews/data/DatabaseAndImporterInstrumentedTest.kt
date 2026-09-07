@@ -146,7 +146,10 @@ class DatabaseAndImporterInstrumentedTest {
                 reportDate,
                 "# lazy",
                 "",
-                listOf(ReportItem(2, 1, link, article.title, article.feedName, article.pubDateUtc, article.pubDateIso, "")),
+                listOf(
+                    ReportItem(1, 1, link, article.title, article.feedName, article.pubDateUtc, article.pubDateIso, "已发布的精选摘要"),
+                    ReportItem(2, 1, link, article.title, article.feedName, article.pubDateUtc, article.pubDateIso, ""),
+                ),
                 listOf(ReportGroup(article.feedName, "ok", 1)),
             ),
         )
@@ -172,7 +175,8 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals(listOf(0, 1), results.sorted())
 
         assertEquals(1, calls)
-        assertEquals("按需生成的中文摘要", database.reports().itemsNow(reportDate).single().summaryZh)
+        assertEquals("按需生成的中文摘要", database.reports().itemsNow(reportDate).single { it.part == 2 }.summaryZh)
+        assertEquals("已发布的精选摘要", database.reports().itemsNow(reportDate).single { it.part == 1 }.summaryZh)
         val cacheKey = EditorialCacheKeys.cacheKey(
             Article(article.feedName, article.title, article.link, article.pubDateUtc, article.pubDateIso, article.summaryEn, article.articleText),
         )

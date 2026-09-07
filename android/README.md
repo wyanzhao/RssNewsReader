@@ -66,6 +66,37 @@ credit purchase fees. See [OpenRouter usage accounting](https://openrouter.ai/do
 Connection-test and save results are also shown in a snackbar, so they remain
 visible when the inline message is below the fold.
 
+## Recovering an interrupted report
+
+The brief page offers **停止生成** while a run is active. Accepted shortlist and
+plan stages are checkpointed separately. In diagnostics, select a failed run and
+choose **更多 → 从原始输入恢复**. Recovery creates a new run linked to the source;
+it reads that run's frozen articles instead of fetching a new pool. Validation,
+artifact audit, assembly and final review still run normally. **立即生成** keeps
+its existing meaning: use the current article pool and perform fresh editing.
+
+Recovery verifies the saved pipeline and feed configuration, report date,
+checkpoint checksum, authoritative links/summary contracts, prompt/schema and
+configured provider/model signature. App version and build type are also bound.
+Missing input snapshots, corrupted checkpoints or drift affecting a reused stage stop recovery with a
+persisted diagnostic; there is no silent switch to a fresh run. A stage with no
+accepted checkpoint is executed within the normal bounded retry/call limits.
+Successful source runs are not recovery candidates. Old runs made before input
+snapshot support require fresh generation. Configured model identifiers are
+bound; undocumented server-side weight changes behind the same identifier cannot
+be detected by the app.
+
+Recent-event continuity uses successfully published report rows dated before the
+report being generated, not cache-write timestamps. Same-day summaries may still
+be reused, but same-day reports do not suppress their own regeneration. If the
+editor selects no digest items, the run stops before publication; the repository
+also refuses an empty digest before writing files or replacing stored items.
+
+Costs displayed on the recovered run cover its new physical requests; the source
+run's already-incurred charges remain in its own diagnostics. A recovery is not a
+claim that the entire report cost zero. Full end-to-end recovery-chain accounting
+and broader background acceptance remain in the optimization tracker.
+
 ## Modules
 
 - `core:model` — serializable artifact and configuration contracts (pure JVM)

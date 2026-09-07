@@ -282,6 +282,9 @@ interface LlmUsageMonthDao {
 
 @Dao
 interface ReportDao {
+    @Query("SELECT ri.* FROM report_items ri INNER JOIN reports r ON r.reportDate = ri.reportDate WHERE ri.part = 1 AND r.status = 'SUCCESS' AND ri.reportDate >= :sinceDate AND ri.reportDate < :beforeDate ORDER BY ri.reportDate DESC, ri.position")
+    suspend fun editorialHistory(beforeDate: String, sinceDate: String): List<ReportItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(report: ReportEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun replaceReports(reports: List<ReportEntity>)
     @Query("SELECT * FROM reports ORDER BY reportDate") suspend fun allNow(): List<ReportEntity>

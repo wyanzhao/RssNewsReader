@@ -49,6 +49,7 @@ data class RunRequest(
     val reportPath: String,
     val config: PipelineConfig,
     val trigger: String = "manual",
+    val recoverySourceRunId: String? = null,
 )
 
 class DamagedInputException(message: String, val damagedRunId: String? = null, cause: Throwable? = null) :
@@ -123,6 +124,7 @@ class RunOrchestrator(
     private val reportReviewGate: ReportReviewGate = ReportReviewGate { markdown, reportPath, context, validation, part1, part2, topN, part2Mode ->
         ReportReviewer.review(markdown, reportPath, context, validation, part1, part2, topN, part2Mode)
     },
+    private val recovery: com.dailynews.pipeline.ports.RunRecoveryPort? = null,
 ) {
     suspend fun run(request: RunRequest): RunExecutionResult {
         val config = request.config.normalized()
@@ -130,9 +132,14 @@ class RunOrchestrator(
         for (attempt in 1..2) {
             val fetchStarted = System.nanoTime()
             val raw = try {
-                fetch.fetch(request.reportDate, attempt, request.trigger, config)
+                if (request.recoverySourceRunId != null) {
+                    requireNotNull(recovery) { "recovery storage is unavailable" }.recover(request.recoverySourceRunId, request.reportDate, config)
+                } else fetch.fetch(request.reportDate, attempt, request.trigger, config)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
+                if (error is com.dailynews.pipeline.ports.RecoveryRejectedException) {
+                    return unexpectedFailure(request, error.failureRunId, "recovery", error.message ?: "recovery rejected", error)
+                }
                 if (error is DamagedInputException) {
                     val runId = error.damagedRunId ?: "damaged-${request.reportDate}-${clock.now().epochSecond}"
                     val validation = validator.damagedInput(error.message ?: "input artifact is damaged")
@@ -142,28 +149,35 @@ class RunOrchestrator(
                     return RunExecutionResult.ExpectedBlock(request.reportDate, runId, validation.result, markdown, validation.exitClass.code)
                 }
                 lastFailure = error
-                if (attempt == 1) continue
-                return unexpectedFailure(request, null, "fetch", error.message ?: "unexpected fetch failure", error)
+                if (attempt == 1 && request.recoverySourceRunId == null) continue
+                return unexpectedFailure(request, null, if (request.recoverySourceRunId != null) "recovery" else "fetch", error.message ?: "unexpected fetch failure", error)
             }
             val runId = raw.meta.runId
             StageTimer(logSink).record(runId, "fetch", (System.nanoTime() - fetchStarted) / 1_000_000, "success")
             // Preserve the fetched authority artifact even if validation itself crashes.
             snapshot(runId, "raw.json", ArtifactJson.codec.encodeToString(raw))
+            snapshot(runId, "run_config.json", ArtifactJson.codec.encodeToString(config))
+            request.recoverySourceRunId?.let {
+                snapshot(runId, "recovery.json", ArtifactJson.codec.encodeToString(mapOf("source_run_id" to it, "mode" to "frozen_input")))
+                logSink.log(runId, "recovery", LogLevel.INFO, "Reusing frozen input from $it; validation, audit and review still required")
+            }
             val validation = try {
                 StageTimer(logSink).measure(runId, "validate", { if (it.result.passed) "success" else "blocked" }) {
-                    validator.validate(raw, com.dailynews.model.FeedConfigDocument(feeds.enabledFeeds()))
+                    val feedSnapshot = feeds.enabledFeeds()
+                    snapshot(runId, "run_feeds.json", ArtifactJson.codec.encodeToString(feedSnapshot))
+                    validator.validate(raw, com.dailynews.model.FeedConfigDocument(feedSnapshot))
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 lastFailure = error
-                if (attempt == 1) continue
+                if (attempt == 1 && request.recoverySourceRunId == null) continue
                 return unexpectedFailure(request, runId, "validate", error.message ?: error::class.simpleName.orEmpty(), error)
             }
             snapshot(runId, "validation.json", ArtifactJson.codec.encodeToString(validation.result))
             when (classifyRun(validation.exitClass.code, validation.result.passed)) {
                 RunClassification.UNEXPECTED_ERROR -> {
                     logSink.log(runId, "orchestrator", LogLevel.WARN, "unexpected error classification on attempt $attempt")
-                    if (attempt == 1) continue
+                    if (attempt == 1 && request.recoverySourceRunId == null) continue
                     return unexpectedFailure(request, runId, "classification", "unexpected pipeline result after bounded retry")
                 }
                 RunClassification.EXPECTED_BLOCK -> {
@@ -209,7 +223,7 @@ class RunOrchestrator(
             if (!audit.passed) return RunExecutionResult.Failed(request.reportDate, runId, "artifact_audit", audit.errors.joinToString("; "))
 
             val output = timer.measure(runId, "editorial") {
-                editorial.edit(
+                (request.recoverySourceRunId?.let(editorial::forRecovery) ?: editorial).edit(
                     runId,
                     artifacts.llmContext,
                     artifacts.part1Brief,
@@ -222,6 +236,9 @@ class RunOrchestrator(
                 )
             }
             snapshot(runId, "part1_plan.json", ArtifactJson.codec.encodeToString(output.part1))
+            if (output.part1.items.isEmpty()) {
+                return RunExecutionResult.Failed(request.reportDate, runId, "editorial", "no digest items were selected; previous report preserved")
+            }
             output.part2MissingSummariesJson?.let { snapshot(runId, "part2_missing_summaries.json", it) }
             snapshot(runId, "part2_draft.json", ArtifactJson.codec.encodeToString(output.part2))
             val report = timer.measure(runId, "assemble") {

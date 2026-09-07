@@ -72,6 +72,7 @@ fun DiagnosticsScreen(
     // AppNavHost inject navigation-aware callbacks instead.
     val runNow: () -> Unit = onRunNow ?: { DailyReportWorker.enqueue(context, scheduled = false) }
 
+    var confirmRecovery by rememberSaveable { mutableStateOf(false) }
     var confirmRun by rememberSaveable { mutableStateOf(false) }
     var runsExpanded by rememberSaveable { mutableStateOf(false) }
     var onlyFailedRuns by rememberSaveable { mutableStateOf(false) }
@@ -101,6 +102,18 @@ fun DiagnosticsScreen(
         viewModel.consumeEvent(event.id)
     }
 
+    if (confirmRecovery) {
+        ConfirmDialog(
+            title = "从原始输入恢复？",
+            message = "使用这次失败运行的文章快照，复用重新校验通过的编辑阶段。配置或模型变化会停止恢复；若要获取最新文章，请重新生成。",
+            confirmLabel = "恢复运行",
+            onConfirm = {
+                confirmRecovery = false
+                state.detail?.let { DailyReportWorker.enqueueRecovery(context, it.runId, it.reportDate) }
+            },
+            onDismiss = { confirmRecovery = false },
+        )
+    }
     if (confirmRun) {
         ConfirmDialog(
             title = stringResource(R.string.diagnostics_rerun_title),
@@ -119,6 +132,12 @@ fun DiagnosticsScreen(
                     Box {
                         TextButton(onClick = { overflowExpanded = true }) { Text(stringResource(R.string.diagnostics_overflow)) }
                         DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                            if (state.detail?.status == "FAILED") {
+                                DropdownMenuItem(
+                                    text = { Text("从原始输入恢复") },
+                                    onClick = { overflowExpanded = false; confirmRecovery = true },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.diagnostics_copy_summary)) },
                                 onClick = {

@@ -33,12 +33,17 @@ import kotlinx.serialization.encodeToString
 class ReportRepository(
     private val database: DailyNewsDatabase,
     context: Context,
-) : ReportSink, FailureReportSink, TopNReportSink {
+) : ReportSink, FailureReportSink, TopNReportSink, com.dailynews.pipeline.ports.EditorialHistoryStore {
+    override suspend fun before(reportDate: String, sinceDate: String) = database.reports().editorialHistory(reportDate, sinceDate).map {
+        com.dailynews.pipeline.ports.PublishedEditorialEvent(it.link, it.title, it.source, it.summaryZh, it.eventKey, it.reportDate)
+    }
+
     private val reportsDirectory = File(context.filesDir, "reports")
     private val articles = ArticleRepository(database)
     private val lazyGenerationMutex = Mutex()
 
     override suspend fun publish(report: AssembledReport) {
+        require(report.items.any { it.part == 1 }) { "empty digest cannot replace a saved report" }
         atomicWrite(File(reportsDirectory, "rss-report-${report.reportDate}.md"), report.markdown)
         val now = Instant.now().toString()
         val materialByLink = report.items.map(ReportItem::link).distinct().associateWith { link ->

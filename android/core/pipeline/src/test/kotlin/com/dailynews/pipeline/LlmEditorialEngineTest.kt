@@ -487,6 +487,64 @@ class LlmEditorialEngineTest {
     }
 
     /** Shortlist order is id order, so tests can build refs by position. */
+    @Test
+    fun `recovery reuses only accepted stages and rejects input model or checksum drift`() = runBlocking {
+        val artifacts = lowVolumeArtifacts(cachedPart2 = false)
+        val stored = mutableMapOf<Pair<String, String>, String>()
+        val checkpointStore = object : com.dailynews.pipeline.ports.EditorialCheckpointStore {
+            override suspend fun read(runId: String, stage: String) = stored[runId to stage]
+            override suspend fun write(runId: String, stage: String, content: String) { stored[runId to stage] = content }
+        }
+        val responses = ArrayDeque(listOf(LlmResponse(shortlistDraft(5))))
+        var calls = 0
+        var signature = "provider-v1"
+        var planPromptRevision = ""
+        val engine = LlmEditorialEngine(
+            providers = ProviderResolver { _, _ -> ProviderBinding("test", object : LlmProvider {
+                override suspend fun complete(request: LlmRequest): LlmResponse {
+                    calls++
+                    if (responses.isEmpty()) throw IllegalStateException("interrupted before plan result")
+                    return responses.removeFirst()
+                }
+            }, RoleModel("test", "model", 8192), signature) },
+            prompts = object : PromptSource by TestPrompts {
+                override fun part1Plan(topN: Int) = TestPrompts.part1Plan(topN) + planPromptRevision
+            }, checkpoints = checkpointStore,
+        )
+        suspend fun execute(run: String, selected: com.dailynews.pipeline.flow.EditorialEngine, feedback: List<String> = emptyList()) = selected.edit(
+            run,
+            artifacts.llmContext.copy(meta = artifacts.llmContext.meta.copy(runId = run, generatedAtUtc = "new-$run")),
+            artifacts.part1Brief.copy(meta = artifacts.part1Brief.meta.copy(runId = run, generatedAtUtc = "new-$run"), editorFeedback = feedback),
+            artifacts.part2Context, artifacts.contextBudget, 30, 20, Part2Mode.LAZY, LlmExecutionConfig(),
+        )
+        assertFailsWith<com.dailynews.pipeline.flow.EditorialLlmException> { execute("failed", engine) }
+        assertTrue(stored.containsKey("failed" to "part1_shortlist"))
+        assertTrue(!stored.containsKey("failed" to "part1_plan"))
+        responses.add(LlmResponse(planDraft(ids(5), 25)))
+        val beforeResume = calls
+        val recovered = execute("resumed", engine.forRecovery("failed"))
+        assertEquals(beforeResume + 1, calls)
+        assertEquals(5, recovered.part1.items.size)
+        val afterResume = calls
+        assertEquals(recovered.part1, execute("after-plan-interruption", engine.forRecovery("resumed")).part1)
+        assertEquals(afterResume, calls)
+        assertFailsWith<IllegalArgumentException> { execute("changed-feedback", engine.forRecovery("resumed"), listOf("new preference")) }
+        signature = "provider-v2"
+        assertFailsWith<IllegalArgumentException> { execute("changed-provider", engine.forRecovery("resumed")) }
+        signature = "provider-v1"
+        planPromptRevision = " changed"
+        assertFailsWith<IllegalArgumentException> { execute("changed-prompt", engine.forRecovery("resumed")) }
+        planPromptRevision = ""
+        val original = stored.getValue("resumed" to "part1_plan")
+        val checkpoint = ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.flow.EditorialCheckpoint>(original)
+        val invalid = ArtifactJson.compact.encodeToString(com.dailynews.model.Part1Plan(listOf(com.dailynews.model.Part1PlanItem("https://unlisted.test/", "错误摘要", emptyList())), 29))
+        stored["resumed" to "part1_plan"] = ArtifactJson.compact.encodeToString(checkpoint.copy(payload = invalid, payloadHash = com.dailynews.pipeline.flow.recoveryHash(invalid)))
+        assertFailsWith<IllegalArgumentException> { execute("semantically-invalid", engine.forRecovery("resumed")) }
+        stored["resumed" to "part1_plan"] = original.replace("payloadHash", "corruptHash")
+        assertFailsWith<Exception> { execute("corrupt", engine.forRecovery("resumed")) }
+        assertEquals(afterResume, calls)
+    }
+
     private fun ids(count: Int) = (1..count).map { "a$it" }
 
     /** The shortlist now also uses short ids: the model writes brief ids, not echoed URLs. */

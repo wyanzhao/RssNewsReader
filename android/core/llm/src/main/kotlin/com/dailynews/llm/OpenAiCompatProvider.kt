@@ -96,7 +96,7 @@ class OpenAiCompatProvider(
             throw LlmProtocolException("OpenAI-compatible response was refused: ${refusal ?: choice.finishReason}")
         }
         val text = choice.message.content?.takeIf(String::isNotBlank)
-            ?: throw LlmProtocolException("OpenAI-compatible response contains no choice text")
+            ?: throw LlmProtocolException("OpenAI-compatible response contains no choice text (finish_reason=${choice.finishReason ?: "unknown"})")
         LlmResponse(
             text = text,
             inputTokens = decoded.usage?.promptTokens,

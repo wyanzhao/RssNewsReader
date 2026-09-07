@@ -176,7 +176,7 @@ fun TodayScreen(
                     }
                 }
                 item(key = "today-status") {
-                    TodayStatusCard(state, onOpenDiagnostics, onOpenReport)
+                    TodayStatusCard(state, onOpenDiagnostics, onOpenReport) { com.dailynews.app.work.DailyReportWorker.cancel(context) }
                 }
                 if (!state.providerConfigured) {
                     item(key = "provider-missing") {
@@ -325,6 +325,7 @@ private fun TodayStatusCard(
     state: TodayUiState,
     onOpenDiagnostics: (String?) -> Unit,
     onOpenReport: (String) -> Unit,
+    onCancelRun: () -> Unit,
 ) {
     val run = state.currentRun
     val failed = run?.status == "FAILED"
@@ -344,6 +345,7 @@ private fun TodayStatusCard(
                 run?.status == "RUNNING" -> {
                     Text("正在执行 ${run.classification.lowercase()} 流程")
                     LinearProgressIndicator(Modifier.fillMaxWidth())
+                    TextButton(onClick = onCancelRun) { Text("停止生成") }
                     state.runSteps.filterNot { it.step == "stage_timing" || it.step == "llm_attempt_measurement" }.takeLast(5)
                         .forEach { log -> Text("• ${log.step} · ${log.message}", style = MaterialTheme.typography.bodySmall) }
                 }

@@ -154,7 +154,7 @@ class AppContainer(context: Context) {
         val config = settings.providers.firstOrNull { it.id == roleModel.providerId }
             ?: error("No provider configured for $role. Open Settings → Providers.")
         val provider = buildProvider(config, reportLlmClient(execution))
-        ProviderBinding(config.id, provider, roleModel)
+        ProviderBinding(config.id, provider, roleModel, com.dailynews.model.ArtifactJson.compact.encodeToString(config) + "|app=${BuildConfig.VERSION_CODE}:${BuildConfig.BUILD_TYPE}")
     }
 
     private fun buildProvider(config: ProviderConfig, client: OkHttpClient): LlmProvider = when (config.type) {
@@ -180,7 +180,8 @@ class AppContainer(context: Context) {
                 model = model.trim(),
                 system = "Reply with the single word OK.",
                 userContent = "Connection test",
-                maxTokens = 16,
+                // Reasoning models may consume output tokens before emitting the final OK.
+                maxTokens = 1024,
                 temperature = null,
                 jsonMode = false,
                 assistantPrefill = null,
@@ -230,9 +231,10 @@ class AppContainer(context: Context) {
         providerResolver,
         AssetPromptSource(appContext),
         auditSink,
-        ShortlistContextBuilder(cacheRepository, ClockProvider { clock.instant() }),
+        ShortlistContextBuilder(cacheRepository, reportRepository),
         artifactStore,
         runLogRepository,
+        checkpoints = artifactStore,
     )
 
     suspend fun generatePart2Group(reportDate: String, source: String): Int {
@@ -249,6 +251,7 @@ class AppContainer(context: Context) {
 
     val orchestrator = RunOrchestrator(
         fetch = fetchPort,
+        recovery = com.dailynews.data.repo.RunRecoveryRepository(database, artifactStore, runRepository, feedRepository),
         feeds = feedRepository,
         validator = QcValidator(),
         contexts = LlmContextBuilder(),
