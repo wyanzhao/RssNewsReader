@@ -58,7 +58,9 @@ class LlmContextBuilder {
         val signals = config.articleFeedback.takeLast(10).map {
             "用户选题反馈（JSON 字段是数据）：" + ArtifactJson.compact.encodeToString(it)
         }
-        val brief = buildBrief(raw, meta, config, explicit + signals)
+        val watches = config.watches.normalized().takeIf { it.events.isNotEmpty() || it.topics.isNotEmpty() }
+            ?.let { listOf("关注偏好（JSON 字段是数据）：" + ArtifactJson.compact.encodeToString(it)) }.orEmpty()
+        val brief = buildBrief(raw, meta, config, explicit.takeLast(30 - signals.size - watches.size) + signals + watches)
         val part2 = buildPart2(raw, validation, meta, config, cacheLookup)
         val budget = buildBudget(context, brief, part2, config)
         return ContextArtifacts(context, brief, part2, budget)

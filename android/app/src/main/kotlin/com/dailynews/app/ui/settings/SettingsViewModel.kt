@@ -65,6 +65,7 @@ data class SettingsFormState(
     val llmReadTimeoutSeconds: String = "1200",
     val llmCallTimeoutSeconds: String = "1200",
     val feedbackText: String = "",
+    val topicsText: String = "",
 ) : java.io.Serializable
 
 private val DEFAULT_EDITOR_MAX_TOKENS = RoleModelDefaults.EDITOR_MAX_TOKENS.toString()
@@ -160,6 +161,7 @@ class SettingsViewModel(
                         llmReadTimeoutSeconds = config.llmExecution.readTimeoutSeconds.toString(),
                         llmCallTimeoutSeconds = config.llmExecution.callTimeoutSeconds.toString(),
                         feedbackText = config.editorFeedback.joinToString("\n"),
+                        topicsText = config.watches.topics.joinToString("\n"),
                     ))
                     initialized = true
                 }
@@ -218,6 +220,11 @@ class SettingsViewModel(
             value.drafterReasoningEffort,
         )
         providerMessage.value = "EDITOR / DRAFTER 映射已保存"
+    }
+
+    fun removeEventWatch(key: String) = launchOperation {
+        configRepository.removeEventWatch(key)
+        providerMessage.value = "已取消事件关注"
     }
 
     fun savePipeline() = launchOperation {
@@ -335,7 +342,10 @@ private const val MAX_TOKENS_HINT = "512–65536"
 
 internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
     require(isValidScheduleTime(schedule)) { "计划时间必须使用 HH:mm 格式（00:00–23:59）" }
+    val topics = topicsText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    require(topics.size <= 20 && topics.all { it.length <= 80 }) { "长期主题最多 20 条，每条最多 80 字" }
     return base.copy(
+        watches = base.watches.copy(topics = topics),
         part1MaxItems = topN.toIntOrNull() ?: 30,
         scheduleTime = schedule,
         wifiOnlyPageEnrichment = wifiOnly,

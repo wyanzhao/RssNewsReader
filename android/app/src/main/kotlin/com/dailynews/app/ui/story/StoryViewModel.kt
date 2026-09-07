@@ -7,6 +7,9 @@ import com.dailynews.data.repo.ReportRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.stateIn
 
 /** Story history grouped by day. */
@@ -17,6 +20,9 @@ data class StoryUiState(
     /** null = before the first emission; consistent with ReaderPhase's three-state idea, so loading is never mis-displayed as empty. */
     val days: List<StoryDay>? = null,
     val headline: String = "",
+    val watching: Boolean = false,
+    val watchBusy: Boolean = false,
+    val watchError: String? = null,
 ) {
     val totalReports: Int get() = days?.sumOf { it.items.size } ?: 0
 }
@@ -29,18 +35,38 @@ data class StoryUiState(
 class StoryViewModel(
     reports: ReportRepository,
     private val eventKey: String,
+    private val config: com.dailynews.data.config.PipelineConfigRepository,
 ) : ViewModel() {
-    val state: StateFlow<StoryUiState> = reports.story(eventKey)
-        .map { rows ->
+    private val busy = MutableStateFlow(false)
+    private val error = MutableStateFlow<String?>(null)
+    val state: StateFlow<StoryUiState> = combine(reports.story(eventKey), config.config, busy, error) { rows, settings, pending, failure ->
             val days = rows.groupBy(ReportItemEntity::reportDate)
                 .map { (date, items) -> StoryDay(date, items.sortedBy(ReportItemEntity::position)) }
                 .sortedByDescending(StoryDay::reportDate)
             StoryUiState(
                 eventKey = eventKey,
+                watching = settings.watches.events.any { it.eventKey == eventKey },
+                watchBusy = pending,
+                watchError = failure,
                 days = days,
                 // Use the earliest item's title as the story name: it is where this story started, and is more stable than the latest item.
                 headline = days.lastOrNull()?.items?.firstOrNull()?.title.orEmpty(),
             )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoryUiState(eventKey = eventKey))
+    fun toggleWatch() {
+        if (busy.value) return
+        val current = state.value
+        val date = current.days?.firstOrNull()?.reportDate ?: return
+        busy.value = true
+        viewModelScope.launch {
+            error.value = null
+            try {
+                config.setEventWatch(com.dailynews.model.EventWatch(eventKey, current.headline, date), !current.watching)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (failure: Exception) { error.value = failure.message ?: "保存关注失败，请重试" }
+            finally { busy.value = false }
+        }
+    }
+
 }

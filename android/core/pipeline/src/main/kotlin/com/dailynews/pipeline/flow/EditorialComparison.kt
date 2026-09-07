@@ -41,7 +41,7 @@ class EditorialComparison(
             val runId = "$comparisonId-$name"
             val input = raw.copy(meta = raw.meta.copy(runId = runId))
             val armValidation = QcValidator().validate(input, feeds).result
-            val armConfig = config.copy(editorFeedback = feedback, articleFeedback = emptyList(), part2Mode = Part2Mode.LAZY)
+            val armConfig = config.copy(editorFeedback = feedback, articleFeedback = emptyList(), watches = WatchPreferences(), part2Mode = Part2Mode.LAZY)
             val reportPath = "comparison-$runId.md"
             val context = LlmContextBuilder().build(input, armValidation, date, reportPath, armConfig)
             require(context.contextBudget.withinBudget) { "comparison context exceeds budget" }

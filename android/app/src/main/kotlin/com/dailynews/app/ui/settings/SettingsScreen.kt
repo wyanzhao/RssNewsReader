@@ -289,6 +289,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scheduleItems(state: 
     item { NumberField("后台增量抓取间隔（分钟）", form.sweepInterval, state.validationErrors["sweepInterval"]) { value -> viewModel.update { it.copy(sweepInterval = value) } } }
     item { Row { Checkbox(form.wifiOnly, { value -> viewModel.update { it.copy(wifiOnly = value) } }); Text("仅在 Wi-Fi 下抓取文章页正文", Modifier.padding(top = 12.dp)) } }
     if (BuildConfig.DEBUG) item { Row { Checkbox(form.useLegacySingleShotFetch, { value -> viewModel.update { it.copy(useLegacySingleShotFetch = value) } }); Text("调试：旧单次抓取路径", Modifier.padding(top = 12.dp)) } }
+    item { OutlinedTextField(form.topicsText, { value -> viewModel.update { it.copy(topicsText = value) } }, label = { Text("长期关注主题（每行一条）") }, supportingText = { Text("例如：AI 编译器、存储系统。最多 20 条，每条 80 字；用于后续选题。") }, modifier = Modifier.fillMaxWidth()) }
+    if (state.config.watches.events.isNotEmpty()) {
+        item { Text("关注的事件", style = MaterialTheme.typography.titleLarge) }
+        state.config.watches.events.forEach { watch ->
+            item(key = "event-watch-${watch.eventKey}") {
+                Column {
+                    Text(watch.title)
+                    TextButton(onClick = { viewModel.removeEventWatch(watch.eventKey) }, enabled = !state.busy) { Text("取消关注") }
+                }
+            }
+        }
+    }
     item { Button(onClick = viewModel::savePipeline, enabled = !state.busy && state.validationErrors.isEmpty()) { Text("保存计划与后台设置") } }
     item {
         val alarmManager = context.getSystemService(AlarmManager::class.java)

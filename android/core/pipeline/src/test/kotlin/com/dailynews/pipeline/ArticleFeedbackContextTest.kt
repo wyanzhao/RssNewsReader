@@ -33,6 +33,18 @@ class ArticleFeedbackContextTest {
         assertTrue(after.contextBudget.sizes.part1BriefBytes > before.contextBudget.sizes.part1BriefBytes)
     }
 
+    @Test fun `watch topics and events reach editorial input as distinct bounded data`() = runBlocking {
+        val (raw, feeds, config) = FixtureFactory.goldenRaw()
+        val watches = com.dailynews.model.WatchPreferences(listOf("AI compilers"), listOf(com.dailynews.model.EventWatch("chip-release", "Chip launch", "2026-04-09")))
+        val saved = ArtifactJson.codec.decodeFromString<PipelineConfig>(ArtifactJson.codec.encodeToString(config.copy(watches = watches)))
+        val result = LlmContextBuilder().build(raw, QcValidator().validate(raw, feeds).result, "2026-04-10", "/report.md", saved)
+        val signal = result.part1Brief.editorFeedback.last()
+        val decoded = ArtifactJson.codec.decodeFromString<com.dailynews.model.WatchPreferences>(signal.substringAfter("："))
+        assertEquals(watches, decoded)
+        assertEquals(raw.articles, result.llmContext.allArticles)
+        assertEquals(com.dailynews.model.WatchPreferences(), ArtifactJson.codec.decodeFromString<PipelineConfig>("{}").watches)
+    }
+
     @Test
     fun `feedback is bounded deduplicated and compatible with old backups`() {
         assertTrue(ArtifactJson.codec.decodeFromString<PipelineConfig>("{}").articleFeedback.isEmpty())

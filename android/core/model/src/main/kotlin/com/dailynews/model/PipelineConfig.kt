@@ -93,8 +93,10 @@ data class PipelineConfig(
     @SerialName("max_llm_calls_per_run") val maxLlmCallsPerRun: Int = 20,
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
     @SerialName("article_feedback") val articleFeedback: List<ArticleFeedback> = emptyList(),
+    val watches: WatchPreferences = WatchPreferences(),
 ) {
     fun normalized(): PipelineConfig = copy(
+        watches = watches.normalized(),
         fetch = fetch.copy(
             hours = fetch.hours.coerceIn(1, 168),
             maxSummary = fetch.maxSummary.coerceIn(1, 4_000),

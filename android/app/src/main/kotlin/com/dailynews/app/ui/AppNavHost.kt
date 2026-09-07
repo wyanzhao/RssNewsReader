@@ -219,7 +219,7 @@ private fun AppNavHost(
         composable("story/{eventKey}") { entry ->
             val eventKey = Uri.decode(entry.arguments?.getString("eventKey").orEmpty())
             val vm: StoryViewModel = viewModel(key = "story-$eventKey", factory = viewModelFactory {
-                StoryViewModel(container.reportRepository, eventKey)
+                StoryViewModel(container.reportRepository, eventKey, container.configRepository)
             })
             StoryScreen(
                 vm,

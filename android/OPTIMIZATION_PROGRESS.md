@@ -347,6 +347,37 @@ has been requested.
   of Android process-death/long-standby behavior. Remaining A3/B2 device matrix,
   B1 quality review and B3/C1/C2 product work remain open.
 
+## B3 independent watch preferences (0.9.0)
+
+- Adds separate event/topic watch lists to existing config storage. Event watches
+  bind stable event keys to the report date already visible when following;
+  topic subscriptions are independent long-lived subject text. Existing article
+  feedback remains separate and old configs default to empty watch lists.
+- Story view supports follow/unfollow; a first-day event can enter the story view
+  through the report menu even without a multi-day badge. Settings manages topic
+  text and existing event watches. Updates use atomic DataStore read/modify/write
+  and retain unrelated preferences; limits are 20 topics and 20 events.
+- Both editor passes receive bounded structured watch preferences as data.
+  Controlled comparisons clear watches in both arms along with article feedback
+  so stored follows cannot confound the explicit trial preference.
+- New persistence/context tests cover concurrent event/topic/feedback changes,
+  reopen, independent unfollow, old-config compatibility and authoritative-source
+  preservation. Full verification passed: 467 recorded JVM test executions, zero
+  failures/errors/skips, lintDebug, Roborazzi verification and release assembly.
+- Signed APK read-back 0.9.0 (29), v2/v3 verified; version gate passed against
+  c7f477f. SHA-256:
+  `890c7915c39fdaba2f9c9f9e3ff99f72d4974231d22ca31a987a027382278069`.
+  APK and mapping are archived under `build/acceptance/2026-09-07/release-090/`.
+- S25 retained-data upgrade verified first-day event follow, persistence after
+  force-stop/relaunch and unfollow. The temporary watch was removed. The topic
+  field is visible under Settings > Plan and background; no topics or provider
+  settings were changed during device acceptance. Screenshots are stored as
+  `s25-090-event-watch.png` and `s25-090-topic-settings.png` in that date folder.
+  Topic persistence is covered by automated tests, not a device save experiment.
+- This is the durable watch-preference foundation. Source-backed new-development
+  assessment, meaningful-change notifications and personalized weekly review are
+  still required for B3 completion; no notification behavior is claimed yet.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

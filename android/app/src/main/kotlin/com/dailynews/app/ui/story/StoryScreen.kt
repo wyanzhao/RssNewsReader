@@ -16,6 +16,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -50,6 +52,11 @@ fun StoryScreen(
                         style = MaterialTheme.typography.titleLarge,
                     )
                 },
+                actions = {
+                    TextButton(onClick = viewModel::toggleWatch, enabled = !state.watchBusy && state.headline.isNotBlank()) {
+                        Text(if (state.watching) "取消关注" else "关注事件")
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = stringResource(R.string.back))
@@ -58,7 +65,10 @@ fun StoryScreen(
             )
         },
     ) { padding ->
-        StoryContent(state, Modifier.fillMaxSize().padding(padding), onOpen)
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            state.watchError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(DailyNewsSpacing.roomy)) }
+            StoryContent(state, Modifier.fillMaxSize(), onOpen)
+        }
     }
 }
 

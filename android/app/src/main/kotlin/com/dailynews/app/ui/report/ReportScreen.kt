@@ -250,10 +250,9 @@ fun LazyListScope.reportContent(
             onToggleFavorite = { onToggleFavorite(article) },
             onShare = { onShare(articleShareText(article)) },
             onOpenRelated = onOpen,
-            // Only offer the entry point when this story actually spans >= 2 days: a "history"
-            // containing only its own single article is an empty promise. Depth is aggregated from report_items.
-            onOpenStory = onOpenStory?.takeIf { (state.storyDepth[article.eventKey] ?: 0) >= 2 },
-            storyDays = state.storyDepth[article.eventKey],
+            // Following starts with the first report; the multi-day badge still requires real history.
+            onOpenStory = onOpenStory?.takeIf { article.eventKey.isNotBlank() },
+            storyDays = state.storyDepth[article.eventKey]?.takeIf { it >= 2 },
             feedback = state.feedbackByLink[article.link],
             onFeedback = onFeedback?.let { save -> { kind, topic -> save(article, kind, topic) } },
         )
@@ -428,7 +427,7 @@ private fun ReportArticleCard(
             }
             if (onOpenStory != null) {
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.story_open)) },
+                    text = { Text("事件动态与关注") },
                     onClick = { dismissMenu(); onOpenStory(item.eventKey) },
                 )
             }

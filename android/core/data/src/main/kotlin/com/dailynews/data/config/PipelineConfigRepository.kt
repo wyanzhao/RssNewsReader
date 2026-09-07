@@ -52,6 +52,20 @@ class PipelineConfigRepository(private val context: Context) {
         update { it.copy(articleFeedback = it.articleFeedback.filterNot { item -> item.link == bounded.link } + bounded) }
     }
 
+    suspend fun setEventWatch(watch: com.dailynews.model.EventWatch, enabled: Boolean) {
+        require(watch.eventKey.matches(Regex("[a-z0-9-]{1,60}"))) { "事件标识无效" }
+        java.time.LocalDate.parse(watch.afterReportDate)
+        update { config ->
+            val remaining = config.watches.events.filterNot { it.eventKey == watch.eventKey }
+            require(!enabled || remaining.size < 20) { "最多关注 20 个事件，请先取消不再需要的关注" }
+            config.copy(watches = config.watches.copy(events = if (enabled) remaining + watch else remaining))
+        }
+    }
+
+    suspend fun removeEventWatch(key: String) {
+        update { it.copy(watches = it.watches.copy(events = it.watches.events.filterNot { event -> event.eventKey == key })) }
+    }
+
     suspend fun removeFeedback(link: String) {
         update { it.copy(articleFeedback = it.articleFeedback.filterNot { item -> item.link == link }) }
     }
