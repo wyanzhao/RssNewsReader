@@ -575,6 +575,35 @@ has been requested.
   the APK. No new paid trial. The long diagnostic list required substantial
   scrolling; section navigation remains a usability follow-up.
 
+## 1.0.3 watched developments in report notifications
+
+- Successful report notifications prioritize explicit watched events with typed
+  source-bound development assessments. This reuses the existing report-ready
+  notification/channel/date identity; it does not create additional event alerts.
+- Selection requires a Part 1 item, a report date after the watch start, a
+  development baseline at or after that start and before the new report, a
+  non-empty change/quote, and an evidence link among that event's selected links.
+  Repeated mentions with no assessment and topic-only preferences do not qualify.
+  At most three developments are previewed; the title reports the total count
+  and explicitly identifies the content as an AI assessment.
+- One qualifying event opens its story; multiple events open the report. Original
+  Top N sharing remains intact. Current watches are read at notification time so
+  an unfollow during generation takes effect. Existing permission and channel
+  controls still apply.
+- Targeted selection and actual notification/PendingIntent tests passed. Full
+  regression passed: 504 JVM executions, zero failures/errors/skips, lintDebug
+  and screenshot verification. Version gate against 3e8bb81 passed. Signed APK
+  read-back 1.0.3 (36), v2/v3 verified, SHA-256
+  `1bd12af5efa5ff8e915f54f5bfca7dd4d8c66b08668162584233a129b3de68d2`.
+  APK/mapping archived under `build/acceptance/2026-09-07/release-103/`.
+  S25 retained-data install and existing story deep-link smoke passed; installed
+  version read back 1.0.3 (36). Existing historical summaries were not regenerated
+  or claimed factually repaired. This is not real-device positive novelty
+  acceptance: the last same-pool trial had no historical baseline.
+- The model's source-bound assessment remains a judgment, not semantic proof.
+  Same-report event keys are deduplicated; cross-run repeated-change suppression
+  beyond the existing report notification identity remains a follow-up.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

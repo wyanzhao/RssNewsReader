@@ -54,8 +54,8 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(1100, notification)
     }
 
-    fun notifyResult(context: Context, result: RunExecutionResult) {
-        val notification = resultNotification(context, result)
+    fun notifyResult(context: Context, result: RunExecutionResult, watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences()) {
+        val notification = resultNotification(context, result, watches)
         if (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             NotificationManagerCompat.from(context).apply {
                 notify(result.reportDate.hashCode(), notification)
@@ -73,15 +73,17 @@ object NotificationHelper {
         }
     }
 
-    internal fun resultNotification(context: Context, result: RunExecutionResult) = when (result) {
+    internal fun resultNotification(context: Context, result: RunExecutionResult, watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences()) = when (result) {
             is RunExecutionResult.Success -> {
+                val developments = com.dailynews.pipeline.editorial.watchedDevelopments(result.report, watches)
+                val progress = developments.take(3).joinToString("\n") { "${it.title}：${it.development!!.changeZh}" }
                 val titles = result.report.items.filter { it.part == 1 }.take(3).joinToString(" · ") { it.title }
                 NotificationCompat.Builder(context, READY_CHANNEL)
                     .setSmallIcon(com.dailynews.app.R.drawable.ic_notification)
-                    .setContentTitle("DailyNews ${result.reportDate} 已生成")
-                    .setContentText(titles.ifBlank { "点击查看报告" })
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(titles))
-                    .setContentIntent(openApp(context, "report/${result.reportDate}"))
+                    .setContentTitle(if (developments.isEmpty()) "DailyNews ${result.reportDate} 已生成" else "关注事件有 ${developments.size} 项进展 · AI 判断")
+                    .setContentText(progress.ifBlank { titles.ifBlank { "点击查看报告" } })
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(progress.ifBlank { titles }))
+                    .setContentIntent(openApp(context, developments.singleOrNull()?.let { "story/${it.eventKey}" } ?: "report/${result.reportDate}"))
                     .addAction(0, "分享 Top N", shareTopN(context, result.reportDate.toString(), result.report.topNMarkdown))
                     .setGroup(GROUP_KEY)
                     .setAutoCancel(true)

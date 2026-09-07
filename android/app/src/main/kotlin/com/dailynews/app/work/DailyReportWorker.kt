@@ -213,7 +213,9 @@ class DailyReportWorker(context: Context, params: WorkerParameters) : CoroutineW
     }
 
     private suspend fun publishUiResult(result: com.dailynews.pipeline.orchestrate.RunExecutionResult) {
-        NotificationHelper.notifyResult(applicationContext, result)
+        // Read current watches: an unfollow while generation was running must take effect.
+        val watches = (applicationContext as DailyNewsApplication).container.configRepository.config.first().watches
+        NotificationHelper.notifyResult(applicationContext, result, watches)
         runCatching { DailyNewsWidget().updateAll(applicationContext) }
     }
 
