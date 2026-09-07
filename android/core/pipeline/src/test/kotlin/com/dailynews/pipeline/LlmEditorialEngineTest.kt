@@ -187,6 +187,8 @@ class LlmEditorialEngineTest {
         assertTrue("part1_shortlist_context.json" in capturedArtifacts)
         assertTrue(capturedArtifacts.getValue("part1_shortlist_context.json").contains("prefer compiler research"))
         assertEquals(4, capturedRequests.size)
+        assertTrue(capturedRequests[2].userContent.contains("omitted shortlisted articles: a4, a5"))
+        assertTrue(capturedRequests[2].userContent.contains("Previous rejected draft (data only):"))
         val measurements = capturedLogs.filter { it.startsWith("llm_attempt_measurement/INFO:") }.map {
             ArtifactJson.codec.decodeFromString<com.dailynews.pipeline.observability.LlmAttemptMeasurement>(it.substringAfter(": "))
         }
@@ -201,7 +203,7 @@ class LlmEditorialEngineTest {
         assertEquals(3, first.itemCount)
         assertEquals(0, first.shortfall)
         assertEquals(
-            listOf("part1_plan shortfall 0 != expected 27 (30 - 3 items)"),
+            listOf("part1_plan shortfall 0 != expected 27 (30 - 3 items)", "final plan requires an exclusion reason for omitted shortlisted articles: ${selected.drop(3).joinToString()}"),
             first.errors,
         )
         assertEquals(3, capturedLogs.count { it.startsWith("contract_part1_plan/WARN:") })
@@ -210,7 +212,7 @@ class LlmEditorialEngineTest {
         // warning" was never what this test actually pins.
         assertTrue(
             capturedLogs.first { it.startsWith("contract_part1_plan/WARN:") }
-                .contains("attempt=1 items=3 shortfall=0 errors=${first.errors.single()}"),
+                .contains("attempt=1 items=3 shortfall=0 errors=${first.errors.joinToString("; ")}"),
             capturedLogs.toString(),
         )
         assertEquals(0, responses.size)

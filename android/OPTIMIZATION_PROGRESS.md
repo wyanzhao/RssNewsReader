@@ -211,6 +211,47 @@ has been requested.
 - An additional failure test passed: second-arm failure propagates and cannot
   return a completed pair even after the baseline report was written.
 
+## B1 final-selection correction (0.8.1)
+
+- Final plan drafts now carry `excluded` with source IDs and reasons; deterministic
+  resolution persists canonical links. Every shortlisted article must occur once
+  across primary/merged/excluded references. Missing reasons, overlap and foreign
+  sources reject the plan, including recovered checkpoints. Older persisted plans
+  remain readable; new execution uses a changed fingerprint and current gate.
+- Diagnostics exposes final-stage omissions separately from first-stage exclusions.
+  Offline review includes merged supporting sources, final plan and exclusions;
+  it validates complete final coverage when the new field is present.
+- Explicit preferences take precedence over ordinary off-topic business/executive
+  news in final ranking. Broad, urgent public events may override only with a
+  concrete explanation. Prompt distinguishes truncated text/future targets from
+  completed results and requires details to come from primary/merged sources.
+  This semantic instruction is not a deterministic fact checker; live evidence
+  review remains required.
+- Full JVM checks passed 445 executions with zero failures/errors/skips; lint and
+  screenshot verification passed without baseline replacement. Five offline
+  review-tool tests passed. Version gate against `b328874` passed.
+- Signed APK read-back is 0.8.1 (25), v2/v3 verified, installed with `adb install -r`
+  preserving S25 data. APK SHA-256:
+  `8b0bb25ff520db07131c3a64156877f4a75bf01df2754873ad60c81317456ce4`.
+  Mapping archived beside APK locally. This first device trial failed on repeated
+  final-plan overlap/omission; eight calls cost USD 0.02917859849. The baseline
+  passed after repair, but the candidate exhausted retries, so the paired export
+  was correctly refused.
+- Retry feedback now identifies missing/duplicate article IDs and includes the
+  rejected draft for targeted repair, without silently dropping references or
+  inventing reasons. Full checks passed again; focused assertions verify that the
+  model receives the missing IDs and prior draft. Revised APK in the same 0.8.1
+  iteration has SHA-256
+  `ce8bca51c435ebdecd451ae30ca8d67bda88b886cb60c022916f8edce9e1a22b`.
+  Installed preserving S25 data. Experiment
+  `comparison-50be25f1-951d-4436-add4-82a0c16382c4` completed: baseline 21 events,
+  preference 11; both two calls, zero retries. Reported charges USD 0.0055838 and
+  0.00502530. All original artifacts unchanged; paired/final coverage audit passed.
+- Preference ordering improved in this sample (Kioxia and AI data-center reports
+  first/second), but technical company self-reports are still inconsistently
+  excluded. Truncated-milestone faithfulness and independent blind evaluation
+  remain open; see the source-bounded quality review for the next correction.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
@@ -231,3 +272,12 @@ has been requested.
 7. Measure large-pool search/scroll, cold startup, database size and model
    latency/truncation/retry/cost; optimize measured bottlenecks and audit the final
    signed deliverable. Never replace this full scope with only completed items.
+
+## Next measurement boundary
+
+Recovery ancestry already persists as `recovery.json.source_run_id` in
+RunOrchestrator. Full-chain cost work should traverse that explicit artifact,
+check cycles/missing ancestors, and aggregate measured attempts with unknown
+cancelled calls retained. Do not infer ancestry from dates or cache timestamps.
+The current diagnostics totals still describe the selected run, so A2/B2
+full-chain accounting remains open.

@@ -502,6 +502,20 @@ fun LazyListScope.diagnosticsContent(
             }
         }
     }
+    if (state.finalPlanError) {
+        item(key = "final-plan-error") { Text("最终选题清单无法读取，请导出产物检查", color = MaterialTheme.colorScheme.error) }
+    }
+    state.finalPlan?.takeIf { it.excluded.isNotEmpty() }?.let { plan ->
+        item(key = "final-excluded-heading") { Text("最终取舍：${plan.excluded.size} 篇入围文章未采用", style = MaterialTheme.typography.titleLarge) }
+        items(plan.excluded.size, key = { "final-excluded-$it" }) { index ->
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy)) {
+                    Text(plan.excluded[index].reason)
+                    Text(plan.excluded[index].link, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
     val measurements = llmMeasurementSummary(state)
     if (measurements.isNotEmpty()) {
         item(key = "llm-measurements") {

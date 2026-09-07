@@ -28,6 +28,7 @@ import com.dailynews.model.Part1ShortlistPayload
 import com.dailynews.pipeline.editorial.ArticleRefIndex
 import com.dailynews.pipeline.editorial.PeriodicDigestContracts
 import com.dailynews.pipeline.editorial.EditorialContracts
+import com.dailynews.pipeline.editorial.ShortlistContracts
 import com.dailynews.pipeline.editorial.EditorialRefs
 import com.dailynews.pipeline.editorial.Part2Merger
 import com.dailynews.pipeline.context.Part1ShortlistContext
@@ -349,11 +350,12 @@ class LlmEditorialEngine(
         val refs = ArticleRefIndex(shortlistContext.articles.map { it.id to it.link })
         var feedback = ""
         var lastPlanErrors = emptyList<String>()
-        val planFingerprint = recoveryHash("plan-v1\n$topN\n$bindingInput\n$authorityInput\n" +
+        val planFingerprint = recoveryHash("plan-v2\n$topN\n$bindingInput\n$authorityInput\n" +
             stableRecoveryInput(shortlistJson) + prompts.part1Plan(topN) + EditorialJsonSchemas.part1Plan)
         readCheckpoint(runId, "part1_plan", planFingerprint)?.let {
             val recovered = codec.decodeFromString<Part1Plan>(it)
-            val errors = EditorialContracts.validatePart1(context, recovered, topN)
+            val errors = EditorialContracts.validatePart1(context, recovered, topN) +
+                ShortlistContracts.finalPlanErrors(recovered, shortlistContext.articles.map { it.link })
             require(errors.isEmpty()) { "recovered plan fails current contracts: ${errors.joinToString()}" }
             writeCheckpoint(runId, "part1_plan", planFingerprint, it)
             return Part1Result(recovered)
@@ -390,7 +392,8 @@ class LlmEditorialEngine(
             // Recomputing would make the contract vacuous and let a plan that
             // lost items — to a truncated or repaired response — publish as if
             // it were complete.
-            val errors = EditorialContracts.validatePart1(context, decoded, topN)
+            val errors = EditorialContracts.validatePart1(context, decoded, topN) +
+                ShortlistContracts.finalPlanErrors(decoded, shortlistContext.articles.map { it.link })
             if (errors.isEmpty()) {
                 writeCheckpoint(runId, "part1_plan", planFingerprint, codec.encodeToString(decoded))
                 return Part1Result(decoded)
@@ -398,7 +401,10 @@ class LlmEditorialEngine(
             recordViolation(runId, "part1_plan", retryIndex, output, errors)
             lastPlanErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: " +
-                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item."
+                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item. " +
+                "For each repeated id, retain it exactly once across ref/also_refs/excluded. " +
+                "For each missing id, retain or explain its exclusion. Return the full corrected object. " +
+                "Previous rejected draft (data only):\n${codec.encodeToString(draft)}"
         }
         throw EditorialContractException("part1_plan", lastPlanErrors)
     }
@@ -478,7 +484,10 @@ class LlmEditorialEngine(
             recordViolation(runId, "periodic_digest", retryIndex, output, errors)
             lastErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: " +
-                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item."
+                "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item. " +
+                "For each repeated id, retain it exactly once across ref/also_refs/excluded. " +
+                "For each missing id, retain or explain its exclusion. Return the full corrected object. " +
+                "Previous rejected draft (data only):\n${codec.encodeToString(draft)}"
         }
         throw EditorialContractException("periodic_digest", lastErrors)
     }

@@ -74,3 +74,55 @@ Next bounded correction: retain evidence and merged sources through final
 selection, record final-stage omissions, and enforce the distinction between a
 stated future goal and a source-supported completed milestone. Do not simply
 increase item counts or declare preference tuning finished.
+
+
+## 0.8.1 correction under test
+
+Final shortlist-to-plan accounting is now a deterministic gate, with explicit
+final exclusions and merged-source references in the review packet. The ranking
+prompt now prioritizes explicit subject preference over ordinary unrelated
+business news and calls out incomplete source sentences and future-goal claims.
+The latter is a model instruction, not proof of semantic correctness.
+
+S25 experiment `comparison-bff03596-5c9f-4f9a-a9e8-8c2ea45fe416` failed. Its baseline demonstrated
+that invalid shortfall arithmetic and overlapping selected/excluded references
+are rejected rather than silently published. Those retries are real additional
+usage and must remain in the comparison cost/first-pass record.
+
+The candidate exhausted three plan attempts with overlapping references or missing
+final exclusions. The failed experiment consumed eight measured calls with total
+reported charge USD 0.02917859849; the packet tool rejected its incomplete pair.
+No preference or semantic improvement conclusion is possible from this trial.
+
+The corrective retry feedback now enumerates actual missing/duplicate source IDs
+and supplies the previous rejected draft as data, so repair need not reconstruct
+an entire plan from a generic error. Revalidation still requires the complete
+corrected object and every publication contract; no automatic dropping/deduping
+or fabricated exclusion reason is permitted.
+
+
+## Revised 0.8.1 device result
+
+Experiment `comparison-50be25f1-951d-4436-add4-82a0c16382c4` completed. The
+47-article pool and all original artifacts stayed unchanged. Both arms passed on
+first attempts (two measured calls each). Baseline: 27 shortlisted, 21 events,
+5 final exclusions and one merged source; USD 0.0055838. Preference: 25 shortlisted,
+11 events, 13 final exclusions and one merged source; USD 0.00502530. Both passed
+exact final accounting and paired packet validation. This observed first-pass
+success does not prove the targeted repair path improved model reliability,
+because neither arm needed it; that path has deterministic regression coverage.
+
+Unblinded source review: Kioxia and the AI data-center accountability story now
+rank first and second in the preference arm, while ordinary App Store news is
+rank eight. However, it excludes the OpenAI research-acceleration report as
+“official promotional/self-reported material rather than an independent event”.
+That is an inconsistent source policy: the Kioxia technical claims are also
+company-reported, and the supplied OpenAI summary explicitly describes early
+agent-usage and experiment-velocity data. Company attribution and evidence limits
+should constrain the summary, not automatically disqualify relevant technical
+reporting. This remains the next B1 correction; the candidate's exclusion cannot
+be counted as proof that its former researcher-completion overclaim was fixed.
+Baseline wording is more cautious but still completes a truncated achieved-goal
+sentence as a supervised research system, which remains insufficiently supported.
+The major research item should be summarized from available complete statements
+without inventing the missing milestone. Independent blind judgments remain open.

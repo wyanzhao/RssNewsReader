@@ -75,6 +75,8 @@ data class DiagnosticsUiState(
     val comparisons: List<ComparisonStatus> = emptyList(),
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
+    val finalPlan: com.dailynews.model.Part1Plan? = null,
+    val finalPlanError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
     val loading: Boolean = true,
     val artifactsLoading: Boolean = false,
@@ -89,6 +91,8 @@ internal data class DiagnosticDetails(
     val comparisons: List<ComparisonStatus> = emptyList(),
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
+    val finalPlan: com.dailynews.model.Part1Plan? = null,
+    val finalPlanError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
 )
 
@@ -100,6 +104,7 @@ private sealed interface ArtifactTexts {
         /** name → content. One is written every time the LLM is sent back; previously completely invisible inside the app. */
         val violations: List<Pair<String, String>>,
         val shortlist: String?,
+        val plan: String?,
         val comparisons: List<ComparisonStatus>,
     ) : ArtifactTexts
 }
@@ -170,6 +175,7 @@ class DiagnosticsViewModel(
                         artifacts.readText(entity.runId, "context_budget.json"),
                         violations,
                         artifacts.readText(entity.runId, "part1_shortlist.json"),
+                        artifacts.readText(entity.runId, "part1_plan.json"),
                         artifacts.names(entity.runId).filter { it.startsWith("comparisons/") && it.endsWith("/manifest.json") }.map { name ->
                             runCatching {
                                 val manifest = com.dailynews.model.ArtifactJson.codec.decodeFromString<kotlinx.serialization.json.JsonObject>(requireNotNull(artifacts.readText(entity.runId, name)))
@@ -190,6 +196,8 @@ class DiagnosticsViewModel(
                         artifactsLoading = false,
                         resolved = resolveDiagnosticsArtifacts(artifactTexts.validation, artifactTexts.budget, entity, logs),
                         comparisons = artifactTexts.comparisons,
+                        finalPlan = artifactTexts.plan?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1Plan>(it) }.getOrNull() },
+                        finalPlanError = artifactTexts.plan?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1Plan>(it) }.isFailure } ?: false,
                         shortlistAudit = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.getOrNull() },
                         shortlistAuditError = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.isFailure } ?: false,
                         contractViolations = artifactTexts.violations,
@@ -308,6 +316,8 @@ internal fun buildState(
         comparisons = detailBundle.comparisons,
         shortlistAudit = detailBundle.shortlistAudit,
         shortlistAuditError = detailBundle.shortlistAuditError,
+        finalPlan = detailBundle.finalPlan,
+        finalPlanError = detailBundle.finalPlanError,
         logs = detailBundle.logs,
         llmCalls = detailBundle.calls,
         llmTotals = llmTotalsFor(detailBundle.calls),

@@ -40,6 +40,13 @@ def load_run(path, prefix=""):
         raise ValueError('invalid final report source references')
     if any(not x.get('reason', '').strip() for x in excluded):
         raise ValueError('missing exclusion reason')
+    if 'excluded' in plan:
+        final_excluded = plan['excluded']
+        accounted = used + [x['link'] for x in final_excluded]
+        if len(accounted) != len(set(accounted)) or set(accounted) != set(selected):
+            raise ValueError('final selection does not account for the shortlist exactly once')
+        if any(not x.get('reason', '').strip() for x in final_excluded):
+            raise ValueError('missing final exclusion reason')
     pool = sorted(articles, key=lambda a: a['link'])
     return {'pool': pool, 'pool_hash': digest(pool), 'plan': plan, 'shortlist': shortlist,
             'brief': brief, 'context': context, 'config': config}
@@ -80,6 +87,12 @@ def render_arm(run, label):
         source = by_link[item['link']]
         lines += [f"{rank}. {source['title']}", f"   {source['source']} — {item['link']}",
                   f"   {item['summary_zh']}", '']
+        for link in item.get('also_links', []):
+            lines += [f"   Merged source: {by_link[link]['title']} — {link}"]
+    if run['plan'].get('excluded'):
+        lines += ['', 'Final-stage exclusions:', '']
+        for entry in run['plan']['excluded']:
+            lines += [f"- {by_link[entry['link']]['title']} — {entry['link']}", f"  {entry['reason']}"]
     return '\n'.join(lines)
 
 
@@ -112,7 +125,7 @@ provenance verification; passing packet checks does not prove causal preference 
     (output / 'review.md').write_text(instructions + '\n' + '\n'.join(render_arm(r, k) for k, r in arms.items()))
     evidence = {'pool_hash': runs[0]['pool_hash'], 'articles': runs[0]['pool'],
                 'review_preferences': sorted({f for r in runs for f in r['brief'].get('editor_feedback', [])}),
-                'arms': {k: {'shortlist': r['shortlist'], 'material': without_feedback(r['context'])}
+                'arms': {k: {'shortlist': r['shortlist'], 'plan': r['plan'], 'material': without_feedback(r['context'])}
                          for k, r in arms.items()}}
     (output / 'source-evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n')
     # This separate file is intentionally not linked from the blinded review document.

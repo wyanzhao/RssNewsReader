@@ -43,7 +43,12 @@ object EditorialRefs {
                 noiseBucket = item.noiseBucket,
             )
         }
-        return resolution(Part1Plan(items, draft.shortfall, draft.notes), errors)
+        val excluded = draft.excluded.map { entry ->
+            val link = refs.resolve(entry.ref)
+            if (link == null) errors += refs.unknown("part1 excluded ref", entry.ref)
+            com.dailynews.model.ShortlistExclusion(link.orEmpty(), entry.reason)
+        }
+        return resolution(Part1Plan(items, draft.shortfall, draft.notes, excluded), errors)
     }
 
     fun resolvePart2(draft: MissingPart2Draft, refs: ArticleRefIndex): RefResolution<List<MissingPart2Summary>> {

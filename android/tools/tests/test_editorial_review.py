@@ -50,6 +50,20 @@ class PacketTests(unittest.TestCase):
                 for n,v in data.items(): z.writestr(n,json.dumps(v))
             with self.assertRaises(ValueError): review.load_run(p)
 
+    def test_final_exclusions_and_merged_sources_are_reviewable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'run.zip'; self.fixture(p)
+            with zipfile.ZipFile(p) as z: data={n:json.loads(z.read(n)) for n in z.namelist()}
+            link=data['raw.json']['articles'][0]['link']
+            data['part1_plan.json']['excluded']=[{'link':link,'reason':'duplicate selection'}]
+            with zipfile.ZipFile(p,'w') as z:
+                for n,v in data.items(): z.writestr(n,json.dumps(v))
+            with self.assertRaisesRegex(ValueError,'exactly once'): review.load_run(p)
+            run={'pool':[{'link':link,'title':'Primary','source':'Lab'},
+                {'link':link+'2','title':'Supporting article','source':'Lab'}],
+                'plan':{'items':[{'link':link,'summary_zh':'摘要','also_links':[link+'2']}]}}
+            self.assertIn('Merged source: Supporting article',review.render_arm(run,'A'))
+
     def test_nested_experiment_requires_complete_and_original_pool(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/'source.zip'; self.fixture(source)

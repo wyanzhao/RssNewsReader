@@ -23,6 +23,14 @@ class ShortlistContractsTest {
         }
         assertTrue(errors(valid.copy(links = valid.links + "https://foreign.test/")).isNotEmpty())
     }
+    @Test fun `final plan accounts for primary merged and excluded sources exactly once`() {
+        val plan = com.dailynews.model.Part1Plan(listOf(com.dailynews.model.Part1PlanItem(pool[0], "研究进展", listOf(pool[1]))), 29,
+            excluded = pool.drop(2).map { ShortlistExclusion(it, "无新增事实") })
+        assertTrue(ShortlistContracts.finalPlanErrors(plan, pool).isEmpty())
+        assertTrue(ShortlistContracts.finalPlanErrors(plan.copy(excluded = plan.excluded.dropLast(1)), pool).isNotEmpty())
+        assertTrue(ShortlistContracts.finalPlanErrors(plan.copy(excluded = plan.excluded + ShortlistExclusion(pool[1], "已合并")), pool).isNotEmpty())
+        assertTrue(ShortlistContracts.finalPlanErrors(plan.copy(excluded = plan.excluded.map { it.copy(reason = "") }), pool).isNotEmpty())
+    }
     @Test fun `normal size remains compatible and empty reports still cannot proceed`() {
         assertTrue(errors(Part1ShortlistPayload(pool.take(40))).isEmpty())
         assertTrue(errors(Part1ShortlistPayload(emptyList(), pool.map { ShortlistExclusion(it, "重复") })).isNotEmpty())

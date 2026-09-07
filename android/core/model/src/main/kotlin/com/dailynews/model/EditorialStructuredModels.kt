@@ -49,6 +49,7 @@ data class Part1PlanDraft(
     val items: List<Part1PlanDraftItem>,
     val shortfall: Int,
     val notes: List<String> = emptyList(),
+    val excluded: List<ShortlistExclusionDraft> = emptyList(),
 )
 
 @Serializable
@@ -65,6 +66,7 @@ data class Part1Plan(
     val items: List<Part1PlanItem>,
     val shortfall: Int,
     val notes: List<String> = emptyList(),
+    val excluded: List<ShortlistExclusion> = emptyList(),
 )
 
 /** Part 2 batch draft: the same id-reference contract as Part 1; ids are numbered independently within each batch. */
@@ -140,7 +142,7 @@ object EditorialJsonSchemas {
         """{"type":"object","additionalProperties":false,"properties":{"refs":{"type":"array","items":{"type":"string"}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}}},"required":["refs","excluded"]}""",
     )
     val part1Plan: JsonObject = schema(
-        """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"also_refs":{"type":"array","items":{"type":"string"}},"event_key":{"type":"string"},"noise_bucket":{"type":"string"}},"required":["ref","summary_zh","also_refs","event_key","noise_bucket"]}},"shortfall":{"type":"integer"},"notes":{"type":"array","items":{"type":"string"}}},"required":["items","shortfall","notes"]}""",
+        """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"also_refs":{"type":"array","items":{"type":"string"}},"event_key":{"type":"string"},"noise_bucket":{"type":"string"}},"required":["ref","summary_zh","also_refs","event_key","noise_bucket"]}},"excluded":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"reason":{"type":"string"}},"required":["ref","reason"]}},"shortfall":{"type":"integer"},"notes":{"type":"array","items":{"type":"string"}}},"required":["items","shortfall","notes","excluded"]}""",
     )
     val missingPart2: JsonObject = schema(
         """{"type":"object","additionalProperties":false,"properties":{"items":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"ref":{"type":"string"},"summary_zh":{"type":"string"},"noise_bucket":{"type":"string"},"event_key":{"type":"string"}},"required":["ref","summary_zh","noise_bucket","event_key"]}}},"required":["items"]}""",
