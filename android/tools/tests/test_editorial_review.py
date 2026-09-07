@@ -51,6 +51,26 @@ class PacketTests(unittest.TestCase):
             with self.assertRaises(ValueError): review.comparison_controls(left,right)
             right=copy.deepcopy(left); right['config']['topN']=20
             with self.assertRaises(ValueError): review.comparison_controls(left,right)
+    def test_watched_history_and_projected_source_drift_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'run.zip'; self.fixture(p); left=review.load_run(p)
+            right=copy.deepcopy(left); right['context']['watched_history']=[{'event_key':'compiler','latest':{'summary_zh':'新历史'}}]
+            with self.assertRaisesRegex(ValueError, 'watched_history'): review.comparison_controls(left,right)
+            right=copy.deepcopy(left); right['context']['articles'][0]['article_text']='Different projected evidence'
+            with self.assertRaisesRegex(ValueError, 'material'): review.comparison_controls(left,right)
+            right=copy.deepcopy(left); right['context']['articles'][0]['id']='a99'
+            review.comparison_controls(left,right)  # Ref numbering can differ with shortlist order.
+
+    def test_explicit_exclusion_schema_cannot_silently_omit_source_articles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'run.zip'; self.fixture(p)
+            with zipfile.ZipFile(p) as z: data={n:json.loads(z.read(n)) for n in z.namelist()}
+            omitted=copy.deepcopy(data['raw.json']['articles'][0]); omitted['link']='https://example.test/omitted'
+            data['raw.json']['articles'].append(omitted)
+            with zipfile.ZipFile(p,'w') as z:
+                for n,v in data.items(): z.writestr(n,json.dumps(v))
+            with self.assertRaisesRegex(ValueError, 'source pool'): review.load_run(p)
+
     def test_duplicate_source_references_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'run.zip'; self.fixture(p)

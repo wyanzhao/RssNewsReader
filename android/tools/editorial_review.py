@@ -35,6 +35,8 @@ def load_run(path, prefix=""):
     refs = selected + [x['link'] for x in excluded]
     if len(refs) != len(set(refs)) or not set(refs) <= by_link.keys():
         raise ValueError('invalid shortlist source references')
+    if 'excluded' in shortlist and set(refs) != by_link.keys():
+        raise ValueError('shortlist does not account for the source pool exactly once')
     used = [link for item in plan['items'] for link in [item['link'], *item.get('also_links', [])]]
     if len(used) != len(set(used)) or not set(used) <= set(selected):
         raise ValueError('invalid final report source references')
@@ -68,16 +70,19 @@ def comparison_controls(left, right):
     for field in ('brief', 'config'):
         if without_feedback(left[field]) != without_feedback(right[field]):
             raise ValueError(f'{field} differs beyond feedback; comparison is confounded')
-    if left['context'].get('recent_top30', []) != right['context'].get('recent_top30', []):
-        raise ValueError('prior-event history differs')
+    for field in ('recent_top30', 'watched_history'):
+        if left['context'].get(field, []) != right['context'].get(field, []):
+            raise ValueError(f'prior-event history differs: {field}')
     # Check shared shortlisted material. A missing arm cannot prove equivalent cache
     # exposure for items it never shortlisted, so this remains an explicit limitation.
     def cache(run):
-        return {a['link']: (a.get('cached_summary_zh'), a.get('cached_event_key'))
+        fields = ('source', 'title', 'pub_date_utc', 'pub_date_iso', 'summary_en',
+                  'article_text', 'article_text_tail_omitted', 'cached_summary_zh', 'cached_event_key')
+        return {a['link']: tuple(a.get(field) for field in fields)
                 for a in run['context']['articles']}
     a, b = cache(left), cache(right)
     if any(a[k] != b[k] for k in a.keys() & b.keys()):
-        raise ValueError('shared article cache exposure differs')
+        raise ValueError('shared article material or cache exposure differs')
 
 
 def render_arm(run, label):

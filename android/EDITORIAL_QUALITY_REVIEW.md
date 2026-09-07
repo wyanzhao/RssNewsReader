@@ -143,3 +143,66 @@ more than 30 events and incorrect shortfall arithmetic; candidate never ran.
 Four calls cost USD 0.01583322. No partial pair is publishable. The remaining
 B1 acceptance is explicit, while full-chain A2/B2 accounting is the next bounded
 implementation task. No new same-input paid retry is implied by this record.
+
+## 1.0.0 same-pool acceptance, 2026-09-07
+
+Experiment `comparison-b77617be-c945-4d83-bbe8-f348c2494691` completed both arms
+on the S25, using the original 47-article pool and user-requested preference
+“优先 AI 基础设施、芯片与编译器，减少消费数码评测”. Source run:
+`rss-20260907T111459Z-428562a4-a1`; model `z-ai/glm-5.3-flash`, LOW reasoning,
+cache disabled in both arms. App version 1.0.0. This run was authorized as a
+new-code acceptance trial, not an unchanged-input failure retry loop.
+
+Local evidence: `build/acceptance/2026-09-07/comparison-100.zip`, SHA-256
+`db759df5082f0b4b138c248148ec56fad2b96ef9a6efe51fda35d00ecaff0adb`.
+Review packet, runtime provenance, measurements and targeted verdicts are in
+`build/acceptance/2026-09-07/review-100/`. Pool SHA-256 remains
+`5727027ef9eb8180bc562bc2a638320d386e7af3af09e8e78492ea2fba540880`.
+
+| Observed result | Default arm (B) | Preference arm (A) |
+| --- | ---: | ---: |
+| Shortlisted / first-stage excluded | 21 / 26 | 29 / 18 |
+| Final events / merged sources / final exclusions | 17 / 1 / 3 | 19 / 2 / 8 |
+| Physical model calls | 3 | 2 |
+| Measured provider charge, USD | 0.0076426 | 0.00602020 |
+| Sum of measured LLM stage time, seconds | 72.460 | 50.692 |
+
+All 47 source identities are accounted for. Both final plans pass structural
+review. The default arm's first plan listed the same rocket coverage as merged
+and excluded; the targeted repair removed the overlap on its second attempt.
+The preference arm completed both stages on their first attempts. Total measured
+provider cost was USD 0.01366280, covering five distinct successful physical
+calls, including the structurally rejected plan. These times are stage sums,
+not end-to-end wall time; one run does not establish a causal speed/cost gain.
+
+Targeted content findings:
+
+- **Supported preference effect:** Kioxia's AI memory article moved from rank 9
+  to 1 and the AI data-center accountability article from 8 to 2. This is an
+  observed ranking change, not a quantitative quality score.
+- **Prior failure improved:** both arms retain the OpenAI research-acceleration
+  article and describe an automated AI researcher as a goal. Neither completes
+  the withheld truncated sentence into an achieved researcher claim. The item
+  remains low-ranked (A 17, B 16), so broader taste alignment still needs feedback.
+- **Contradicted entity spelling in A:** the mining data-center source says
+  `Athlon Blockchain LLC-owned data center`; the summary writes `Athron
+  Blockchain`. The original English name must be preserved.
+- **Contradicted measurement subject in A:** the DLSS source title associates
+  `past 600W` with RTX 5090; A writes that the whole machine may exceed 600 W.
+  Qualifying the claim as a user's report does not fix the changed measurement
+  object. A correctly retains the anecdotal/unconfirmed qualification otherwise.
+- **New-development acceptance is still absent:** both history inputs are empty
+  and all development assessments are null. This trial does not validate
+  positive novelty judgments, notifications, Doze or process-death recovery.
+
+This is a targeted implementation-agent source audit, not an independent blinded
+verdict or exhaustive semantic review of every summary. Runtime metadata was
+inspected as well as label-hidden results. User taste feedback was requested on
+A/B ordering; no feedback has been assumed. The remaining fidelity issues are
+recorded, not silently corrected in the exported model outputs.
+
+The review tool now rejects changed watched-event baselines and changed shared
+projected article material in addition to prior controls. Ref numbering may
+differ with shortlist order. An explicit exclusion list must account for the whole
+source pool. Eight tool tests pass. Android code/APK did not
+change in this acceptance-only iteration.

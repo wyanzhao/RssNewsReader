@@ -499,6 +499,32 @@ has been requested.
 - Notification delivery, real-model novelty quality and personalized weekly review
   remain open. UI screenshots use labeled test fixtures, not real model output.
 
+## B1/A2 real same-pool acceptance on 1.0.0
+
+- S25 experiment `comparison-b77617be-c945-4d83-bbe8-f348c2494691`
+  completed default and preference arms on the original 47-article snapshot.
+  Full evidence and targeted findings are recorded in `EDITORIAL_QUALITY_REVIEW.md`;
+  export and label-hidden review packet are under `build/acceptance/2026-09-07/`.
+- Default: 17 events, three measured calls, USD 0.0076426; a duplicate
+  selected/excluded source was repaired on the second plan attempt. Preference:
+  19 events, two calls, USD 0.00602020; first-attempt acceptance in both stages.
+  Total observed provider charge USD 0.01366280. These are one-run measurements,
+  not a general efficiency claim.
+- Kioxia AI memory and AI data-center reporting move from ranks 9/8 to 1/2.
+  Both arms retain OpenAI research acceleration and preserve its goal status,
+  addressing the previously observed omission/unsupported achievement claim.
+- Targeted source audit still finds two preference-arm fidelity errors: Athlon
+  becomes Athron, and GPU power becomes whole-machine power. These are recorded
+  as failures, not corrected inside immutable trial outputs. User ranking
+  feedback is pending; independent blind quality acceptance remains open.
+- Both history inputs are empty and all development fields null, so this trial
+  does not establish positive novelty detection or notification quality. It was
+  an awake-device comparison, not Doze/process-death acceptance.
+- Offline review now checks watched-history equality, shared projected source
+  material and complete source accounting when exclusions are present. Eight
+  tests and revalidation of the actual pair pass. No Android code/version change
+  or GitHub publication was made in this tooling/acceptance iteration.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/
