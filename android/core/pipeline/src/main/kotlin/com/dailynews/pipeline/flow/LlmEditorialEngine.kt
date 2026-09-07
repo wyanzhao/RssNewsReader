@@ -118,7 +118,7 @@ fun interface ShortlistContextFactory {
     suspend fun build(context: LlmContext, links: List<String>): Part1ShortlistContext
 }
 
-private object NoCacheShortlistContextFactory : ShortlistContextFactory {
+internal object NoCacheShortlistContextFactory : ShortlistContextFactory {
     override suspend fun build(context: LlmContext, links: List<String>) = Part1ShortlistContext(
         meta = context.meta,
         articleCount = links.size,

@@ -43,6 +43,17 @@ object NotificationHelper {
         .setProgress(0, 0, true)
         .build()
 
+    fun notifyComparison(context: Context, source: String, success: Boolean) {
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val notification = NotificationCompat.Builder(context, if (success) READY_CHANNEL else FAILED_CHANNEL)
+            .setSmallIcon(com.dailynews.app.R.drawable.ic_notification)
+            .setContentTitle(if (success) "偏好对比已完成" else "偏好对比未完成")
+            .setContentText("打开运行诊断查看试验状态并导出产物")
+            .setContentIntent(openApp(context, "runDiagnostics/$source"))
+            .setAutoCancel(true).build()
+        NotificationManagerCompat.from(context).notify(1100, notification)
+    }
+
     fun notifyResult(context: Context, result: RunExecutionResult) {
         val notification = resultNotification(context, result)
         if (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {

@@ -178,6 +178,39 @@ has been requested.
   or completed blind-comparison claim is made. Candidate generation and blind
   judgments remain open.
 
+## B1 controlled execution (0.8.0)
+
+- User selected: prioritize AI infrastructure, chips and compilers; reduce consumer
+  electronics reviews. This is the experiment preference, not an implicit change
+  to saved app preferences.
+- Comparison validates the frozen source pool, regenerates baseline/candidate,
+  disables cached summaries in both, pins recent-event history, configured
+  provider/model and prompt hashes, and reviews both reports. The runner has no
+  report, cache or seen-ledger write port. Artifacts live under the source run's
+  `comparisons/<id>/` subtree; complete status requires both reviewed results.
+- Foreground work shares the report's unique queue, has an eight-minute timeout,
+  explicit failure/cancellation status and no automatic paid rerun. Diagnostics
+  exposes preference entry, completion status and export. Incomplete experiments
+  are rejected by the offline review tool.
+- Production snapshot feeds are serialized as an array. A persistence regression
+  verifies that decoding, separate arm writes, source preservation and rejection
+  of corrupt snapshots and escaping artifact paths.
+- Full JVM execution count: 443, zero failures/errors/skips; lint and screenshot
+  verification passed. Four offline review-tool tests passed. Version gate against
+  `c9a69ae` passed; signed APK read-back is 0.8.0 (24), v2/v3 verified and installed
+  on S25 with `adb install -r`. APK SHA-256:
+  `14d6f9370af0419004a76298aecd2512c2780777852d54622570ff4a37135d5c`.
+- S25 experiment `comparison-8cd52877-75aa-4882-aac5-7efb1e4f60fa` completed:
+  baseline 32 selected/15 excluded/18 events; preference 19/28/13. Both arms had
+  zero cache hits and two successful physical calls. Reported charges were
+  USD 0.0067850 and 0.00453310. Original exported artifacts stayed byte-identical.
+  The offline paired packet passed; independent blind judgments remain pending.
+- Source inspection found ranking inconsistency and an unsupported completed-
+  researcher claim in the preference arm's truncated evidence. Findings and next
+  correction are in `EDITORIAL_QUALITY_REVIEW.md`; preference quality is not closed.
+- An additional failure test passed: second-arm failure propagates and cannot
+  return a completed pair even after the baseline report was written.
+
 ## Remaining authorized scope
 
 1. Complete run-baseline acceptance, including explicit queued/network/model/

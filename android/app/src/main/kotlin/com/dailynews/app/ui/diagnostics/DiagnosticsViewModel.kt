@@ -50,6 +50,8 @@ data class LlmTotals(val calls: Int = 0, val inputTokens: Long = 0, val outputTo
 
 data class DiagnosticsEvent(val id: Long, val message: String, val error: Boolean, val retryTag: String? = null)
 
+data class ComparisonStatus(val status: String, val preference: String)
+
 data class DiagnosticsUiState(
     val runs: List<RunSummary> = emptyList(),
     val selectedRunId: String? = null,
@@ -70,6 +72,7 @@ data class DiagnosticsUiState(
     val validationArtifact: ArtifactPayload = ArtifactPayload(),
     val budgetArtifact: ArtifactPayload = ArtifactPayload(),
     /** Contract-violation artifacts: name → content. An empty list means this run was never sent back. */
+    val comparisons: List<ComparisonStatus> = emptyList(),
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
@@ -83,6 +86,7 @@ internal data class DiagnosticDetails(
     val calls: List<LlmCallEntity> = emptyList(),
     val artifactsLoading: Boolean = false,
     val resolved: ResolvedArtifacts = ResolvedArtifacts(),
+    val comparisons: List<ComparisonStatus> = emptyList(),
     val shortlistAudit: com.dailynews.model.Part1ShortlistPayload? = null,
     val shortlistAuditError: Boolean = false,
     val contractViolations: List<Pair<String, String>> = emptyList(),
@@ -96,6 +100,7 @@ private sealed interface ArtifactTexts {
         /** name → content. One is written every time the LLM is sent back; previously completely invisible inside the app. */
         val violations: List<Pair<String, String>>,
         val shortlist: String?,
+        val comparisons: List<ComparisonStatus>,
     ) : ArtifactTexts
 }
 
@@ -150,7 +155,7 @@ class DiagnosticsViewModel(
     private val details: Flow<DiagnosticDetails> = detail.flatMapLatest { entity ->
         if (entity == null) flowOf(DiagnosticDetails())
         else {
-            val texts: Flow<ArtifactTexts> = flow {
+            val texts: Flow<ArtifactTexts> = artifacts.observeComparisonRevision(entity.runId).flatMapLatest { flow {
                 emit(ArtifactTexts.Loading)
                 val loaded = withContext(Dispatchers.IO) {
                     // The contract-violation artifacts are the only record of what exactly went wrong
@@ -165,10 +170,17 @@ class DiagnosticsViewModel(
                         artifacts.readText(entity.runId, "context_budget.json"),
                         violations,
                         artifacts.readText(entity.runId, "part1_shortlist.json"),
+                        artifacts.names(entity.runId).filter { it.startsWith("comparisons/") && it.endsWith("/manifest.json") }.map { name ->
+                            runCatching {
+                                val manifest = com.dailynews.model.ArtifactJson.codec.decodeFromString<kotlinx.serialization.json.JsonObject>(requireNotNull(artifacts.readText(entity.runId, name)))
+                                ComparisonStatus((manifest["status"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "unknown",
+                                    (manifest["preference"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty())
+                            }.getOrElse { ComparisonStatus("unreadable", "") }
+                        },
                     )
                 }
                 emit(loaded)
-            }
+            } }
             combine(runLogs.observe(entity.runId), llmCalls.observe(entity.runId), texts) { logs, calls, artifactTexts ->
                 when (artifactTexts) {
                     ArtifactTexts.Loading -> DiagnosticDetails(logs, calls, artifactsLoading = true)
@@ -177,6 +189,7 @@ class DiagnosticsViewModel(
                         calls = calls,
                         artifactsLoading = false,
                         resolved = resolveDiagnosticsArtifacts(artifactTexts.validation, artifactTexts.budget, entity, logs),
+                        comparisons = artifactTexts.comparisons,
                         shortlistAudit = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.getOrNull() },
                         shortlistAuditError = artifactTexts.shortlist?.let { runCatching { com.dailynews.model.ArtifactJson.codec.decodeFromString<com.dailynews.model.Part1ShortlistPayload>(it) }.isFailure } ?: false,
                         contractViolations = artifactTexts.violations,
@@ -292,6 +305,7 @@ internal fun buildState(
         counts = resolved.counts,
         feedResults = resolved.feedResults,
         budget = detailBundle.resolved.budget,
+        comparisons = detailBundle.comparisons,
         shortlistAudit = detailBundle.shortlistAudit,
         shortlistAuditError = detailBundle.shortlistAuditError,
         logs = detailBundle.logs,

@@ -26,7 +26,7 @@ internal data class EditorialCheckpoint(
 internal fun checkpointJson(fingerprint: String, payload: String): String =
     ArtifactJson.compact.encodeToString(EditorialCheckpoint(fingerprint = fingerprint, payload = payload, payloadHash = recoveryHash(payload)))
 
-internal fun recoveryHash(value: String): String = MessageDigest.getInstance("SHA-256")
+fun recoveryHash(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
 /** Only run bookkeeping changes on recovery. Keep report date and every editorial input. */

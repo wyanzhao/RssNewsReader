@@ -19,6 +19,8 @@ class ArtifactStore(
     private val database: DailyNewsDatabase,
     private val now: () -> Instant = Instant::now,
 ) : ArtifactSink, com.dailynews.pipeline.ports.EditorialCheckpointStore {
+    fun observeComparisonRevision(runId: String) = database.runArtifacts().observeComparisonRevision(runId)
+
     override suspend fun read(runId: String, stage: String): String? = readText(runId, "resume/$stage.json")
     override suspend fun write(runId: String, stage: String, content: String) = write(runId, "resume/$stage.json", content.toByteArray(Charsets.UTF_8))
 

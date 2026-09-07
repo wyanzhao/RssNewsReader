@@ -30,3 +30,47 @@ python3 -m unittest discover -s android/tools/tests -v
 ```
 
 工具只读取导出 ZIP，不读取密钥，也不发起模型请求。输出 `review.md`、`source-evidence.json` 和独立的 `unblinding.json`。评审者先看前两份，评分完成后再揭盲；不得提前给评审者 arm 与文件名的映射。工具校验不涵盖所有运行时混杂因素，具体边界写在评审说明中。输出目录必须是新目录，防止覆盖既有评审记录。
+
+
+## Controlled preference trial on S25 (0.8.0)
+
+Experiment `comparison-8cd52877-75aa-4882-aac5-7efb1e4f60fa` completed on the
+47-article source snapshot, pool SHA-256
+`5727027ef9eb8180bc562bc2a638320d386e7af3af09e8e78492ea2fba540880`.
+All original exported artifacts are byte-for-byte unchanged. Both arms used
+zero cached summaries, identical history/model/config/prompt revisions, and two
+successful physical model calls each. The baseline selected 32 and excluded 15,
+then produced 18 events; the preference arm selected 19 and excluded 28, then
+produced 13 events. Reported OpenRouter charges were respectively USD 0.0067850
+and USD 0.00453310 (total 0.01131810). This one sequential trial is not a latency,
+cost-saving or causal quality benchmark.
+
+The separate local `preference-blind-review/` packet passed identical-pool,
+configuration, history and source-reference checks. No independent blind user
+verdict has yet been received. The following inspection is **not blinded**:
+
+- Preference relevance: Kioxia's CXL/XL-Flash article moved from rank 15 to 7;
+  the AI data-center accountability article moved from 17 to 6. Phone-launch
+  coverage and executive-event-video details disappeared. This supports a change
+  toward the requested direction in this sample, not comprehensive improvement.
+- Ranking remains weak: App Store monetization still leads, while OpenAI research
+  acceleration moved from rank 3 to 13. The preference does not consistently
+  control the final ordering.
+- Coverage loss: the preference shortlist retained `An Alien Mind`, while its
+  exclusion reasons discarded secondary coverage promising to keep the official
+  article. The final plan omitted that event altogether. Shortlist explanations
+  do not yet account for every omission between shortlist and final digest.
+- Faithfulness, insufficient evidence: the preference arm says the automated AI
+  researcher goal has been achieved. Its sole cited source excerpt says “We aim
+  to safely build an automated AI researcher” and ends the achieved-goal sentence
+  at “of having an...”. That truncation cannot support the stronger completed-
+  researcher claim. The baseline also cites secondary articles through
+  `also_links`; these must be considered before judging its additional details.
+- The Kioxia capacity/performance figures explicitly remain company claims in
+  both summaries and are present in the article excerpt. No device-performance
+  conclusion is inferred from them.
+
+Next bounded correction: retain evidence and merged sources through final
+selection, record final-stage omissions, and enforce the distinction between a
+stated future goal and a source-supported completed milestone. Do not simply
+increase item counts or declare preference tuning finished.

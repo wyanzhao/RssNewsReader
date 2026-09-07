@@ -16,10 +16,10 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def load_run(path):
+def load_run(path, prefix=""):
     with zipfile.ZipFile(path) as archive:
         def read(name):
-            info = archive.getinfo(name)
+            info = archive.getinfo(prefix + name)
             if info.file_size > 20_000_000:
                 raise ValueError(f'{name}: oversized artifact')
             return json.loads(archive.read(info))
@@ -83,8 +83,9 @@ def render_arm(run, label):
     return '\n'.join(lines)
 
 
-def prepare(paths, output):
-    runs = [load_run(p) for p in paths]
+def prepare(paths, output, prefixes=None):
+    prefixes = prefixes or ["" for _ in paths]
+    runs = [load_run(p, prefix) for p, prefix in zip(paths, prefixes)]
     if len(runs) == 2:
         comparison_controls(*runs)
     output.mkdir(parents=True, exist_ok=False)
@@ -115,7 +116,7 @@ provenance verification; passing packet checks does not prove causal preference 
                          for k, r in arms.items()}}
     (output / 'source-evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n')
     # This separate file is intentionally not linked from the blinded review document.
-    (output / 'unblinding.json').write_text(json.dumps({chr(65 + i): str(paths[index]) for i, index in enumerate(order)}, indent=2) + '\n')
+    (output / 'unblinding.json').write_text(json.dumps({chr(65 + i): str(paths[index]) + "#" + prefixes[index] for i, index in enumerate(order)}, indent=2) + '\n')
     return {'arms': len(arms), 'articles': len(runs[0]['pool']), 'pool_hash': runs[0]['pool_hash']}
 
 
@@ -123,7 +124,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', type=Path, action='append', required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--experiment', help='completed experiment ID inside a single exported ZIP')
     args = parser.parse_args()
     if not 1 <= len(args.run) <= 2:
         parser.error('provide one source audit or two comparison arms')
-    print(json.dumps(prepare(args.run, args.output)))
+    if args.experiment:
+        if len(args.run) != 1 or not all(c.isalnum() or c in '-_' for c in args.experiment):
+            parser.error('experiment requires one ZIP and a safe experiment ID')
+        prefix = f'comparisons/{args.experiment}/'
+        with zipfile.ZipFile(args.run[0]) as archive:
+            manifest = json.loads(archive.read(prefix + 'manifest.json'))
+        if manifest.get('status') != 'complete':
+            parser.error('experiment is not complete; refusing a partial comparison')
+        original = load_run(args.run[0])
+        for arm in ('baseline', 'candidate'):
+            if load_run(args.run[0], prefix + arm + '/')['pool_hash'] != original['pool_hash']:
+                parser.error('experiment pool differs from its source run')
+        print(json.dumps(prepare(args.run * 2, args.output, [prefix + 'baseline/', prefix + 'candidate/'])))
+        (args.output / 'runtime-provenance.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    else:
+        print(json.dumps(prepare(args.run, args.output)))

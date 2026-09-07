@@ -2,6 +2,8 @@ import copy
 import importlib.util
 import json
 import tempfile
+import subprocess
+import sys
 import unittest
 import zipfile
 from pathlib import Path
@@ -47,5 +49,30 @@ class PacketTests(unittest.TestCase):
             with zipfile.ZipFile(p,'w') as z:
                 for n,v in data.items(): z.writestr(n,json.dumps(v))
             with self.assertRaises(ValueError): review.load_run(p)
+
+    def test_nested_experiment_requires_complete_and_original_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/'source.zip'; self.fixture(source)
+            with zipfile.ZipFile(source) as z:
+                data={n:json.loads(z.read(n)) for n in z.namelist()}
+            def write(status, drift=False):
+                with zipfile.ZipFile(source, 'w') as z:
+                    for n,v in data.items(): z.writestr(n,json.dumps(v))
+                    z.writestr('comparisons/trial/manifest.json',json.dumps({'status':status}))
+                    for arm in ('baseline','candidate'):
+                        for n,v in data.items():
+                            v=copy.deepcopy(v)
+                            if n=='part1_brief.json' and arm=='candidate': v['editor_feedback']=['Prefer chips']
+                            if drift and n=='raw.json' and arm=='candidate': v['articles'][0]['title']='Changed source'
+                            z.writestr(f'comparisons/trial/{arm}/{n}',json.dumps(v))
+            def invoke(name):
+                return subprocess.run([sys.executable,str(Path(review.__file__)), '--run',str(source),
+                    '--experiment','trial','--output',str(root/name)],capture_output=True,text=True)
+            write('running'); self.assertNotEqual(0,invoke('partial').returncode)
+            self.assertFalse((root/'partial').exists())
+            write('complete',True); self.assertNotEqual(0,invoke('drift').returncode)
+            write('complete'); result=invoke('complete')
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertTrue((root/'complete/runtime-provenance.json').exists())
 
 if __name__ == '__main__': unittest.main()

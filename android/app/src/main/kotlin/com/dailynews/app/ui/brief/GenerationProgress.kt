@@ -10,12 +10,12 @@ fun generationProgressFor(infos: List<WorkInfo>, displayedDate: String, today: S
             (displayedDate == today && ("report-current-day" in work.tags || work.tags.none { it.startsWith("report-date:") }))
     }
     if (relevant.any { it.state == WorkInfo.State.RUNNING }) {
-        return GenerationProgress(active = true, label = "正在准备生成任务…")
+        return GenerationProgress(active = true, label = if (relevant.any { it.state == WorkInfo.State.RUNNING && "editorial-comparison" in it.tags }) "正在运行偏好对比试验…" else "正在准备生成任务…")
     }
     val queued = relevant.filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
     return when {
         queued.any { it.runAttemptCount > 0 } -> GenerationProgress(true, true, "生成任务等待重试，网络或系统条件满足后继续…")
-        queued.isNotEmpty() -> GenerationProgress(true, true, "生成任务已排队，等待网络或系统调度…")
+        queued.isNotEmpty() -> GenerationProgress(true, true, if (queued.any { "editorial-comparison" in it.tags }) "偏好对比已排队，等待网络或系统调度…" else "生成任务已排队，等待网络或系统调度…")
         else -> GenerationProgress()
     }
 }

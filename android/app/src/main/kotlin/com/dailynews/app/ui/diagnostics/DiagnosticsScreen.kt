@@ -72,6 +72,8 @@ fun DiagnosticsScreen(
     // AppNavHost inject navigation-aware callbacks instead.
     val runNow: () -> Unit = onRunNow ?: { DailyReportWorker.enqueue(context, scheduled = false) }
 
+    var confirmComparison by rememberSaveable { mutableStateOf(false) }
+    var comparisonPreference by rememberSaveable { mutableStateOf("优先 AI 基础设施、芯片与编译器，减少消费数码评测") }
     var confirmRecovery by rememberSaveable { mutableStateOf(false) }
     var confirmRun by rememberSaveable { mutableStateOf(false) }
     var runsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -102,6 +104,32 @@ fun DiagnosticsScreen(
         viewModel.consumeEvent(event.id)
     }
 
+    if (confirmComparison) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmComparison = false },
+            title = { Text("同池偏好对比") },
+            text = {
+                Column {
+                    Text("使用本次文章快照重新生成两组结果，仅改变下方偏好；两组都关闭摘要缓存。会消耗模型用量，结果单独保存，可从运行诊断导出。")
+                    androidx.compose.material3.OutlinedTextField(value = comparisonPreference, onValueChange = { comparisonPreference = it.take(1000) }, label = { Text("测试偏好") })
+                }
+            },
+            confirmButton = { TextButton(enabled = comparisonPreference.isNotBlank(), onClick = {
+                confirmComparison = false
+                val run = state.detail ?: return@TextButton
+                scope.launch {
+                    val message = try {
+                        if (com.dailynews.app.work.EditorialComparisonWorker.enqueue(context, run.runId, run.reportDate, comparisonPreference))
+                            "对比试验已排队，完成后会通知；可在首页停止任务"
+                        else "已有生成或对比任务，本次试验未启动"
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { "对比试验提交失败" }
+                    snackbars.showSnackbar(message)
+                }
+            }) { Text("开始对比") } },
+            dismissButton = { TextButton(onClick = { confirmComparison = false }) { Text("取消") } },
+        )
+    }
     if (confirmRecovery) {
         ConfirmDialog(
             title = "从原始输入恢复？",
@@ -147,6 +175,9 @@ fun DiagnosticsScreen(
                     Box {
                         TextButton(onClick = { overflowExpanded = true }) { Text(stringResource(R.string.diagnostics_overflow)) }
                         DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                            if (state.detail != null && state.detail?.status != "RUNNING") {
+                                DropdownMenuItem(text = { Text("同池偏好对比") }, onClick = { overflowExpanded = false; confirmComparison = true })
+                            }
                             if (state.detail?.status == "FAILED") {
                                 DropdownMenuItem(
                                     text = { Text("从原始输入恢复") },
@@ -437,6 +468,25 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    state.comparisons.forEachIndexed { index, comparison ->
+        item(key = "comparison-$index") {
+            Card(diagnosticsItemWidth) {
+                Column(Modifier.padding(DailyNewsSpacing.roomy)) {
+                    val label = when (comparison.status) {
+                        "complete" -> "已完成"
+                        "running" -> "进行中（尚无完整结果）"
+                        "cancelled" -> "已取消"
+                        "timeout" -> "已超时"
+                        "failed", "incomplete" -> "未完成，请发起新试验"
+                        else -> "状态无法读取"
+                    }
+                    Text("偏好对比：$label", style = MaterialTheme.typography.titleLarge)
+                    Text(comparison.preference)
+                    Text("通过菜单导出产物；只有已完成试验可用于两组对比。")
+                }
+            }
+        }
+    }
     if (state.shortlistAuditError) {
         item(key = "shortlist-audit-error") { Text("选题排除清单无法读取，请导出产物检查", color = MaterialTheme.colorScheme.error) }
     }

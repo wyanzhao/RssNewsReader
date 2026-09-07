@@ -218,6 +218,8 @@ interface FetchLogDao {
 
 @Dao
 interface RunArtifactDao {
+    @Query("SELECT MAX(createdAtUtc) FROM run_artifacts WHERE runId = :runId AND name LIKE 'comparisons/%/manifest.json'")
+    fun observeComparisonRevision(runId: String): Flow<String?>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(entity: RunArtifactEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun replaceAll(entities: List<RunArtifactEntity>)
     @Query("SELECT * FROM run_artifacts WHERE runId = :runId AND name = :name") suspend fun get(runId: String, name: String): RunArtifactEntity?

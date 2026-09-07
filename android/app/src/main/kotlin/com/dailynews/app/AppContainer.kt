@@ -237,6 +237,59 @@ class AppContainer(context: Context) {
         checkpoints = artifactStore,
     )
 
+    suspend fun runEditorialComparison(source: String, id: String, preference: String) {
+        val repository = com.dailynews.data.repo.ComparisonRepository(database, artifactStore)
+        val previous = repository.manifest(source, id)
+        if (previous?.get("status")?.toString() == "\"complete\"") return
+        if (previous != null) {
+            repository.manifest(source, id, kotlinx.serialization.json.JsonObject(previous + ("status" to kotlinx.serialization.json.JsonPrimitive("incomplete"))))
+            error("interrupted comparison requires a new explicit request")
+        }
+        val snapshot = repository.snapshot(source)
+        val config = snapshot.config.normalized()
+        val budget = configRepository.config.first().monthlyTokenBudget
+        require(budget <= 0 || llmCallRepository.tokensThisMonth() < budget) { "monthly token budget reached" }
+        val binding = providerResolver.resolve(EditorialRole.EDITOR, config.llmExecution)
+        val prompts = AssetPromptSource(appContext)
+        val output = repository.artifacts(source, id)
+        val provenance = kotlinx.serialization.json.buildJsonObject {
+            put("source_run_id", kotlinx.serialization.json.JsonPrimitive(source))
+            put("app_version", kotlinx.serialization.json.JsonPrimitive(BuildConfig.VERSION_NAME))
+            put("provider_fingerprint", kotlinx.serialization.json.JsonPrimitive(com.dailynews.pipeline.flow.recoveryHash(binding.configurationSignature)))
+            put("model", com.dailynews.model.ArtifactJson.codec.encodeToJsonElement(com.dailynews.llm.RoleModel.serializer(), binding.roleModel))
+            put("shortlist_prompt_hash", kotlinx.serialization.json.JsonPrimitive(com.dailynews.pipeline.flow.recoveryHash(prompts.part1Shortlist(config.part1MaxItems))))
+            put("plan_prompt_hash", kotlinx.serialization.json.JsonPrimitive(com.dailynews.pipeline.flow.recoveryHash(prompts.part1Plan(config.part1MaxItems))))
+            put("cache", kotlinx.serialization.json.JsonPrimitive("disabled_both_arms"))
+            put("preference", kotlinx.serialization.json.JsonPrimitive(preference))
+        }
+        suspend fun status(value: String) = repository.manifest(source, id,
+            kotlinx.serialization.json.JsonObject(provenance + ("status" to kotlinx.serialization.json.JsonPrimitive(value))))
+        status("running")
+        try {
+            val serial = java.util.concurrent.atomic.AtomicLong()
+            val logs = object : com.dailynews.pipeline.ports.RunLogSink {
+                override suspend fun log(runId: String, step: String, level: com.dailynews.pipeline.ports.LogLevel, message: String) {
+                    val data = kotlinx.serialization.json.buildJsonObject {
+                        put("step", kotlinx.serialization.json.JsonPrimitive(step))
+                        put("level", kotlinx.serialization.json.JsonPrimitive(level.name))
+                        put("message", kotlinx.serialization.json.JsonPrimitive(message))
+                    }
+                    output.write(runId, "telemetry/${serial.incrementAndGet()}.json", data.toString().toByteArray())
+                }
+            }
+            val runner = com.dailynews.pipeline.flow.EditorialComparison({ contexts ->
+                LlmEditorialEngine(ProviderResolver { _, _ -> binding }, prompts, auditSink, contexts, output, logs)
+            }, output)
+            runner.run(id, snapshot.raw, snapshot.feeds, snapshot.date, config, preference, snapshot.history.recentTopN)
+            status("complete")
+        } catch (error: Throwable) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                kotlinx.coroutines.withTimeoutOrNull(2000) { status(when (error) { is kotlinx.coroutines.TimeoutCancellationException -> "timeout"; is kotlinx.coroutines.CancellationException -> "cancelled"; else -> "failed" }) }
+            }
+            throw error
+        }
+    }
+
     suspend fun generatePart2Group(reportDate: String, source: String): Int {
         val config = configRepository.config.first()
         return reportRepository.generatePart2Group(
