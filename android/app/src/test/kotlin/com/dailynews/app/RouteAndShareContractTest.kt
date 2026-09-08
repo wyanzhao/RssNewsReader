@@ -106,6 +106,37 @@ class RouteAndShareContractTest {
     }
 
     @Test
+    fun alreadyNotifiedProgressFallsBackToPlainReadyNotificationAndLedgerRecordsOnlyFreshKeys() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val item = com.dailynews.model.ReportItem(1, 1, "https://example.test/new", "Chip specifications", "Source", "", "", "摘要",
+            eventKey = "chip-launch", development = com.dailynews.model.EventDevelopment("2026-09-06", "已发布规格", "https://example.test/new", "published specifications"))
+        val result = RunExecutionResult.Success(LocalDate.parse("2026-09-07"), "run",
+            AssembledReport("2026-09-07", "full", "exact markdown", listOf(item)), emptyList())
+        val watches = com.dailynews.model.WatchPreferences(events = listOf(com.dailynews.model.EventWatch("chip-launch", "Chip", "2026-09-05")))
+        val key = "chip-launch|https://example.test/new"
+        // Same evidence already surfaced by an earlier run: no "进展" alert, plain ready notification instead.
+        val repeated = NotificationHelper.resultNotification(context, result, watches, setOf(key))
+        assertTrue(repeated.extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString().contains("已生成"))
+        assertEquals("report/2026-09-07", shadowOf(repeated.contentIntent).savedIntent.getStringExtra("route"))
+        // New evidence for the same watched event still alerts.
+        val later = item.copy(link = "https://example.test/later", development = item.development!!.copy(evidenceLink = "https://example.test/later", changeZh = "开始出货"))
+        val fresh = NotificationHelper.resultNotification(context, result.copy(report = result.report.copy(items = listOf(later))), watches, setOf(key))
+        assertTrue(fresh.extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString().contains("AI 判断"))
+        // End-to-end through the ledger: the first post records the key, the replay is suppressed.
+        shadowOf(context as android.app.Application).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        val prefs = context.getSharedPreferences("watch_notifications", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        try {
+            val ledger = com.dailynews.data.repo.WatchNotificationLedger(context)
+            NotificationHelper.notifyResult(context, result, watches, ledger)
+            assertEquals(setOf(key), ledger.notifiedKeys())
+            assertTrue(NotificationHelper.freshDevelopments(result, watches, ledger.notifiedKeys()).isEmpty())
+            NotificationHelper.notifyResult(context, result, watches, ledger)
+            assertEquals(setOf(key), ledger.notifiedKeys())
+        } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test
     fun failureNotificationDeepLinksStraightToTheFailedRun() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val result = RunExecutionResult.Failed(LocalDate.parse("2026-08-04"), "run-42", "fetch", "boom")

@@ -1,6 +1,8 @@
 package com.dailynews.pipeline
 
 import com.dailynews.model.*
+import com.dailynews.pipeline.editorial.developmentNotificationKey
+import com.dailynews.pipeline.editorial.unnotifiedDevelopments
 import com.dailynews.pipeline.editorial.watchedDevelopments
 import org.junit.jupiter.api.Test
 import kotlin.test.*
@@ -32,5 +34,16 @@ class WatchedDevelopmentsTest {
         val merged = item.copy(alsoLinks = listOf("https://example.test/merged"),
             development = item.development!!.copy(evidenceLink = "https://example.test/merged"))
         assertEquals(listOf(merged), watchedDevelopments(report.copy(items = listOf(merged, merged.copy(position = 2))), watches))
+    }
+    @Test fun `already notified evidence is suppressed across runs but new evidence for the same event is not`() {
+        val key = developmentNotificationKey(item)
+        assertEquals("chip-launch|https://example.test/new", key)
+        assertTrue(unnotifiedDevelopments(listOf(item), setOf(key)).isEmpty())
+        val newEvidence = item.copy(link = "https://example.test/later",
+            development = item.development!!.copy(evidenceLink = "https://example.test/later", changeZh = "开始出货"))
+        assertEquals(listOf(newEvidence), unnotifiedDevelopments(listOf(item, newEvidence), setOf(key)))
+        // Different wording of the same evidence is still the same progress.
+        assertTrue(unnotifiedDevelopments(listOf(item.copy(development = item.development!!.copy(changeZh = "规格已公布"))), setOf(key)).isEmpty())
+        assertEquals(listOf(item), unnotifiedDevelopments(listOf(item), emptySet()))
     }
 }

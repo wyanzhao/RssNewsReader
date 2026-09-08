@@ -53,6 +53,30 @@ class AssetPromptContractTest {
         }
     }
 
+    /**
+     * Each anchor below maps to one failure class found in the 1.1.1 source-fidelity review
+     * (quality-review-111/findings.json): relative-date anchoring, forecast-vs-achieved, superlative
+     * qualifiers, source geometry wording, rights-vs-disclosure, multi-condition rules, merged scopes,
+     * and invented steps. Removing an anchor silently re-opens that class.
+     */
+    @Test
+    fun planPromptKeepsSourceFidelityGuards() {
+        val prompt = source.part1Plan(TOP_N)
+        listOf(
+            "以该报道自身的发布日期为锚",
+            "不得补年份",
+            "不得机械加“去年/今年”",
+            "不得改成“已成为/已达到”",
+            "不构成现状断言",
+            "必须原样保留其限定词",
+            "不得自行判定为“竖折”“横折”",
+            "有权查阅/检查 ≠ 应当公示/公开",
+            "必须保留全部条件",
+            "不得合并为一句",
+            "不为通顺补写材料没有的环节",
+        ).forEach { anchor -> assertTrue(anchor in prompt, "part1_plan.md lost fidelity guard: $anchor") }
+    }
+
     @Test
     fun renderedPromptsLeaveNoPlaceholderBehind() {
         val rendered = mapOf(
