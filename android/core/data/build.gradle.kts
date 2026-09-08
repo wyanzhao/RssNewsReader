@@ -55,3 +55,8 @@ dependencies {
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(kotlin("test"))
 }
+
+// Package the newly exported schema on the first migration-test build as well.
+tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+    dependsOn("kspDebugKotlin")
+}

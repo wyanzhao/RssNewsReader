@@ -23,6 +23,7 @@ data class ArticleDetailUiState(
     val loaded: Boolean = false,
     val article: ArticleDetail? = null,
     val reading: ReadingPreferences = ReadingPreferences(),
+    val offlineBody: com.dailynews.data.db.OfflineArticleBody? = null,
 )
 
 class ArticleDetailViewModel(
@@ -30,10 +31,12 @@ class ArticleDetailViewModel(
     private val favorites: FavoriteRepository,
     private val link: String,
     private val config: PipelineConfigRepository,
+    private val offline: com.dailynews.data.repo.OfflineArticleRepository,
 ) : ViewModel() {
+    val fetching = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
-    val state: StateFlow<ArticleDetailUiState> = combine(articles.observeDetail(link), config.config) { article, settings ->
-            ArticleDetailUiState(loaded = true, article = article, reading = settings.reading)
+    val state: StateFlow<ArticleDetailUiState> = combine(articles.observeDetail(link), config.config, offline.observe(link)) { article, settings, body ->
+            ArticleDetailUiState(loaded = true, article = article, reading = settings.reading, offlineBody = body)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ArticleDetailUiState())
 
@@ -59,6 +62,20 @@ class ArticleDetailViewModel(
         true
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (error: Exception) { message.value = error.message ?: "保存失败，请重试"; false }
+
+    fun fetchBody() {
+        if (fetching.value) return
+        fetching.value = true
+        viewModelScope.launch {
+            try { perform { offline.fetchAndSave(link) } }
+            finally { fetching.value = false }
+        }
+    }
+
+    fun removeBody() {
+        if (fetching.value) return
+        viewModelScope.launch { perform { offline.remove(link) } }
+    }
 
     fun toggleFavorite() {
         val current = state.value.article ?: return

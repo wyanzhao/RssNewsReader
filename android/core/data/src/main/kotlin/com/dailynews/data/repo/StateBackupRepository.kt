@@ -40,6 +40,7 @@ data class DeviceStateBackup(
     val pipelineConfig: PipelineConfig,
     val feeds: List<FeedEntity>,
     val articles: List<ArticleEntity>,
+    val offlineBodies: List<com.dailynews.data.db.OfflineArticleBody> = emptyList(),
     val fetchLog: List<FetchLogEntity>,
     val runArtifacts: List<RunArtifactEntity> = emptyList(),
     val artifactManifest: List<StateArtifactEntry> = emptyList(),
@@ -83,6 +84,7 @@ class StateBackupRepository(
                 pipelineConfig = pipelineConfig,
                 feeds = database.feeds().allNow(),
                 articles = database.articles().allNow(),
+                offlineBodies = database.offlineBodies().allNow(),
                 fetchLog = database.fetchLogs().allNow(),
                 runArtifacts = emptyList(),
                 artifactManifest = manifest,
@@ -166,6 +168,7 @@ class StateBackupRepository(
             database.llmUsageMonths().clear()
             database.fetchLogs().clear()
             database.runArtifacts().clear()
+            database.offlineBodies().clear()
             database.articles().clear()
             database.feeds().clear()
             database.editorialCache().clear()
@@ -174,6 +177,7 @@ class StateBackupRepository(
 
             database.feeds().replaceAll(backup.feeds)
             database.articles().replaceAll(backup.articles)
+            backup.offlineBodies.forEach { database.offlineBodies().save(it) }
             database.fetchLogs().replaceAll(backup.fetchLog)
             database.runArtifacts().replaceAll(artifacts)
             database.runs().replaceAll(backup.runs)
@@ -251,6 +255,14 @@ private fun RunArtifactMetadata.toStateEntry(index: Int) = StateArtifactEntry(
 )
 
 private fun DeviceStateBackup.validate() {
+    val articleKeys = articles.mapTo(hashSetOf()) { it.linkKey }
+    require(offlineBodies.map { it.linkKey }.distinct().size == offlineBodies.size) { "duplicate offline body" }
+    offlineBodies.forEach { body ->
+        require(body.linkKey in articleKeys) { "orphan offline body" }
+        require(body.text.isNotBlank() && body.text.length <= com.dailynews.pipeline.ports.RetrievedArticleBody.MAX_CHARS) { "invalid offline body" }
+        Instant.parse(body.fetchedAtUtc)
+    }
+
     articles.forEach { article ->
         com.dailynews.model.ArticleAnnotations(article.note, ArtifactJson.codec.decodeFromString<List<String>>(article.tagsJson)).validated()
         require(article.readingIndex in 0..100_000 && article.readingOffset in 0..10_000_000 && article.readingContentKey.length <= 64) { "invalid reading position" }

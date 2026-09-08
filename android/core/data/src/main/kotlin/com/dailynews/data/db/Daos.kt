@@ -207,7 +207,7 @@ interface ArticleDao {
     @Query("UPDATE articles SET readAtUtc = NULL WHERE readAtUtc = :batchStamp") suspend fun undoMarkAllRead(batchStamp: String): Int
     @RawQuery(observedEntities = [ArticleEntity::class, ReportItemEntity::class, ReportEntity::class]) fun search(query: SupportSQLiteQuery): Flow<List<ArticleEntity>>
     @RawQuery(observedEntities = [ArticleEntity::class, ReportItemEntity::class, ReportEntity::class]) fun searchReportedDates(query: SupportSQLiteQuery): Flow<List<ReportedDateRow>>
-    @Query("DELETE FROM articles WHERE favoritedAtUtc IS NULL AND note = '' AND tagsJson = '[]' AND fetchedAtUtc < :beforeUtc") suspend fun prune(beforeUtc: String): Int
+    @Query("DELETE FROM articles WHERE favoritedAtUtc IS NULL AND note = '' AND tagsJson = '[]' AND NOT EXISTS (SELECT 1 FROM offline_article_bodies b WHERE b.linkKey = articles.linkKey) AND fetchedAtUtc < :beforeUtc") suspend fun prune(beforeUtc: String): Int
     @Query("DELETE FROM articles") suspend fun clear()
 }
 
