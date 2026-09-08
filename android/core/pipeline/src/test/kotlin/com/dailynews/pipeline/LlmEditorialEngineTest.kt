@@ -206,6 +206,8 @@ class LlmEditorialEngineTest {
         val violationPaths = capturedArtifacts.keys.filter { it.startsWith("contract_violations/part1_plan-") }
         assertEquals(3, violationPaths.size)
         val first = ArtifactJson.codec.decodeFromString<EditorialContractViolation>(capturedArtifacts.getValue(violationPaths.first()))
+        assertTrue(first.rejectedOutput != null)
+        assertTrue(capturedRequests[2].userContent.contains("domain-shaped names such as ASP.NET"))
         assertEquals(1, first.attempt)
         assertEquals(3, first.itemCount)
         assertEquals(0, first.shortfall)
