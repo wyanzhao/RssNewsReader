@@ -12,6 +12,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.dailynews.app.MainActivity
 import com.dailynews.app.work.DailyReportWorker
+import com.dailynews.data.repo.WatchNotificationLedger
+import com.dailynews.model.WatchPreferences
+import com.dailynews.pipeline.editorial.developmentNotificationKey
+import com.dailynews.pipeline.editorial.unnotifiedDevelopments
+import com.dailynews.pipeline.editorial.watchedDevelopments
 import com.dailynews.pipeline.orchestrate.RunExecutionResult
 import java.time.LocalDate
 
@@ -54,8 +59,14 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(1100, notification)
     }
 
-    fun notifyResult(context: Context, result: RunExecutionResult, watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences()) {
-        val notification = resultNotification(context, result, watches)
+    fun notifyResult(
+        context: Context,
+        result: RunExecutionResult,
+        watches: WatchPreferences = WatchPreferences(),
+        ledger: WatchNotificationLedger? = null,
+    ) {
+        val alreadyNotified = ledger?.notifiedKeys().orEmpty()
+        val notification = resultNotification(context, result, watches, alreadyNotified)
         if (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             NotificationManagerCompat.from(context).apply {
                 notify(result.reportDate.hashCode(), notification)
@@ -70,12 +81,27 @@ object NotificationHelper {
                         .build(),
                 )
             }
+            // Record only what was actually posted, so a denied permission never hides progress later.
+            if (result is RunExecutionResult.Success && ledger != null) {
+                val fresh = freshDevelopments(result, watches, alreadyNotified)
+                if (fresh.isNotEmpty()) {
+                    runCatching { ledger.record(fresh.map { developmentNotificationKey(it) }, result.reportDate.toString()) }
+                }
+            }
         }
     }
 
-    internal fun resultNotification(context: Context, result: RunExecutionResult, watches: com.dailynews.model.WatchPreferences = com.dailynews.model.WatchPreferences()) = when (result) {
+    internal fun freshDevelopments(result: RunExecutionResult.Success, watches: WatchPreferences, alreadyNotified: Set<String>) =
+        unnotifiedDevelopments(watchedDevelopments(result.report, watches), alreadyNotified)
+
+    internal fun resultNotification(
+        context: Context,
+        result: RunExecutionResult,
+        watches: WatchPreferences = WatchPreferences(),
+        alreadyNotified: Set<String> = emptySet(),
+    ) = when (result) {
             is RunExecutionResult.Success -> {
-                val developments = com.dailynews.pipeline.editorial.watchedDevelopments(result.report, watches)
+                val developments = freshDevelopments(result, watches, alreadyNotified)
                 val progress = developments.take(3).joinToString("\n") { "${it.title}：${it.development!!.changeZh}" }
                 val titles = result.report.items.filter { it.part == 1 }.take(3).joinToString(" · ") { it.title }
                 NotificationCompat.Builder(context, READY_CHANNEL)
