@@ -43,7 +43,7 @@
   Success / ExpectedBlock / Failed semantics with a bounded two-attempt
   retry, mirroring the Python skill's branch flow. Do not add a fourth
   state or silent fallback paths.
-- **Room migrations.** `DailyNewsDatabase` is versioned (currently 11) with
+- **Room migrations.** `DailyNewsDatabase` is versioned (currently 12) with
   explicit migrations and exported schema in `schemas/`; schema changes
   always ship a migration. Test fixtures are synced from a real run dir via
   the `syncMigrationGuards` Gradle task.

@@ -73,6 +73,9 @@ fun DiagnosticsScreen(
     val runNow: () -> Unit = onRunNow ?: { DailyReportWorker.enqueue(context, scheduled = false) }
 
     var confirmComparison by rememberSaveable { mutableStateOf(false) }
+    var section by rememberSaveable { mutableStateOf(DiagnosticsSection.ALL) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(section) { listState.scrollToItem(0) }
     var comparisonPreference by rememberSaveable { mutableStateOf("优先 AI 基础设施、芯片与编译器，减少消费数码评测") }
     var confirmRecovery by rememberSaveable { mutableStateOf(false) }
     var confirmRun by rememberSaveable { mutableStateOf(false) }
@@ -170,11 +173,18 @@ fun DiagnosticsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.diagnostics_title)) },
+                title = { Text(if (section == DiagnosticsSection.ALL) stringResource(R.string.diagnostics_title) else "诊断 · ${section.label}") },
                 actions = {
                     Box {
                         TextButton(onClick = { overflowExpanded = true }) { Text(stringResource(R.string.diagnostics_overflow)) }
                         DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                            DiagnosticsSection.entries.forEach { target ->
+                                DropdownMenuItem(text = { Text("分区：${target.label}") }, onClick = {
+                                    overflowExpanded = false
+                                    section = target
+                                })
+                            }
+
                             if (state.detail != null && state.detail?.status != "RUNNING") {
                                 DropdownMenuItem(text = { Text("同池偏好对比") }, onClick = { overflowExpanded = false; confirmComparison = true })
                             }
@@ -225,12 +235,14 @@ fun DiagnosticsScreen(
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
+            state = listState,
             contentPadding = PaddingValues(DailyNewsSpacing.roomy),
             verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.regular),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             diagnosticsContent(
                 state = state,
+                section = section,
                 startupFailure = startupFailure,
                 onSelectRun = viewModel::select,
                 onRunNow = { confirmRun = true },
@@ -276,8 +288,14 @@ private val abnormalClassifications = setOf("EXPECTED_BLOCK", "UNEXPECTED_ERROR"
  * Whole-screen content as a LazyListScope extension so semantics and screenshot tests
  * can drive any fixture state without touching Room, mirroring reportContent.
  */
+enum class DiagnosticsSection(val label: String) {
+    ALL("全部"), OVERVIEW("概况与运行"), SOURCES("来源"), LOGS("日志"),
+    NETWORK("网络"), SELECTION("选题与对比"), MODEL("费用与模型"), ARTIFACTS("产物"),
+}
+
 fun LazyListScope.diagnosticsContent(
     state: DiagnosticsUiState,
+    section: DiagnosticsSection = DiagnosticsSection.ALL,
     startupFailure: String? = null,
     onSelectRun: (String) -> Unit = {},
     onRunNow: () -> Unit = {},
@@ -362,6 +380,7 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.OVERVIEW) {
     // 2 — recent runs picker
     val filteredRuns = if (onlyFailedRuns) state.runs.filter { it.classification in abnormalClassifications } else state.runs
     collapsibleSection(
@@ -407,6 +426,9 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.SOURCES) {
     // 4 — source health, from validation.json feed_results (per-run, not the global fetch_log)
     if (state.feedResults.isNotEmpty()) {
         val staleSources = staleSourcesFrom(state.warnings)
@@ -429,6 +451,9 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.LOGS) {
     // 5 — step timeline
     if (state.logs.isNotEmpty()) {
         val notableCount = state.logs.count { it.level == "WARN" || it.level == "ERROR" }
@@ -447,6 +472,9 @@ fun LazyListScope.diagnosticsContent(
         items(visibleLogs, key = { "log-${it.id}" }) { log -> TimelineRow(log) }
     }
 
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.NETWORK) {
     // 6 — network probes
     item(key = "probes-header") {
         Column(diagnosticsItemWidth, verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
@@ -479,6 +507,9 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.SELECTION) {
     state.comparisons.forEachIndexed { index, comparison ->
         item(key = "comparison-$index") {
             Card(diagnosticsItemWidth) {
@@ -539,6 +570,9 @@ fun LazyListScope.diagnosticsContent(
             }
         }
     }
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.MODEL) {
     val measurements = llmMeasurementSummary(state)
     if (measurements.isNotEmpty()) {
         item(key = "llm-measurements") {
@@ -598,6 +632,9 @@ fun LazyListScope.diagnosticsContent(
         }
     }
 
+    }
+
+    if (section == DiagnosticsSection.ALL || section == DiagnosticsSection.ARTIFACTS) {
     // 9 — advanced / raw artifacts
     collapsibleSection(
         keyPrefix = "advanced",
@@ -632,5 +669,6 @@ fun LazyListScope.diagnosticsContent(
                 }
             }
         }
+    }
     }
 }

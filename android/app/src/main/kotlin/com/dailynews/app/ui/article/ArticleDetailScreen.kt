@@ -54,9 +54,7 @@ import com.dailynews.app.ui.theme.LocalDailyNewsColors
  * summaries **plus** each article's body excerpt, instead of 30 links that open a
  * browser offline-error page.
  *
- * Deliberately not done: no HTML rendering, no image loading, no network. It reads
- * only data already on device, so it must open in airplane mode — that is the entire
- * point. For the original page, use "Open in browser".
+ * Opening reads local text only. Explicit retrieval saves extracted web text for offline use.
  */
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
@@ -74,11 +72,14 @@ fun ArticleDetailScreen(
     var notesOpen by rememberSaveable { mutableStateOf(false) }
     var readingOpen by rememberSaveable { mutableStateOf(false) }
     val article = state.article
+    val fetching by viewModel.fetching.collectAsStateWithLifecycle()
+    val displayedBody = state.offlineBody?.text ?: article?.articleText.orEmpty()
+    val bodyBlocks = remember(displayedBody) { displayedBody.chunked(4000) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val width = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
-    val contentKey = remember(density.density, density.fontScale, width, article?.title, article?.summaryZh, article?.articleText, state.reading) {
+    val contentKey = remember(density.density, density.fontScale, width, article?.title, article?.summaryZh, displayedBody, state.offlineBody?.fetchedAtUtc, state.reading) {
         java.security.MessageDigest.getInstance("SHA-256").digest(
-            listOf(article?.title, article?.summaryZh, article?.articleText, state.reading.toString(), density.density.toString(), density.fontScale.toString(), width.toString()).joinToString("\u0000").toByteArray()
+            listOf(article?.title, article?.summaryZh, displayedBody, state.offlineBody?.fetchedAtUtc, state.reading.toString(), density.density.toString(), density.fontScale.toString(), width.toString()).joinToString("\u0000").toByteArray()
         ).joinToString("") { "%02x".format(it) }
     }
     var restoredKey by remember { mutableStateOf<String?>(null) }
@@ -87,7 +88,7 @@ fun ArticleDetailScreen(
             // A changed summary/body/layout invalidates pixel-based offsets.
             val anchor = com.dailynews.pipeline.text.restoreReadingPosition(article.readingContentKey, contentKey,
                 article.readingIndex, article.readingOffset,
-                4 + (if (article.summaryZh.isNotBlank()) 1 else 0) + (if (article.articleText.isNotBlank()) 1 else 0))
+                4 + bodyBlocks.size.coerceAtLeast(1) + (if (article.summaryZh.isNotBlank()) 1 else 0))
             scroll.scrollToItem(anchor.first, anchor.second)
             restoredKey = contentKey
         }
@@ -176,25 +177,23 @@ fun ArticleDetailScreen(
                     }
                 }
                 item("divider") { HorizontalDivider(Modifier.widthIn(max = DailyNewsSpacing.readingMaxWidth)) }
-                item("body") {
-                    Text(
-                        // The body is an **excerpt**, not the full article (truncated by word
-                        // count at fetch time), so say so here rather than letting readers think
-                        // the article is this short.
-                        article.articleText.ifBlank { "本地没有正文摘录。点下方在浏览器打开原文。" },
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = state.reading.fontSizeSp.sp, lineHeight = (state.reading.fontSizeSp * state.reading.lineHeightPercent / 100f).sp),
-                        modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),
-                    )
-                }
-                if (article.articleText.isNotBlank()) {
-                    item("excerpt-note") {
-                        Text(
-                            "以上为抓取时保存的正文摘录，非全文。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth),
-                        )
+                item("body-status") {
+                    Column(verticalArrangement = Arrangement.spacedBy(DailyNewsSpacing.compact)) {
+                        Text(state.offlineBody?.let {
+                            "已离线保存网页正文 · ${it.fetchedAtUtc}\n" +
+                                if (it.truncated) "正文超过保存上限，已截断；不保证文章完整。" else "自动提取可能缺少图片、付费内容或部分段落，不保证文章完整。"
+                        } ?: "本地正文摘录，非全文。仅点击获取时联网并保存网页文字。", style = MaterialTheme.typography.labelMedium)
+                        OutlinedButton(onClick = viewModel::fetchBody, enabled = !fetching) {
+                            Text(if (fetching) "正在获取…" else if (state.offlineBody == null) "获取正文并离线保存" else "重新获取正文")
+                        }
+                        if (state.offlineBody != null) TextButton(onClick = viewModel::removeBody, enabled = !fetching) { Text("移除离线正文") }
                     }
+                }
+                if (bodyBlocks.isEmpty()) item("empty-body") { Text("本地没有正文摘录。可主动获取或在浏览器打开原文。") }
+                items(bodyBlocks.size, key = { "body-$it" }) { index ->
+                    Text(bodyBlocks[index],
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = state.reading.fontSizeSp.sp, lineHeight = (state.reading.fontSizeSp * state.reading.lineHeightPercent / 100f).sp),
+                        modifier = Modifier.fillMaxWidth().widthIn(max = DailyNewsSpacing.readingMaxWidth))
                 }
                 item("actions") {
                     Row(

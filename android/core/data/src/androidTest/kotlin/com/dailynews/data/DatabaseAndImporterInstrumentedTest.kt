@@ -402,6 +402,8 @@ class DatabaseAndImporterInstrumentedTest {
         val articles = com.dailynews.data.repo.ArticleRepository(database)
         articles.saveAnnotations("https://backup/article", "编译器笔记", listOf("AI", "芯片"))
         articles.saveReadingPosition("https://backup/article", 3, 180, "reading-content")
+        val savedBody = com.dailynews.data.db.OfflineArticleBody("https://backup/article", "离线正文", "2026-09-08T00:00:00Z", true)
+        database.offlineBodies().save(savedBody)
         val savedArticle = database.articles().get("https://backup/article")
         ArtifactStore(database) { Instant.parse("2026-08-04T12:00:00Z") }
             .write("backup-run", "validation.json", "{\"passed\":true}".toByteArray())
@@ -436,6 +438,7 @@ class DatabaseAndImporterInstrumentedTest {
         assertEquals(exported, restored)
         assertEquals("Backup article", database.articles().get("https://backup/article")?.title)
         assertEquals(savedArticle, database.articles().get("https://backup/article"))
+        assertEquals(savedBody, database.offlineBodies().get("https://backup/article"))
         assertEquals(listOf("https://backup/article"), articles.search("编译 AI").first().map { it.link })
         assertEquals("Backup feed", database.feeds().allNow().single().name)
         assertEquals(61, configs.config.first().articleRetentionDays)

@@ -105,6 +105,7 @@ class AppContainer(context: Context) {
         .build()
     val networkDiagnostics = NetworkDiagnostics(feedClient)
     private val feedFetcher = FeedFetcher(feedClient, clock)
+    val offlineArticleRepository = com.dailynews.data.repo.OfflineArticleRepository(database, com.dailynews.pipeline.fetch.ArticleBodyFetcher(FeedFetcher(pageClient, clock)))
     private val pageEnricher = ArticlePageEnricher(FeedFetcher(pageClient, clock))
 
     private val networkState = NetworkStatePort {

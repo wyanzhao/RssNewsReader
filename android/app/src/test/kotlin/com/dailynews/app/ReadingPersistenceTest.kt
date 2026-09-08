@@ -45,6 +45,8 @@ class ReadingPersistenceTest {
             assertEquals("content", detail.readingContentKey)
             val config = PipelineConfigRepository(context)
             config.save(PipelineConfig(reading = ReadingPreferences(24, 180)))
+            val body = OfflineArticleBody(link, "保存正文", "2026-09-08T00:00:00Z", true)
+            db.offlineBodies().save(body)
             val backups = StateBackupRepository(db, config)
             val output = ByteArrayOutputStream()
             backups.exportZip(output)
@@ -52,8 +54,11 @@ class ReadingPersistenceTest {
             config.save(PipelineConfig())
             backups.importZip(output.toByteArray())
             assertEquals(detail, repository.observeDetail(link).first())
+            assertEquals(body, db.offlineBodies().get(link))
             assertEquals(ReadingPreferences(24, 180), config.config.first().reading)
             repository.saveAnnotations(link, "", emptyList())
+            assertEquals(0, db.articles().prune("2026-01-01T00:00:00Z"))
+            db.offlineBodies().remove(link)
             assertEquals(1, db.articles().prune("2026-01-01T00:00:00Z"))
         } finally { db.close() }
     }

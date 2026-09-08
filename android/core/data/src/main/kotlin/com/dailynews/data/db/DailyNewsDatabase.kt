@@ -20,13 +20,14 @@ import java.nio.file.StandardCopyOption
  * so every v9 export claimed to be v8 — and the import-side "reject higher-version
  * backups" guard could never fire. Two copies of one number will drift.
  */
-const val DAILYNEWS_SCHEMA_VERSION = 11
+const val DAILYNEWS_SCHEMA_VERSION = 12
 
 @androidx.room.TypeConverters(EventDevelopmentConverters::class)
 @Database(
     entities = [
         FeedEntity::class,
         ArticleEntity::class,
+        OfflineArticleBody::class,
         ArticleFtsEntity::class,
         FetchLogEntity::class,
         RunArtifactEntity::class,
@@ -45,6 +46,7 @@ const val DAILYNEWS_SCHEMA_VERSION = 11
 )
 abstract class DailyNewsDatabase : RoomDatabase() {
     abstract fun feeds(): FeedDao
+    abstract fun offlineBodies(): OfflineArticleBodyDao
     abstract fun articles(): ArticleDao
     abstract fun fetchLogs(): FetchLogDao
     abstract fun runArtifacts(): RunArtifactDao
@@ -58,6 +60,12 @@ abstract class DailyNewsDatabase : RoomDatabase() {
     abstract fun periodicReports(): PeriodicReportDao
 
     companion object {
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `offline_article_bodies` (`linkKey` TEXT NOT NULL, `text` TEXT NOT NULL, `fetchedAtUtc` TEXT NOT NULL, `truncated` INTEGER NOT NULL, PRIMARY KEY(`linkKey`), FOREIGN KEY(`linkKey`) REFERENCES `articles`(`linkKey`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            }
+        }
+
         /** Splits the review-failure reason out of `groupsJson`, which must stay a source-group list. */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -271,7 +279,7 @@ abstract class DailyNewsDatabase : RoomDatabase() {
             appContext,
             DailyNewsDatabase::class.java,
             "dailynews.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .build()
         }
 

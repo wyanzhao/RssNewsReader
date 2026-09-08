@@ -121,6 +121,7 @@ class Migration7To8InstrumentedTest {
             DailyNewsDatabase.MIGRATION_8_9,
             DailyNewsDatabase.MIGRATION_9_10,
             DailyNewsDatabase.MIGRATION_10_11,
+            DailyNewsDatabase.MIGRATION_11_12,
         )
 
         migrated.query("SELECT linkKey, favoritedAtUtc FROM articles").use { cursor ->
