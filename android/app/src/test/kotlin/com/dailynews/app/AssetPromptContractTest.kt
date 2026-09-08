@@ -63,6 +63,8 @@ class AssetPromptContractTest {
     fun planPromptKeepsSourceFidelityGuards() {
         val prompt = source.part1Plan(TOP_N)
         listOf(
+            "裸域名也属于链接",
+            "ASP NET",
             "以该报道自身的发布日期为锚",
             "不得补年份",
             "不得机械加“去年/今年”",

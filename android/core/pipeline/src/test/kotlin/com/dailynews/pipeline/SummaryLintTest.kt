@@ -45,11 +45,11 @@ class SummaryLintTest {
     @Test
     fun `bare domains are rejected, version numbers are not`() {
         // In-app this is inert text, but every share path hands it to a chat app that auto-linkifies.
-        listOf("详见 bit.ly/x2f", "访问 evil.com/verify 领取", "来源 www.example.org", "见 https://a.test/b")
+        listOf("Telerik 的 ASP.NET 组件", "详见 bit.ly/x2f", "访问 evil.com/verify 领取", "来源 www.example.org", "见 https://a.test/b")
             .forEach { assertTrue(lint(it).isNotEmpty(), "应被拒: $it") }
 
         // A false positive burns a whole contract retry, so version numbers and decimals must be safe.
-        listOf("GPT-4.5 与 Claude 3.7 的对比", "版本 0.3.1 发布", "营收增长 12.5%", "该模型在 MMLU 上达到 88.7 分")
+        listOf("Telerik 的 ASP NET 组件", "GPT-4.5 与 Claude 3.7 的对比", "版本 0.3.1 发布", "营收增长 12.5%", "该模型在 MMLU 上达到 88.7 分")
             .forEach { assertEquals(emptyList(), lint(it), "不该被拒: $it") }
     }
 

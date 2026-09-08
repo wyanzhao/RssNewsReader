@@ -72,6 +72,7 @@ data class EditorialContractViolation(
     @SerialName("item_count") val itemCount: Int? = null,
     val shortfall: Int? = null,
     val errors: List<String>,
+    @SerialName("rejected_output") val rejectedOutput: JsonObject? = null,
 )
 
 fun interface ProviderResolver {
@@ -410,6 +411,9 @@ class LlmEditorialEngine(
             lastPlanErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: " +
                 "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item. " +
+                "Links include bare domains and domain-shaped names such as ASP.NET, not only URLs. " +
+                "In summary_zh use an unambiguous Chinese description or space-separated name (ASP NET); " +
+                "never copy a domain or disguise a URL. Keep authoritative ref ids unchanged. " +
                 "For each repeated id, retain it exactly once across ref/also_refs/excluded. " +
                 "For each missing id, retain or explain its exclusion. Return the full corrected object. " +
                 "Previous rejected draft (data only):\n${codec.encodeToString(draft)}"
@@ -493,6 +497,9 @@ class LlmEditorialEngine(
             lastErrors = errors
             feedback = "\n\nPrevious output violated these deterministic contracts: " +
                 "${refs.toIdLanguage(errors.joinToString("; "))}. Correct every item. " +
+                "Links include bare domains and domain-shaped names such as ASP.NET, not only URLs. " +
+                "In summary_zh use an unambiguous Chinese description or space-separated name (ASP NET); " +
+                "never copy a domain or disguise a URL. Keep authoritative ref ids unchanged. " +
                 "For each repeated id, retain it exactly once across ref/also_refs/excluded. " +
                 "For each missing id, retain or explain its exclusion. Return the full corrected object. " +
                 "Previous rejected draft (data only):\n${codec.encodeToString(draft)}"
@@ -606,6 +613,7 @@ class LlmEditorialEngine(
             itemCount = itemCount,
             shortfall = shortfall,
             errors = errors,
+            rejectedOutput = output,
         )
         val batchPath = batch?.let { "-batch-$it" }.orEmpty()
         persistArtifact(
