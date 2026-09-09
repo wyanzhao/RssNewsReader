@@ -29,6 +29,8 @@ class OpenAiCompatProvider(
         val mode = effectiveMode(request)
         val responseFormat = responseFormat(mode, request.responseSchema)
         val routing = config.routing.forTransport(config.type)
+        val policy = config.modelPolicy(request.model)
+        policy.requireEffort(request.reasoningEffort)
         val effort = request.reasoningEffort.wire
         val payload = OpenAiRequest(
             model = request.model,
@@ -44,6 +46,8 @@ class OpenAiCompatProvider(
             provider = openRouterPreferences(routing),
             // OpenRouter uses the unified `reasoning.effort`; official OpenAI / xAI-compatible endpoints use the
             // top-level `reasoning_effort`. Sending either shape to the other makes it an unknown field.
+            thinking = if (config.type in setOf(ProviderType.DEEPSEEK, ProviderType.ZAI))
+                OpenAiThinking(if (request.reasoningEffort == ReasoningEffort.NONE) "disabled" else "enabled") else null,
             reasoning = if (config.type.usesOpenRouterProtocol) effort?.let(::OpenAiReasoning) else null,
             reasoningEffort = if (!config.type.usesOpenRouterProtocol) effort else null,
         )
@@ -117,7 +121,7 @@ class OpenAiCompatProvider(
         return when {
             !request.jsonMode -> StructuredMode.PREFILL
             requested != StructuredMode.AUTO -> requested
-            isDeepSeek(request) && config.supportsJsonMode -> StructuredMode.JSON_OBJECT
+            (config.type in setOf(ProviderType.DEEPSEEK, ProviderType.ZAI) || isDeepSeek(request)) && config.supportsJsonMode -> StructuredMode.JSON_OBJECT
             request.responseSchema != null && config.supportsJsonMode -> StructuredMode.JSON_SCHEMA
             config.supportsJsonMode -> StructuredMode.JSON_OBJECT
             else -> StructuredMode.PREFILL
@@ -184,9 +188,13 @@ private data class OpenAiRequest(
     /** OpenRouter extension; when null it is omitted from the request body, so compat endpoints never see an unknown field. */
     val models: List<String>? = null,
     val provider: OpenRouterPreferences? = null,
+    val thinking: OpenAiThinking? = null,
     val reasoning: OpenAiReasoning? = null,
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
 )
+
+@Serializable
+private data class OpenAiThinking(val type: String)
 
 @Serializable
 private data class OpenAiReasoning(val effort: String)

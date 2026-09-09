@@ -7,6 +7,15 @@ import kotlin.test.assertEquals
 
 class OnboardingViewModelTest {
     @Test
+    fun flashPresetsFillOfficialAddressAndModel() {
+        for (type in listOf(ProviderType.DEEPSEEK, ProviderType.ZAI)) {
+            val form = OnboardingUiState().withProviderType(type)
+            assertEquals(type.defaultBaseUrl, form.baseUrl)
+            assertEquals(type.defaultModel, form.model)
+        }
+    }
+
+    @Test
     fun providerApiKeyIsScrubbedFromSavedStateCopy() {
         val form = OnboardingUiState(apiKey = "plaintext-secret", model = "model")
 

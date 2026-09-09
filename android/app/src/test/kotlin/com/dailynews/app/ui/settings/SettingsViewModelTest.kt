@@ -19,6 +19,48 @@ import kotlin.test.assertTrue
 
 class SettingsViewModelTest {
     @Test
+    fun presetsFillEmptyModelWithoutReplacingExistingRoleMapping() {
+        val fresh = SettingsFormState().withProviderType(ProviderType.DEEPSEEK)
+        assertEquals("deepseek-v4-flash", fresh.editorModel)
+        assertEquals("deepseek", fresh.providerId)
+        assertEquals(fresh.providerId, fresh.editorProviderId)
+        assertEquals(ProviderType.DEEPSEEK.defaultBaseUrl, fresh.baseUrl)
+        val existing = SettingsFormState(editorProviderId = "existing", editorModel = "existing-model")
+            .withProviderType(ProviderType.ZAI)
+        assertEquals("existing", existing.editorProviderId)
+        assertEquals("existing-model", existing.editorModel)
+    }
+
+    @Test
+    fun editingProviderRestoresAllSettingsAndClearsDraftKey() {
+        val provider = com.dailynews.llm.ProviderConfig(
+            "saved", ProviderType.OPENROUTER, "https://proxy.example/v1/chat/completions", "custom-alias",
+            false, com.dailynews.llm.StructuredMode.JSON_SCHEMA,
+            com.dailynews.llm.ProviderRouting(listOf("vendor/fallback"), ProviderSort.PRICE, true),
+        )
+        val edited = SettingsFormState(apiKey = "unsaved", editorModel = "keep-model").withProvider(provider)
+        assertTrue(edited.editingProvider)
+        assertEquals(provider.id, edited.providerId)
+        assertEquals(provider.baseUrl, edited.baseUrl)
+        assertEquals(provider.type, edited.providerType)
+        assertEquals(provider.structuredMode, edited.structuredMode)
+        assertFalse(edited.supportsJsonMode)
+        assertEquals(ProviderSort.PRICE, edited.routingSort)
+        assertEquals("vendor/fallback", edited.routingFallbacks)
+        assertTrue(edited.routingRequireParameters)
+        assertEquals("", edited.apiKey)
+        assertEquals("keep-model", edited.editorModel)
+    }
+
+    @Test
+    fun budgetDefaultsUnlimitedAndExplicitLimitsSurviveEditing() {
+        assertEquals(0L, PipelineConfig().monthlyTokenBudget)
+        assertEquals("0", SettingsFormState().tokenBudget)
+        assertEquals(0L, SettingsFormState().applyTo(PipelineConfig()).monthlyTokenBudget)
+        assertEquals(123L, SettingsFormState(tokenBudget = "123").applyTo(PipelineConfig()).monthlyTokenBudget)
+    }
+
+    @Test
     fun formalGenerationDefaultsUseTwentyMinutesAndRoleTokenCaps() {
         val form = SettingsFormState()
         val execution = LlmExecutionConfig()

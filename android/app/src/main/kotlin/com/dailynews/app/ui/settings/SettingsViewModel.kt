@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SettingsFormState(
+    val editingProvider: Boolean = false,
     val providerType: ProviderType = ProviderType.OPENROUTER,
     val providerId: String = "default",
     val baseUrl: String = OpenRouterDefaults.BASE_URL,
@@ -59,7 +60,7 @@ data class SettingsFormState(
     val sweepInterval: String = "120",
     val useLegacySingleShotFetch: Boolean = false,
     val part2Mode: Part2Mode = Part2Mode.FULL,
-    val tokenBudget: String = "1000000",
+    val tokenBudget: String = "0",
     val maxLlmCalls: String = "20",
     val llmConnectTimeoutSeconds: String = "1200",
     val llmReadTimeoutSeconds: String = "1200",
@@ -99,7 +100,7 @@ class SettingsViewModel(
     llmCalls: LlmCallRepository,
     private val importer: StateImporter,
     private val stateBackups: StateBackupRepository,
-    private val testConnection: suspend (String, String) -> Unit,
+    private val testConnection: suspend (String, String, ReasoningEffort) -> String,
     private val scheduleReports: (PipelineConfig) -> Unit,
     private val savedState: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
@@ -163,6 +164,8 @@ class SettingsViewModel(
                         feedbackText = config.editorFeedback.joinToString("\n"),
                         topicsText = config.watches.topics.joinToString("\n"),
                     ))
+                    providers.providers.firstOrNull { it.id == providers.mapping.editor.providerId }
+                        ?.let { setForm(form.value.withProvider(it)) }
                     initialized = true
                 }
             }
@@ -171,6 +174,24 @@ class SettingsViewModel(
     }
 
     fun update(transform: (SettingsFormState) -> SettingsFormState) { setForm(transform(form.value)) }
+
+    fun editProvider(id: String) {
+        val provider = providerSettings.settings.value.providers.firstOrNull { it.id == id } ?: return
+        update { it.withProvider(provider) }
+        providerMessage.value = null
+    }
+
+    fun newProvider() {
+        val defaults = SettingsFormState()
+        update { it.copy(
+            editingProvider = false, providerId = "", apiKey = "",
+            providerType = defaults.providerType, baseUrl = defaults.baseUrl,
+            supportsJsonMode = defaults.supportsJsonMode, structuredMode = defaults.structuredMode,
+            routingSort = defaults.routingSort, routingFallbacks = "",
+            routingRequireParameters = defaults.routingRequireParameters,
+        ) }
+        providerMessage.value = null
+    }
 
     fun selectProviderType(type: ProviderType) = update { it.withProviderType(type) }
 
@@ -181,6 +202,9 @@ class SettingsViewModel(
 
     fun saveProvider() = launchOperation {
         val value = form.value
+        require(value.editingProvider || providerSettings.settings.value.providers.none { it.id == value.providerId.trim() }) {
+            "该服务已存在，请从列表选择编辑"
+        }
         providerSettings.upsertProvider(
             value.providerId,
             value.providerType,
@@ -195,31 +219,35 @@ class SettingsViewModel(
                 requireParameters = value.routingRequireParameters,
             ),
         )
-        setForm(value.copy(apiKey = ""))
+        setForm(value.copy(apiKey = "", editingProvider = true))
         providerMessage.value = "Provider ${value.providerId.trim()} 已保存；API key 不会进入日志或导出。"
     }
 
     fun testProvider() = launchOperation {
         val value = form.value
-        testConnection(value.providerId, value.editorModel.ifBlank { value.drafterModel })
-        providerMessage.value = "Provider ${value.providerId.trim()} 连接成功"
+        require(value.providerId == value.editorProviderId) { "请先在新闻精选模型中选择此服务，再测试" }
+        providerMessage.value = testConnection(value.providerId, value.editorModel, value.editorReasoningEffort)
     }
 
     fun saveRoleMapping() = launchOperation {
         val value = form.value
+        providerSettings.load().providers.firstOrNull { it.id == value.editorProviderId }
+            ?.let { com.dailynews.llm.modelPolicyFor(it, value.editorModel).requireEffort(value.editorReasoningEffort) }
+        providerSettings.load().providers.firstOrNull { it.id == value.drafterProviderId }
+            ?.let { com.dailynews.llm.modelPolicyFor(it, value.drafterModel).requireEffort(value.drafterReasoningEffort) }
         require(value.editorMaxTokens.toIntOrNull() in MAX_TOKENS_RANGE) { "EDITOR maxTokens 必须在 $MAX_TOKENS_HINT 之间" }
         require(value.drafterMaxTokens.toIntOrNull() in MAX_TOKENS_RANGE) { "DRAFTER maxTokens 必须在 $MAX_TOKENS_HINT 之间" }
         providerSettings.updateRoleMapping(
             value.editorProviderId,
             value.editorModel,
-            value.drafterProviderId,
-            value.drafterModel,
+            if (value.drafterModel.isBlank()) value.editorProviderId else value.drafterProviderId,
+            value.drafterModel.ifBlank { value.editorModel },
             value.editorMaxTokens.toIntOrNull() ?: RoleModelDefaults.EDITOR_MAX_TOKENS,
             value.drafterMaxTokens.toIntOrNull() ?: RoleModelDefaults.DRAFTER_MAX_TOKENS,
             value.editorReasoningEffort,
             value.drafterReasoningEffort,
         )
-        providerMessage.value = "EDITOR / DRAFTER 映射已保存"
+        providerMessage.value = "模型设置已保存"
     }
 
     fun removeEventWatch(key: String) = launchOperation {
@@ -302,13 +330,25 @@ class SettingsViewModel(
     }
 }
 
+internal fun SettingsFormState.withProvider(provider: com.dailynews.llm.ProviderConfig): SettingsFormState = copy(
+    editingProvider = true,
+    providerId = provider.id, providerType = provider.type, baseUrl = provider.baseUrl,
+    apiKey = "", supportsJsonMode = provider.supportsJsonMode, structuredMode = provider.structuredMode,
+    routingSort = provider.routing.sort, routingFallbacks = provider.routing.modelFallbacks.joinToString(", "),
+    routingRequireParameters = provider.routing.requireParameters,
+)
+
 internal fun SettingsFormState.forSavedState(): SettingsFormState = copy(apiKey = "")
 
 internal fun SettingsFormState.withProviderType(type: ProviderType): SettingsFormState {
     if (type == providerType) return this
     val routing = type.defaultRouting()
+    val nextId = if (!editingProvider && providerId in setOf("", "default") && type.defaultModel.isNotEmpty()) type.name.lowercase() else providerId
     return copy(
+        providerId = nextId,
         providerType = type,
+        editorProviderId = if (!editingProvider && editorModel.isBlank() && type.defaultModel.isNotEmpty()) nextId else editorProviderId,
+        editorModel = if (!editingProvider && editorModel.isBlank() && type.defaultModel.isNotEmpty()) type.defaultModel else editorModel,
         baseUrl = type.adjustedBaseUrl(providerType, baseUrl),
         supportsJsonMode = type.defaultSupportsJsonMode(),
         routingSort = routing.sort,
@@ -355,7 +395,7 @@ internal fun SettingsFormState.applyTo(base: PipelineConfig): PipelineConfig {
         sweepIntervalMinutes = sweepInterval.toIntOrNull() ?: 120,
         useLegacySingleShotFetch = useLegacySingleShotFetch,
         part2Mode = part2Mode,
-        monthlyTokenBudget = tokenBudget.toLongOrNull() ?: 1_000_000,
+        monthlyTokenBudget = tokenBudget.toLongOrNull() ?: 0,
         maxLlmCallsPerRun = maxLlmCalls.toIntOrNull() ?: 20,
         llmExecution = LlmExecutionConfig(
             connectTimeoutSeconds = llmConnectTimeoutSeconds.toIntOrNull() ?: 1_200,

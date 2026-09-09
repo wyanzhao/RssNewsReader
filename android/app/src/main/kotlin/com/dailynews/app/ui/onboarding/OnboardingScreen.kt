@@ -87,6 +87,8 @@ fun OnboardingScreen(viewModel: OnboardingViewModel) {
                                         ProviderType.OPENROUTER -> "可留空，默认 OpenRouter 官方地址。"
                                         ProviderType.OPENAI_COMPAT -> "OpenAI 官方或 DeepSeek / Kimi 等兼容端点。"
                                         ProviderType.ANTHROPIC -> "Anthropic 官方 Messages API。"
+                                        ProviderType.DEEPSEEK -> "DeepSeek 官方 API，默认 V4 Flash。"
+                                        ProviderType.ZAI -> "Z.AI 通用 API，默认 GLM-5.3-Flash。"
                                     },
                                 )
                             },

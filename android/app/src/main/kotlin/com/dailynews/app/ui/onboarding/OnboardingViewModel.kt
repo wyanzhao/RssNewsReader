@@ -106,6 +106,7 @@ internal fun OnboardingUiState.withProviderType(type: ProviderType): OnboardingU
     if (type == this.type) return this
     return copy(
         type = type,
+        model = type.defaultModel.ifEmpty { model },
         baseUrl = type.adjustedBaseUrl(this.type, baseUrl),
     )
 }
