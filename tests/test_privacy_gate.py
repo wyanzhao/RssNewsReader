@@ -81,15 +81,23 @@ class PrivacyGateTests(unittest.TestCase):
         with zipfile.ZipFile(apk,'w') as z:z.writestr('res/example.xml',canary.encode('utf-16le'))
         response=SimpleNamespace(returncode=0,stdout=b'Verified using v2 scheme: true\nSigner #1 certificate DN: CN=Personal Identity\n')
         with patch.object(gate.subprocess,'run',return_value=response):rows,_=gate.inspect_apk(apk,'apksigner')
-        self.assertIn('apk-certificate-subject-not-approved',{x['rule'] for x in rows})
+        self.assertIn('apk-certificate-not-approved',{x['rule'] for x in rows})
         self.assertIn('credential-token',{x['rule'] for x in rows})
         self.assertNotIn(canary,json.dumps(rows))
 
-    def test_neutral_certificate_and_clean_apk_pass_custom_rules(self):
+    def test_approved_fingerprint_passes_and_unlisted_digest_is_bounded_out(self):
+        approved=sorted(gate.APPROVED_CERT_SHA256)[0]
+        other='0'*64
         apk=self.repo/'fixture.apk'
         with zipfile.ZipFile(apk,'w') as z:z.writestr('assets/readme.txt','safe text')
-        response=SimpleNamespace(returncode=0,stdout=b'Verified using v3 scheme: true\nSigner #1 certificate DN: CN=DailyNews\n')
-        with patch.object(gate.subprocess,'run',return_value=response):rows,_=gate.inspect_apk(apk,'apksigner')
+        # Approval is by fingerprint, not subject: any DN on an approved digest passes.
+        ok=SimpleNamespace(returncode=0,stdout=('Verified using v3 scheme: true\nSigner #1 certificate DN: CN=Anything\n'
+            f'Signer #1 certificate SHA-256 digest: {approved}\n').encode())
+        with patch.object(gate.subprocess,'run',return_value=ok):rows,_=gate.inspect_apk(apk,'apksigner')
         self.assertEqual([],rows)
+        unlisted=SimpleNamespace(returncode=0,stdout=('Verified using v3 scheme: true\n'
+            f'Signer #1 certificate SHA-256 digest: {other}\n').encode())
+        with patch.object(gate.subprocess,'run',return_value=unlisted):rows,_=gate.inspect_apk(apk,'apksigner')
+        self.assertIn('apk-certificate-not-approved',{x['rule'] for x in rows})
 
 if __name__ == '__main__':unittest.main()

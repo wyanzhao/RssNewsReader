@@ -24,6 +24,17 @@ RULES = {
 FORBIDDEN = re.compile(r'(^|/)(?:\.env(?:\..+)?|keystore\.properties|local\.properties|.*\.(?:jks|p12|pfx|apk|zip|7z|tar|gz)|AGENT_HANDOFF.*|OPTIMIZATION_PROGRESS.*|.*\.local\.(?:md|txt)|runs|digest_runs|acceptance)(/|$)', re.I)
 NOREPLY = re.compile(r'^[A-Za-z0-9+_.-]+@users\.noreply\.github\.com$|^noreply@github\.com$')
 MAX_BYTES = 32 * 1024 * 1024
+
+# Release signers are approved by exact SHA-256 certificate fingerprint, never
+# by subject string. The original personal-subject certificate below was
+# approved by the maintainer (2026-09-09) as a bounded exception: every already
+# published release carries it, and rotating keys would force an
+# uninstall/reinstall on installed devices. Rotation to a neutral-subject key
+# remains a separately reviewed plan; adding any new fingerprint needs the
+# documented exception process (approval, reason, bounded scope, tests).
+APPROVED_CERT_SHA256 = {
+    'a61be7168894d812b9cc6d4a32cdb77a5de684e0bbada2b6535c0dff89b5e759',
+}
 class GateError(RuntimeError): pass
 
 def git(repo, *args):
@@ -124,10 +135,9 @@ def inspect_apk(apk, apksigner):
     result = subprocess.run([str(apksigner), 'verify', '--verbose', '--print-certs', str(apk)], capture_output=True)
     if result.returncode: raise GateError('APK signature verification failed')
     text = result.stdout.decode('utf-8','replace')
-    subjects = re.findall(r'^Signer #\d+ certificate DN: (.+)$', text, re.M)
-    # No silent grandfathering of the previously exposed personal signing identity.
-    if not subjects or any(subject.strip() != 'CN=DailyNews' for subject in subjects):
-        findings.append({'rule':'apk-certificate-subject-not-approved','path':'APK signing certificate'})
+    digests = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$', text, re.M)
+    if not digests or any(digest not in APPROVED_CERT_SHA256 for digest in digests):
+        findings.append({'rule':'apk-certificate-not-approved','path':'APK signing certificate'})
     if not re.search(r'Verified using v[23] scheme[^:]*:\s*true',text): raise GateError('APK requires v2/v3 signature')
     total = 0
     with zipfile.ZipFile(apk) as archive:
