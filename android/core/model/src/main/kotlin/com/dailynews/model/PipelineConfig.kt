@@ -89,7 +89,7 @@ data class PipelineConfig(
     @SerialName("sweep_interval_minutes") val sweepIntervalMinutes: Int = 120,
     @SerialName("use_legacy_single_shot_fetch") val useLegacySingleShotFetch: Boolean = false,
     @SerialName("part2_mode") val part2Mode: Part2Mode = Part2Mode.FULL,
-    @SerialName("monthly_token_budget") val monthlyTokenBudget: Long = 1_000_000,
+    @SerialName("monthly_token_budget") val monthlyTokenBudget: Long = 0,
     @SerialName("max_llm_calls_per_run") val maxLlmCallsPerRun: Int = 20,
     @SerialName("editor_feedback") val editorFeedback: List<String> = emptyList(),
     @SerialName("article_feedback") val articleFeedback: List<ArticleFeedback> = emptyList(),
