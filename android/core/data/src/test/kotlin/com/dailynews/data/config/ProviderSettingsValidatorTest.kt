@@ -52,4 +52,57 @@ class ProviderSettingsValidatorTest {
         assertEquals(ReasoningEffort.LOW, decoded.mapping.drafter.reasoningEffort)
         assertEquals(ReasoningEffort.LOW, RoleModel("default", "model", 8_192).reasoningEffort)
     }
+
+    @Test
+    fun removableProviderIsReturnedWithIdNormalized() {
+        val settings = settingsWith("spare")
+        assertEquals("spare", ProviderSettingsValidator.requireRemovable(settings, " spare ").id)
+    }
+
+    @Test
+    fun removingUnknownProviderFails() {
+        val settings = settingsWith("spare")
+        val error = assertFailsWith<IllegalStateException> {
+            ProviderSettingsValidator.requireRemovable(settings, "missing")
+        }
+        assertEquals("服务 missing 不存在", error.message)
+    }
+
+    @Test
+    fun providerReferencedByEditorRoleCannotBeRemoved() {
+        val settings = settingsWith("active", editorRole = "active", drafterRole = "elsewhere")
+        val error = assertFailsWith<IllegalArgumentException> {
+            ProviderSettingsValidator.requireRemovable(settings, "active")
+        }
+        assertEquals("服务 active 正被这些角色使用：新闻精选。请先在模型设置中更换服务再删除", error.message)
+    }
+
+    @Test
+    fun providerReferencedByDrafterRoleCannotBeRemoved() {
+        val settings = settingsWith("legacy", editorRole = "elsewhere", drafterRole = "legacy")
+        val error = assertFailsWith<IllegalArgumentException> {
+            ProviderSettingsValidator.requireRemovable(settings, "legacy")
+        }
+        assertEquals("服务 legacy 正被这些角色使用：Part 2。请先在模型设置中更换服务再删除", error.message)
+    }
+
+    @Test
+    fun providerReferencedByBothRolesNamesThemBoth() {
+        val settings = settingsWith("only", editorRole = "only", drafterRole = "only")
+        val error = assertFailsWith<IllegalArgumentException> {
+            ProviderSettingsValidator.requireRemovable(settings, "only")
+        }
+        assertEquals("服务 only 正被这些角色使用：新闻精选、Part 2。请先在模型设置中更换服务再删除", error.message)
+    }
+
+    private fun settingsWith(
+        vararg providerIds: String,
+        editorRole: String = "editor-provider",
+        drafterRole: String = "drafter-provider",
+    ): ProviderSettings = ProviderSettings(
+        providers = providerIds.map { id ->
+            ProviderConfig(id, ProviderType.OPENAI_COMPAT, "https://example.com/v1/chat/completions", "provider-$id")
+        },
+        mapping = RoleModelMapping(RoleModel(editorRole, "editor", 8_192), RoleModel(drafterRole, "drafter", 4_096)),
+    )
 }

@@ -84,6 +84,7 @@ data class SettingsUiState(
     val busy: Boolean = false,
     val validationErrors: Map<String, String> = emptyMap(),
     val section: SettingsSection = SettingsSection.OVERVIEW,
+    val keyStatus: Map<String, Boolean> = emptyMap(),
 )
 
 private data class SettingsExtras(
@@ -91,6 +92,7 @@ private data class SettingsExtras(
     val providerMessage: String?,
     val importMessage: String?,
     val busy: Boolean,
+    val keyStatus: Map<String, Boolean>,
 )
 
 class SettingsViewModel(
@@ -112,13 +114,14 @@ class SettingsViewModel(
     private val providerMessage = MutableStateFlow<String?>(null)
     private val importMessage = MutableStateFlow<String?>(null)
     private val busy = MutableStateFlow(false)
+    private val keyStatus = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     private var initialized = savedState.contains(FORM_KEY)
 
     val state: StateFlow<SettingsUiState> = combine(
         form,
         providerSettings.settings,
         configRepository.config,
-        combine(monthTokens, providerMessage, importMessage, busy, ::SettingsExtras),
+        combine(monthTokens, providerMessage, importMessage, busy, keyStatus, ::SettingsExtras),
         section,
     ) { formState, providers, config, extras, selectedSection ->
         SettingsUiState(
@@ -131,10 +134,14 @@ class SettingsViewModel(
             extras.busy,
             settingsValidationErrors(formState),
             selectedSection,
+            extras.keyStatus,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            providerSettings.settings.collect { refreshKeyStatus(it) }
+        }
         viewModelScope.launch {
             combine(providerSettings.settings, configRepository.config, ::Pair).collect { (providers, config) ->
                 if (!initialized) {
@@ -182,15 +189,21 @@ class SettingsViewModel(
     }
 
     fun newProvider() {
-        val defaults = SettingsFormState()
-        update { it.copy(
-            editingProvider = false, providerId = "", apiKey = "",
-            providerType = defaults.providerType, baseUrl = defaults.baseUrl,
-            supportsJsonMode = defaults.supportsJsonMode, structuredMode = defaults.structuredMode,
-            routingSort = defaults.routingSort, routingFallbacks = "",
-            routingRequireParameters = defaults.routingRequireParameters,
-        ) }
+        update { it.forNewProvider() }
         providerMessage.value = null
+    }
+
+    fun deleteProvider(id: String) = launchOperation {
+        val removed = providerSettings.removeProvider(id, vault)
+        val remainingIds = providerSettings.settings.value.providers.map { it.id }
+        update { current ->
+            val next = current.copy(
+                editorProviderId = current.editorProviderId.takeIf { it != removed.id } ?: remainingIds.firstOrNull().orEmpty(),
+                drafterProviderId = current.drafterProviderId.takeIf { it != removed.id } ?: remainingIds.firstOrNull().orEmpty(),
+            )
+            if (next.providerId == removed.id) next.forNewProvider() else next
+        }
+        providerMessage.value = "服务 ${removed.id} 已删除，其 API key 已一并清除。"
     }
 
     fun selectProviderType(type: ProviderType) = update { it.withProviderType(type) }
@@ -220,6 +233,7 @@ class SettingsViewModel(
             ),
         )
         setForm(value.copy(apiKey = "", editingProvider = true))
+        refreshKeyStatus(providerSettings.load())
         providerMessage.value = "Provider ${value.providerId.trim()} 已保存；API key 不会进入日志或导出。"
     }
 
@@ -324,6 +338,17 @@ class SettingsViewModel(
         savedState[FORM_KEY] = value.forSavedState()
     }
 
+    /**
+     * Key presence per provider id. Providers survive device restores while the
+     * encrypted key vault may come back empty, so the list says which entries
+     * can actually authenticate instead of assuming a key exists.
+     */
+    private fun refreshKeyStatus(settings: com.dailynews.data.config.ProviderSettings) {
+        keyStatus.value = settings.providers.associate { provider ->
+            provider.id to !vault.read(provider.apiKeyAlias).isNullOrBlank()
+        }
+    }
+
     companion object {
         private const val FORM_KEY = "settings-form"
         private const val SECTION_KEY = "settings-section"
@@ -337,6 +362,17 @@ internal fun SettingsFormState.withProvider(provider: com.dailynews.llm.Provider
     routingSort = provider.routing.sort, routingFallbacks = provider.routing.modelFallbacks.joinToString(", "),
     routingRequireParameters = provider.routing.requireParameters,
 )
+
+internal fun SettingsFormState.forNewProvider(): SettingsFormState {
+    val defaults = SettingsFormState()
+    return copy(
+        editingProvider = false, providerId = "", apiKey = "",
+        providerType = defaults.providerType, baseUrl = defaults.baseUrl,
+        supportsJsonMode = defaults.supportsJsonMode, structuredMode = defaults.structuredMode,
+        routingSort = defaults.routingSort, routingFallbacks = "",
+        routingRequireParameters = defaults.routingRequireParameters,
+    )
+}
 
 internal fun SettingsFormState.forSavedState(): SettingsFormState = copy(apiKey = "")
 

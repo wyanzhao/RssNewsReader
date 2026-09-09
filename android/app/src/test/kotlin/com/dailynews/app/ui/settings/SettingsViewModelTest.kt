@@ -194,4 +194,29 @@ class SettingsViewModelTest {
         assertEquals("", saved.apiKey)
         assertEquals(form.baseUrl, saved.baseUrl)
     }
+
+    @Test
+    fun deleteResetsEditingFormAndRepointsRoleSelectionsAwayFromRemovedProvider() {
+        // What the view model builds when the deleted provider was being edited:
+        // role selections are repointed at a surviving provider first, then the
+        // edit state itself is cleared by forNewProvider.
+        val repointed = SettingsFormState(
+            editingProvider = true,
+            providerId = "gone",
+            editorProviderId = "survivor",
+            drafterProviderId = "survivor",
+        )
+
+        val reset = repointed.forNewProvider()
+
+        assertFalse(reset.editingProvider)
+        assertEquals("", reset.providerId)
+        assertEquals("", reset.apiKey)
+        assertEquals(ProviderType.OPENROUTER, reset.providerType)
+        assertEquals(OpenRouterDefaults.BASE_URL, reset.baseUrl)
+        // forNewProvider clears the edit form only; role selections stay where
+        // the delete handler repointed them and must not snap back to defaults.
+        assertEquals("survivor", reset.editorProviderId)
+        assertEquals("survivor", reset.drafterProviderId)
+    }
 }

@@ -41,6 +41,26 @@ object ProviderSettingsValidator {
         require(settings.providers.any { it.id == drafterProviderId }) { "unknown drafter provider" }
         require(editorModel.isNotBlank() && drafterModel.isNotBlank()) { "both role models are required" }
     }
+
+    /**
+     * Returns the provider to delete, or throws when removal must not proceed.
+     *
+     * Deleting a provider that a role mapping still points at would leave
+     * [requireMapping] failing on the next generation run, so the caller is
+     * told to switch the role model first. Messages are user-facing Chinese
+     * because they surface verbatim in the settings snackbar.
+     */
+    fun requireRemovable(settings: ProviderSettings, rawId: String): ProviderConfig {
+        val id = normalizeId(rawId)
+        val provider = settings.providers.firstOrNull { it.id == id }
+            ?: error("服务 $id 不存在")
+        val roles = buildList {
+            if (settings.mapping.editor.providerId == id) add("新闻精选")
+            if (settings.mapping.drafter.providerId == id) add("Part 2")
+        }
+        require(roles.isEmpty()) { "服务 $id 正被这些角色使用：${roles.joinToString("、")}。请先在模型设置中更换服务再删除" }
+        return provider
+    }
 }
 
 class ProviderSettingsRepository(context: Context) {
@@ -147,6 +167,20 @@ class ProviderSettingsRepository(context: Context) {
         val updated = current.copy(providers = (current.providers.filterNot { it.id == cleanId } + provider).sortedBy { it.id })
         save(updated)
         return updated
+    }
+
+    /**
+     * Deletes the provider and its stored API key. Removal is refused while the
+     * editor / drafter role mapping still references the provider; the key alias
+     * is cleared only after the settings write succeeds, so a failure here never
+     * leaves a saved provider without its key. Returns the removed provider.
+     */
+    fun removeProvider(id: String, vault: ApiKeyVault): ProviderConfig {
+        val current = load()
+        val removed = ProviderSettingsValidator.requireRemovable(current, id)
+        save(current.copy(providers = current.providers.filterNot { it.id == removed.id }))
+        vault.delete(removed.apiKeyAlias)
+        return removed
     }
 
     fun updateRoleMapping(
