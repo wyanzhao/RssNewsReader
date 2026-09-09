@@ -58,6 +58,9 @@ class ScriptedRunner:
         self.apksigner = _proc(0, SIGNED_VERBOSE)
         self.aapt = _proc(0, BADGING)
         self.git_push = _proc(0, "")
+        self.remote_tip = "b" * 40
+        self.merge_base = _proc(0, "")
+        self.privacy = _proc(0, "PRIVACY PASS")
         self.gh_view_exists = _proc(1, "", "release not found")
         self.gh_view_assets = _proc(0, ASSETS_JSON)
         self.gh_create = _proc(0, "")
@@ -74,7 +77,14 @@ class ScriptedRunner:
         if name == "aapt":
             return self.aapt
         if name == "git":
+            if "rev-parse" in argv: return _proc(0, "a" * 40)
+            if "status" in argv: return _proc(0, "")
+            if "ls-remote" in argv:
+                return _proc(0, f"{self.remote_tip}\trefs/heads/main\n" if self.remote_tip else "")
+            if "merge-base" in argv: return self.merge_base
             return self.git_push
+        if "privacy_gate.py" in " ".join(argv):
+            return self.privacy
         if name == "gh":
             sub = argv[2] if len(argv) > 2 else ""
             if sub == "view":
@@ -98,7 +108,7 @@ class ScriptedRunner:
             if base == "gh" and len(argv) > 2:
                 out.append(f"gh {argv[2]}")
             elif base == "git":
-                out.append("git " + " ".join(argv[1:3]))
+                out.append("git push" if "push" in argv else "git " + " ".join(argv[1:3]))
             else:
                 out.append(base)
         return out
@@ -131,6 +141,49 @@ class ParseHelpersTests(unittest.TestCase):
 
 
 class PublishProcessTests(unittest.TestCase):
+    def test_privacy_failure_blocks_push_and_release_even_in_verify_only(self):
+        for verify in (False, True):
+            runner = ScriptedRunner()
+            runner.privacy = _proc(1, "PRIVACY BLOCK: redacted")
+            with tempfile.TemporaryDirectory() as tmp:
+                root, sdk, apk = _layout(tmp)
+                with self.assertRaisesRegex(pub.PublishError, "privacy gate"):
+                    pub.publish(root, apk, sdk_dir=sdk, run=runner, authorize=not verify, verify_only=verify)
+            self.assertFalse(any("push" in c or c[0] == "gh" for c in runner.calls))
+
+    def _gate_argv(self, runner):
+        return next(c for c in runner.calls if "privacy_gate.py" in " ".join(c))
+
+    def test_publish_gate_scans_incoming_range_for_existing_remote_branch(self):
+        runner = ScriptedRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root, sdk, apk = _layout(tmp)
+            pub.publish(root, apk, sdk_dir=sdk, run=runner, authorize=True)
+        gate = self._gate_argv(runner)
+        self.assertIn("--base", gate)
+        self.assertIn(runner.remote_tip, gate)
+        self.assertNotIn("--history", gate)
+
+    def test_publish_gate_scans_full_history_for_new_remote_branch(self):
+        runner = ScriptedRunner()
+        runner.remote_tip = None
+        with tempfile.TemporaryDirectory() as tmp:
+            root, sdk, apk = _layout(tmp)
+            pub.publish(root, apk, sdk_dir=sdk, run=runner, authorize=True)
+        gate = self._gate_argv(runner)
+        self.assertIn("--history", gate)
+        self.assertNotIn("--base", gate)
+
+    def test_diverged_remote_branch_blocks_before_any_push(self):
+        runner = ScriptedRunner()
+        runner.merge_base = _proc(1, "")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, sdk, apk = _layout(tmp)
+            with self.assertRaisesRegex(pub.PublishError, "force-push"):
+                pub.publish(root, apk, sdk_dir=sdk, run=runner, authorize=True)
+        self.assertFalse(any("push" in c or c[0] == "gh" for c in runner.calls))
+
+
     def test_missing_apk_is_refused_before_any_command(self):
         runner = ScriptedRunner()
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,7 +250,8 @@ class PublishProcessTests(unittest.TestCase):
             )
         self.assertEqual(identity["versionName"], "0.5.4")
         self.assertEqual(identity["tag"], "v0.5.4")
-        self.assertEqual(set(runner.names()), {"apksigner", "aapt"})
+        self.assertFalse(any("push" in c for c in runner.calls))
+        self.assertTrue(any("privacy_gate.py" in " ".join(c) for c in runner.calls))
 
     def test_push_failure_does_not_mutate_github(self):
         runner = ScriptedRunner()
@@ -240,7 +294,7 @@ class PublishProcessTests(unittest.TestCase):
         self.assertEqual(identity["published"], "v0.5.4")
         self.assertEqual(identity["versionCode"], "14")
         names = runner.names()
-        self.assertIn("git push", names[2] if len(names) > 2 else "")
+        self.assertIn("git push", names)
         self.assertIn("gh create", names)
         self.assertNotIn("gh upload", names)
         # Last gh view is the JSON confirmation.

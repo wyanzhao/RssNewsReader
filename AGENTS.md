@@ -81,6 +81,55 @@ drift is silent.
 - Pushing to GitHub also requires publishing that APK. The rule and commands
   are in `Release Signing And GitHub Publish` below.
 
+## Privacy Contract And Mandatory Gates
+
+- Never commit or publish real device serials, personal home-directory paths,
+  personal mailbox addresses, API credentials, private keys, keystores, device
+  exports, raw run records, or private acceptance/handoff notes. Use placeholders
+  such as `<DEVICE_SERIAL>` and `<HOME>` in shareable documentation. Preserve
+  originals only in ignored private local storage; do not copy them into reports.
+- Use a GitHub `users.noreply.github.com` address for both author and committer.
+  Changing local Git identity affects future commits only, not existing history.
+- `python3 scripts/install_privacy_hooks.py` installs the repository pre-commit
+  and pre-push gates. It refuses to overwrite another hook setup. Gitleaks is a
+  required dependency; an unavailable scanner, shallow history, unsupported LFS /
+  submodule content, oversized input or inspection error blocks the check.
+- `python3 scripts/privacy_gate.py --staged` scans indexed content and pending
+  commit identities. `--base <commit> --ref <commit>` checks incoming commits;
+  `--history --ref <ref>` checks all reachable history. Checks emit rule IDs,
+  locations and fingerprints only, never matching values or raw scanner output.
+- `.github/workflows/privacy.yml` repeats the checks for pushes and PRs using a
+  pinned scanner download and checksum. Local hooks are bypassable. Configure
+  the `Privacy gate` job as a required branch/ruleset status check after the
+  workflow is published; do not claim server-side enforcement before verifying
+  that setting. Workflow or gate changes themselves require maintainer review.
+- `publish_release.py`, including `--verify-only`, must run the privacy gate on
+  the exact clean source being published and the signed APK before any GitHub
+  mutation. For a branch that already exists on the remote it scans what the
+  push actually transmits — every commit after the remote tip plus the complete
+  tree of the published commit, the same scope as the pre-push hook and the CI
+  workflow — and it falls back to full reachable history only for a branch that
+  is new on the remote. Both modes scan APK members/extracted strings and
+  signer subjects. APK subject policy currently accepts only `CN=DailyNews`.
+  Existing personal certificate subjects are NOT grandfathered. Do not replace
+  signing keys just to pass: signing continuity requires a separate reviewed plan.
+  Commit identities already pushed to GitHub are immutable without a reviewed
+  history rewrite; the gate enforces the noreply identity rule on new commits,
+  not on that frozen history.
+- No baseline or directory-wide allowlist may silently excuse existing exposure.
+  Any future exception needs explicit user approval, an exact rule/path/value
+  fingerprint (or exact certificate fingerprint), reason and bounded scope,
+  plus regression tests. Do not weaken rules or exclude a directory to green a
+  failing release. Synthetic tests should build canaries from fragments instead
+  of committing realistic sensitive values. Example private IPs alone are not
+  treated as private host evidence; do not infer real infrastructure from fixtures.
+- Do not bypass these gates with manual pushes/uploads. State the result before
+  publishing. A clean scan is bounded evidence, not a guarantee: binary/OCR,
+  runtime traffic, unknown credential formats and host caches need separate review.
+- Historical exposures discovered by the September 2026 audit remain unresolved.
+  This prevention change does not authorize history rewriting, certificate
+  rotation, deletion of releases or a claim that GitHub caches have been purged.
+
 ## Release Signing And GitHub Publish
 
 **Hard rule for every agent:** every `git push` of this repo to GitHub
@@ -170,27 +219,8 @@ The signed APK is a GitHub Release asset, not a git blob. Tag name is
 `v<versionName>` and must match the APK's `versionName` / `versionCode`.
 
 ```sh
-git push origin main
-VERSION="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
-  | sed -n 's/.*versionName='\''\([^'\'']*\)'\''.*/\1/p' )"
-CODE="$( "$ANDROID_SDK/build-tools/35.0.0/aapt" dump badging "$APK" \
-  | sed -n 's/.*versionCode='\''\([^'\'']*\)'\''.*/\1/p' )"
-SHA="$(shasum -a 256 "$APK" | awk '{print $1}')"
-NOTES="$(printf '%s\n' \
-  "Signed Android release APK for DailyNews." \
-  "" \
-  "- Package: \`com.dailynews.app\`" \
-  "- Version: \`${VERSION}\` (\`versionCode\` ${CODE})" \
-  "- Signing: APK Signature Scheme v2 / v3" \
-  "- APK SHA-256: \`${SHA}\`")"
-if gh release view "v${VERSION}" >/dev/null 2>&1; then
-  gh release upload "v${VERSION}" "$APK" --clobber
-  gh release edit "v${VERSION}" --notes "$NOTES"
-else
-  gh release create "v${VERSION}" "$APK" \
-    --title "DailyNews ${VERSION}" \
-    --notes "$NOTES"
-fi
+python3 scripts/publish_release.py --verify-only --branch <source-branch>
+python3 scripts/publish_release.py --authorize --branch <source-branch>
 ```
 
 The release certificate is not the debug certificate: a device with a debug

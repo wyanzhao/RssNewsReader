@@ -56,8 +56,6 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("op://Development/DailyNews Android Release Signing/keyAlias", text)
         self.assertIn("DailyNews Android Release Keystore", text)
-        self.assertIn("gh release create", text)
-        self.assertIn("gh release upload", text)
         self.assertIn("app-release.apk", text)
         self.assertIn("never publish that", text)
         self.assertIn(
@@ -68,6 +66,10 @@ class ClaudeSkillLayoutTests(unittest.TestCase):
         self.assertIn("scripts/publish_release.py", text)
         self.assertIn("scripts/check_version_bump.py", text)
         self.assertIn("--authorize", text)
+        # The manual `gh release create` recipe was replaced by the single
+        # repository-local publish command; both its modes must stay documented.
+        self.assertIn("publish_release.py --verify-only --branch", text)
+        self.assertIn("publish_release.py --authorize --branch", text)
 
     def test_shared_skill_file_has_expected_frontmatter(self):
         self.assertTrue(SKILL_MD.exists())
