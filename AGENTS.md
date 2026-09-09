@@ -110,9 +110,16 @@ drift is silent.
   tree of the published commit, the same scope as the pre-push hook and the CI
   workflow — and it falls back to full reachable history only for a branch that
   is new on the remote. Both modes scan APK members/extracted strings and
-  signer subjects. APK subject policy currently accepts only `CN=DailyNews`.
-  Existing personal certificate subjects are NOT grandfathered. Do not replace
-  signing keys just to pass: signing continuity requires a separate reviewed plan.
+  signer subjects. Release signers are approved by exact SHA-256 certificate
+  fingerprint, never by subject string. Current approved fingerprint:
+  `a61be7168894d812b9cc6d4a32cdb77a5de684e0bbada2b6535c0dff89b5e759` —
+  the original personal-subject release certificate, approved by the
+  maintainer on 2026-09-09 as a bounded exception for signing continuity
+  (every published release carries it; rotating would force installed
+  devices through an uninstall/reinstall). Rotation to a neutral-subject
+  key remains a separately reviewed plan; do not replace signing keys just
+  to change the subject, and adding any new fingerprint needs the
+  documented exception process below.
   Commit identities already pushed to GitHub are immutable without a reviewed
   history rewrite; the gate enforces the noreply identity rule on new commits,
   not on that frozen history.
