@@ -1,0 +1,49 @@
+name: Privacy
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  privacy:
+    name: Privacy gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned secret scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/privacy-bin"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/privacy-bin" gitleaks
+          echo "$RUNNER_TEMP/privacy-bin" >> "$GITHUB_PATH"
+      - name: Test privacy and publication blocking
+        run: python3 -m unittest discover -s tests -p 'test_privacy*.py'
+      - name: Check content and commit identities
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$REF" == refs/tags/* ]]; then
+            # Release tags are created by publish_release.py, which already gated
+            # the tagged commit, its full tree and the APK. Rescanning all
+            # reachable history here can never pass while pre-gate commit
+            # identities remain published (immutable without a reviewed history
+            # rewrite), so scan the tagged commit itself: identity, message and
+            # its complete tree.
+            python3 scripts/privacy_gate.py --ref "$REF"
+          elif [[ "$BASE" =~ ^[0-9a-f]{40}$ && "$BASE" != 0000000000000000000000000000000000000000 ]]; then
+            python3 scripts/privacy_gate.py --base "$BASE" --ref "$HEAD"
+          else
+            python3 scripts/privacy_gate.py --history --ref "$HEAD"
+          fi

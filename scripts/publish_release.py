@@ -203,6 +203,35 @@ def confirm_release_asset(tag: str, run: RunFn, cwd: Path) -> None:
         )
 
 
+def resolve_gate_base(run: RunFn, repo_root: Path, remote: str,
+                      branch_ref: str, head: str) -> Optional[str]:
+    """Remote tip of the publish branch when it already exists, else ``None``.
+
+    The publish gate scans exactly what this push transmits — the commits
+    after the remote tip, the complete tree of the published commit, and the
+    APK — matching the pre-push hook and the CI workflow for an existing
+    branch. Full-history mode stays for a branch that is new on the remote.
+    Commit identities already published cannot change without rewriting
+    GitHub history, so rescanning them on every release would block all
+    publishing forever.
+    """
+    listing = _run_or_fail(
+        run, ["git", "ls-remote", remote, "refs/heads/" + branch_ref],
+        what=f"git ls-remote {remote} {branch_ref}", cwd=repo_root,
+    )
+    tip = (listing.stdout or "").split()[0] if (listing.stdout or "").split() else None
+    if not tip:
+        return None
+    probe = run(["git", "merge-base", "--is-ancestor", tip, head],
+                cwd=str(repo_root))
+    if probe.returncode != 0:
+        raise PublishError(
+            "remote branch tip is not an ancestor of HEAD; "
+            "force-push publishes need separate review"
+        )
+    return tip
+
+
 def publish(
     repo_root: Path,
     apk: Path,
@@ -232,9 +261,7 @@ def publish(
     identity = verify_apk(apk, apksigner, aapt, runner, expect_version)
     tag = identity["tag"]
 
-    if verify_only:
-        return identity
-    if not authorize:
+    if not authorize and not verify_only:
         raise PublishError(
             "refusing to push or mutate GitHub without --authorize; "
             f"re-run with --authorize to push {branch} to {remote} and "
@@ -242,8 +269,30 @@ def publish(
             2,
         )
 
+    # A release must be built from the checked-out source. Do not silently publish
+    # a stale local main or follow unrelated annotated tags.
+    source_ref = branch.split(":", 1)[0]
+    if not source_ref or source_ref.startswith(("-", "+")):
+        raise PublishError("invalid publish source ref")
+    checked = _run_or_fail(runner, ["git", "rev-parse", "HEAD"], what="resolve HEAD", cwd=repo_root).stdout.strip()
+    target = _run_or_fail(runner, ["git", "rev-parse", source_ref + "^{commit}"], what="resolve publish ref", cwd=repo_root).stdout.strip()
+    if checked != target:
+        raise PublishError("publish source must match checked-out HEAD")
+    if _run_or_fail(runner, ["git", "status", "--porcelain"], what="check source state", cwd=repo_root).stdout.strip():
+        raise PublishError("commit source changes before release verification")
+    gate_argv = [
+        sys.executable, str(repo_root / "scripts" / "privacy_gate.py"),
+        "--repo-root", str(repo_root), "--ref", source_ref,
+        "--apk", str(apk), "--apksigner", str(apksigner),
+    ]
+    gate_base = resolve_gate_base(runner, repo_root, remote, source_ref, checked)
+    gate_argv += ["--base", gate_base] if gate_base else ["--history"]
+    _run_or_fail(runner, gate_argv, what="privacy gate", cwd=repo_root)
+    if verify_only:
+        return identity
+
     _run_or_fail(
-        runner, ["git", "push", remote, branch],
+        runner, ["git", "-c", "push.followTags=false", "push", remote, branch],
         what=f"git push {remote} {branch}",
         cwd=repo_root,
     )
@@ -272,6 +321,7 @@ def publish(
             runner,
             [
                 "gh", "release", "create", tag, str(apk),
+                "--target", checked,
                 "--title", f"DailyNews {identity['versionName']}",
                 "--notes", notes,
             ],

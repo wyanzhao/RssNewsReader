@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in 0000000000000000000000000000000000000000) continue ;; esac
+  case "$remote_sha" in
+    0000000000000000000000000000000000000000)
+      python3 scripts/privacy_gate.py --history --ref "$local_sha" ;;
+    *) python3 scripts/privacy_gate.py --base "$remote_sha" --ref "$local_sha" ;;
+  esac
+done
