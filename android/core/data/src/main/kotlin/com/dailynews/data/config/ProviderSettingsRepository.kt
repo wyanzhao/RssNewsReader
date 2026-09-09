@@ -124,9 +124,10 @@ class ProviderSettingsRepository(context: Context) {
         routing: ProviderRouting = ProviderRouting(),
     ): ProviderSettings {
         val cleanId = ProviderSettingsValidator.normalizeId(id)
-        val alias = "provider-$cleanId"
-        if (key.isNotBlank()) vault.write(alias, key)
         val current = load()
+        val existing = current.providers.firstOrNull { it.id == cleanId }
+        val alias = existing?.apiKeyAlias ?: "provider-$cleanId"
+        require(existing != null || key.isNotBlank()) { "新增服务需要 API key" }
         val storedRouting = if (type == ProviderType.OPENROUTER) {
             val normalized = routing.normalized()
             if (normalized.isDefault) OpenRouterDefaults.ROUTING else normalized
@@ -142,6 +143,7 @@ class ProviderSettingsRepository(context: Context) {
             structuredMode,
             storedRouting,
         ).canonicalize()
+        if (key.isNotBlank()) vault.write(alias, key)
         val updated = current.copy(providers = (current.providers.filterNot { it.id == cleanId } + provider).sortedBy { it.id })
         save(updated)
         return updated
