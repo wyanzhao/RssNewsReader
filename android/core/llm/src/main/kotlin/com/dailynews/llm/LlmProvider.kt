@@ -36,18 +36,30 @@ enum class ProviderType {
     OPENROUTER,
     OPENAI_COMPAT,
     ANTHROPIC,
+    DEEPSEEK,
+    ZAI,
     ;
 
     val displayLabel: String get() = when (this) {
         OPENROUTER -> "OpenRouter"
         OPENAI_COMPAT -> "OpenAI"
         ANTHROPIC -> "Anthropic"
+        DEEPSEEK -> "DeepSeek"
+        ZAI -> "Z.AI"
     }
 
     val defaultBaseUrl: String get() = when (this) {
         OPENROUTER -> OpenRouterDefaults.BASE_URL
         OPENAI_COMPAT -> "https://api.openai.com/v1"
         ANTHROPIC -> "https://api.anthropic.com"
+        DEEPSEEK -> "https://api.deepseek.com/v1"
+        ZAI -> "https://api.z.ai/api/paas/v4"
+    }
+
+    val defaultModel: String get() = when (this) {
+        DEEPSEEK -> "deepseek-v4-flash"
+        ZAI -> "glm-5.3-flash"
+        else -> ""
     }
 
     val usesOpenAiCompatApi: Boolean get() = this != ANTHROPIC
@@ -65,7 +77,8 @@ enum class ProviderType {
      */
     fun adjustedBaseUrl(previousType: ProviderType, currentBaseUrl: String): String {
         val trimmed = currentBaseUrl.trim()
-        return if (trimmed.isEmpty() || trimmed.trimEnd('/') == previousType.defaultBaseUrl.trimEnd('/')) {
+        val previousDefaults = setOf(previousType.defaultBaseUrl.trimEnd('/'), previousType.chatEndpoint(previousType.defaultBaseUrl))
+        return if (trimmed.isEmpty() || trimmed.trimEnd('/') in previousDefaults) {
             defaultBaseUrl
         } else {
             trimmed

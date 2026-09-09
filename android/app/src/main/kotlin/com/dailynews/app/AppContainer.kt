@@ -161,7 +161,7 @@ class AppContainer(context: Context) {
     }
 
     private fun buildProvider(config: ProviderConfig, client: OkHttpClient): LlmProvider = when (config.type) {
-        ProviderType.OPENROUTER, ProviderType.OPENAI_COMPAT -> OpenAiCompatProvider(config, apiKeyVault, client)
+        ProviderType.OPENROUTER, ProviderType.OPENAI_COMPAT, ProviderType.DEEPSEEK, ProviderType.ZAI -> OpenAiCompatProvider(config, apiKeyVault, client)
         ProviderType.ANTHROPIC -> AnthropicProvider(config, apiKeyVault, client)
     }
 
@@ -174,22 +174,10 @@ class AppContainer(context: Context) {
             .build()
     }
 
-    suspend fun testProviderConnection(providerId: String, model: String) {
-        require(model.isNotBlank()) { "model is required" }
+    suspend fun testProviderConnection(providerId: String, model: String, effort: com.dailynews.llm.ReasoningEffort): String {
         val config = providerSettings.load().providers.firstOrNull { it.id == providerId.trim() }
-            ?: error("save provider $providerId before testing")
-        buildProvider(config, connectionTestClient).complete(
-            LlmRequest(
-                model = model.trim(),
-                system = "Reply with the single word OK.",
-                userContent = "Connection test",
-                // Reasoning models may consume output tokens before emitting the final OK.
-                maxTokens = 1024,
-                temperature = null,
-                jsonMode = false,
-                assistantPrefill = null,
-            ),
-        )
+            ?: error("请先保存服务")
+        return com.dailynews.llm.testJsonCompatibility(buildProvider(config, connectionTestClient), model, effort)
     }
 
     fun currentNetworkContext(): Map<String, String> {
