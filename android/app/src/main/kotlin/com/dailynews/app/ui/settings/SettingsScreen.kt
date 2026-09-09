@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -38,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -47,6 +49,7 @@ import com.dailynews.app.BuildConfig
 import com.dailynews.app.ui.common.InfoCard
 import com.dailynews.app.ui.common.ProviderTypePicker
 import com.dailynews.app.ui.theme.DailyNewsSpacing
+import com.dailynews.llm.ProviderConfig
 import com.dailynews.llm.ProviderSort
 import com.dailynews.llm.ProviderType
 import com.dailynews.llm.ReasoningEffort
@@ -58,6 +61,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showConnectionOptions by remember { mutableStateOf(false) }
     var showLegacyModels by remember { mutableStateOf(false) }
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
     LaunchedEffect(state.providerMessage) {
@@ -104,7 +108,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
                     item { SettingsEntry("数据与迁移", "导入、导出与设备状态恢复", { viewModel.selectSection(SettingsSection.DATA) }) }
                     item { SettingsEntry("运行诊断", "最近运行、步骤日志、LLM 调用与网络探测", onOpenDiagnostics) }
                 }
-                SettingsSection.PROVIDERS -> providerItems(state, viewModel, showConnectionOptions, { showConnectionOptions = !showConnectionOptions }, showLegacyModels, { showLegacyModels = !showLegacyModels })
+                SettingsSection.PROVIDERS -> providerItems(state, viewModel, showConnectionOptions, { showConnectionOptions = !showConnectionOptions }, showLegacyModels, { showLegacyModels = !showLegacyModels }, { pendingDeleteId = it })
                 SettingsSection.SCHEDULE -> scheduleItems(state, viewModel, context)
                 SettingsSection.PIPELINE -> pipelineItems(state, viewModel)
                 SettingsSection.DATA -> dataItems(
@@ -116,6 +120,21 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenDiagnostics: () -> Unit) 
                 )
             }
         }
+    }
+    pendingDeleteId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteId = null },
+            title = { Text("删除服务 $id？") },
+            text = { Text("已保存的 API key 会一并清除，且无法恢复。若此服务正被新闻精选或 Part 2 模型使用，需先在模型设置中更换服务后再删除。") },
+            confirmButton = {
+                TextButton(onClick = { pendingDeleteId = null; viewModel.deleteProvider(id) }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteId = null }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -140,14 +159,82 @@ private fun SettingsEntry(title: String, summary: String, onClick: () -> Unit) {
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(state: SettingsUiState, viewModel: SettingsViewModel, showConnectionOptions: Boolean, toggleConnectionOptions: () -> Unit, showLegacyModels: Boolean, toggleLegacyModels: () -> Unit) {
-    val form = state.form
-    item { Text("已保存的服务", style = MaterialTheme.typography.titleLarge) }
-    state.savedProviders?.providers.orEmpty().forEach { provider ->
-        item(key = "provider-${provider.id}") {
-            SettingsEntry(provider.id, "${provider.type.displayLabel} · 点击编辑 API 地址与密钥") {
-                viewModel.editProvider(provider.id)
+/**
+ * One saved provider: tapping the row edits it, the trailing button asks for
+ * delete confirmation. The subtitle reports what management otherwise hides —
+ * which role mapping points here and whether the encrypted vault still holds
+ * the key (it can come back empty after a device restore).
+ */
+@Composable
+private fun ProviderRow(provider: ProviderConfig, roleBadge: String, hasKey: Boolean?, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = DailyNewsSpacing.roomy, top = DailyNewsSpacing.roomy, bottom = DailyNewsSpacing.roomy),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(provider.id, style = MaterialTheme.typography.titleLarge)
+                val details = buildList {
+                    add(provider.type.displayLabel)
+                    if (roleBadge.isNotEmpty()) add(roleBadge)
+                    when (hasKey) {
+                        true -> add("已存 API key")
+                        false -> add("缺 API key")
+                        null -> {}
+                    }
+                }
+                Text(
+                    details.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (hasKey == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            TextButton(onClick = onDelete) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+private fun roleBadgeFor(state: SettingsUiState, providerId: String): String {
+    val mapping = state.savedProviders?.mapping ?: return ""
+    val roles = buildList {
+        if (mapping.editor.providerId == providerId) add("新闻精选使用中")
+        if (mapping.drafter.providerId == providerId) add("Part 2 使用中")
+    }
+    return roles.joinToString(" · ")
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.providerItems(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    showConnectionOptions: Boolean,
+    toggleConnectionOptions: () -> Unit,
+    showLegacyModels: Boolean,
+    toggleLegacyModels: () -> Unit,
+    onRequestDelete: (String) -> Unit,
+) {
+    val form = state.form
+    val savedProviders = state.savedProviders?.providers.orEmpty()
+    item { Text("已保存的服务", style = MaterialTheme.typography.titleLarge) }
+    if (savedProviders.isEmpty()) {
+        item {
+            Text(
+                "尚未添加服务。添加服务并保存 API key 后，再到下方选择新闻精选模型即可开始生成。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    savedProviders.forEach { provider ->
+        item(key = "provider-${provider.id}") {
+            ProviderRow(
+                provider = provider,
+                roleBadge = roleBadgeFor(state, provider.id),
+                hasKey = state.keyStatus[provider.id],
+                onEdit = { viewModel.editProvider(provider.id) },
+                onDelete = { onRequestDelete(provider.id) },
+            )
         }
     }
     item { OutlinedButton(onClick = viewModel::newProvider, enabled = !state.busy) { Text("添加服务") } }
